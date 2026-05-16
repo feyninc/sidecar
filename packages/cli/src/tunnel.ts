@@ -1,9 +1,10 @@
 /** HTTPS tunnel helpers for local MCP development. */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { setTimeout as delay } from "node:timers/promises";
+import { createInterface } from "node:readline/promises";
+import { stdin, stdout } from "node:process";
 
 /** Tunnel backend requested by `sidecar dev --tunnel`. */
-export type TunnelProvider = "auto" | "cloudflared" | "ngrok";
+export type TunnelProvider = "auto" | "cloudflared" | "wrangler";
 
 /** Running tunnel process and the public MCP endpoint it exposes. */
 export type TunnelSession = {
@@ -23,7 +24,7 @@ export type StartTunnelOptions = {
 
 /** Starts an HTTPS tunnel to the local Sidecar dev server. */
 export async function startTunnel(options: StartTunnelOptions): Promise<TunnelSession> {
-  const provider = resolveProvider(options.provider);
+  const provider = await resolveProvider(options.provider);
   const localUrl = `http://127.0.0.1:${options.port}`;
   const path = options.path ?? "/mcp";
 
@@ -31,47 +32,132 @@ export async function startTunnel(options: StartTunnelOptions): Promise<TunnelSe
     return startCloudflared(localUrl, path, options.timeoutMs);
   }
 
-  return startNgrok(localUrl, path, options.timeoutMs);
+  return startWrangler(localUrl, path, options.timeoutMs);
 }
 
 /** Human-readable install guidance for missing tunnel providers. */
 export function tunnelInstallMessage(provider: TunnelProvider = "auto"): string {
-  if (provider === "cloudflared" || provider === "auto") {
+  if (provider === "wrangler") {
     return [
-      "No supported HTTPS tunnel binary was found.",
-      "Install cloudflared for account-free temporary URLs:",
+      "npx was not found on PATH, so Sidecar cannot run Wrangler quick-start.",
+      "Install Node.js/npm, or install cloudflared directly:",
       "  brew install cloudflared",
-      "Then run:",
-      "  sidecar dev --tunnel",
-      "ngrok is also supported with:",
-      "  sidecar dev --tunnel ngrok",
     ].join("\n");
   }
 
   return [
-    "ngrok was not found on PATH.",
-    "Install ngrok and authenticate it, then run:",
-    "  sidecar dev --tunnel ngrok",
+    "cloudflared was not found on PATH.",
+    "Install cloudflared for the fastest Sidecar tunnel path:",
+    "  brew install cloudflared",
+    "Or run with Wrangler explicitly:",
+    "  sidecar dev --tunnel wrangler",
   ].join("\n");
 }
 
 /** Picks the first available tunnel provider for `auto`. */
-function resolveProvider(provider: TunnelProvider): Exclude<TunnelProvider, "auto"> {
-  if (provider !== "auto") {
-    if (!hasCommand(provider)) {
-      throw new Error(tunnelInstallMessage(provider));
+async function resolveProvider(provider: TunnelProvider): Promise<Exclude<TunnelProvider, "auto">> {
+  if (provider === "cloudflared") {
+    if (hasCommand("cloudflared")) {
+      return "cloudflared";
     }
-    return provider;
+    if (await promptForCloudflaredInstall()) {
+      await installCloudflared();
+      return "cloudflared";
+    }
+    assertNpxAvailable();
+    return "wrangler";
+  }
+
+  if (provider === "wrangler") {
+    assertNpxAvailable();
+    return "wrangler";
   }
 
   if (hasCommand("cloudflared")) {
     return "cloudflared";
   }
-  if (hasCommand("ngrok")) {
-    return "ngrok";
+
+  const choice = await promptForMissingCloudflared();
+  if (choice === "install") {
+    await installCloudflared();
+    return "cloudflared";
+  }
+  if (choice === "wrangler") {
+    assertNpxAvailable();
+    return "wrangler";
   }
 
-  throw new Error(tunnelInstallMessage("auto"));
+  throw new Error("Cancelled HTTPS tunnel startup.");
+}
+
+/** Prompts for whether to install cloudflared for explicit cloudflared requests. */
+async function promptForCloudflaredInstall(): Promise<boolean> {
+  if (!stdin.isTTY || !stdout.isTTY) {
+    throw new Error(tunnelInstallMessage("cloudflared"));
+  }
+
+  const answer = await question([
+    "cloudflared is not installed.",
+    "Install cloudflared with Homebrew now? Answer no to continue with npx wrangler. [y/N] ",
+  ].join("\n"));
+  return answer.trim().toLowerCase().startsWith("y");
+}
+
+/** Prompts for the dev fallback every time cloudflared is unavailable. */
+async function promptForMissingCloudflared(): Promise<"install" | "wrangler" | "cancel"> {
+  if (!stdin.isTTY || !stdout.isTTY) {
+    throw new Error(tunnelInstallMessage("auto"));
+  }
+
+  const answer = await question([
+    "cloudflared is not installed.",
+    "Choose how Sidecar should create an HTTPS MCP URL:",
+    "  [i] install cloudflared with Homebrew",
+    "  [w] continue with npx wrangler tunnel quick-start",
+    "  [c] cancel",
+    "Selection [i/w/c]: ",
+  ].join("\n"));
+  const normalized = answer.trim().toLowerCase();
+
+  if (normalized === "i" || normalized === "install") {
+    return "install";
+  }
+  if (normalized === "w" || normalized === "wrangler") {
+    return "wrangler";
+  }
+  return "cancel";
+}
+
+/** Runs a one-shot prompt and always closes the readline interface. */
+async function question(prompt: string): Promise<string> {
+  const input = createInterface({ input: stdin, output: stdout });
+  try {
+    return await input.question(prompt);
+  } finally {
+    input.close();
+  }
+}
+
+/** Installs cloudflared through Homebrew when available. */
+async function installCloudflared(): Promise<void> {
+  if (!hasCommand("brew")) {
+    throw new Error([
+      "Sidecar can only install cloudflared automatically when Homebrew is available.",
+      "Install cloudflared manually, then rerun:",
+      "  sidecar dev --tunnel",
+      "Or continue without installing it:",
+      "  sidecar dev --tunnel wrangler",
+    ].join("\n"));
+  }
+
+  await runInherited("brew", ["install", "cloudflared"]);
+}
+
+/** Ensures npx exists before selecting the Wrangler fallback. */
+function assertNpxAvailable(): void {
+  if (!hasCommand("npx")) {
+    throw new Error(tunnelInstallMessage("wrangler"));
+  }
 }
 
 /** Starts a Cloudflare quick tunnel and waits for its public URL. */
@@ -95,19 +181,19 @@ async function startCloudflared(
   };
 }
 
-/** Starts an ngrok tunnel and waits for its local API to report a public URL. */
-async function startNgrok(
+/** Starts a Wrangler quick tunnel and waits for its public URL. */
+async function startWrangler(
   localUrl: string,
   path: string,
   timeoutMs = 20_000,
 ): Promise<TunnelSession> {
-  const child = spawn("ngrok", ["http", localUrl, "--log=stdout"], {
+  const child = spawn("npx", ["--yes", "wrangler", "tunnel", "quick-start", localUrl], {
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const publicUrl = await waitForNgrokUrl(child, timeoutMs);
+  const publicUrl = await waitForTunnelUrl(child, /https:\/\/[a-zA-Z0-9.-]+\.trycloudflare\.com/, timeoutMs);
 
   return {
-    provider: "ngrok",
+    provider: "wrangler",
     publicUrl,
     mcpUrl: appendPath(publicUrl, path),
     close() {
@@ -160,50 +246,24 @@ function waitForTunnelUrl(
   });
 }
 
-/** Polls ngrok's local API because ngrok output is not stable across versions. */
-async function waitForNgrokUrl(
-  child: ChildProcess,
-  timeoutMs: number,
-): Promise<string> {
-  const startedAt = Date.now();
-  let lastError: unknown;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    if (child.exitCode !== null) {
-      throw new Error(`ngrok exited before producing a URL with code ${child.exitCode}.`);
-    }
-
-    try {
-      const response = await fetch("http://127.0.0.1:4040/api/tunnels");
-      if (response.ok) {
-        const data = (await response.json()) as {
-          tunnels?: Array<{ public_url?: string }>;
-        };
-        const url = data.tunnels
-          ?.map((tunnel) => tunnel.public_url)
-          .find((candidate): candidate is string => Boolean(candidate?.startsWith("https://")));
-        if (url) {
-          return url;
-        }
-      }
-    } catch (error) {
-      lastError = error;
-    }
-
-    await delay(300);
-  }
-
-  child.kill("SIGTERM");
-  throw new Error(
-    lastError instanceof Error
-      ? `Timed out waiting for ngrok URL: ${lastError.message}`
-      : "Timed out waiting for ngrok URL.",
-  );
-}
-
 /** Returns true when a command can be resolved from PATH. */
 function hasCommand(command: string): boolean {
   return spawnSync("which", [command], { stdio: "ignore" }).status === 0;
+}
+
+/** Runs an installation command with inherited stdio. */
+function runInherited(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "inherit" });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} ${args.join(" ")} exited with code ${code}.`));
+      }
+    });
+  });
 }
 
 /** Appends the MCP endpoint path to a tunnel origin. */

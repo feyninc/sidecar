@@ -56,6 +56,6 @@ ${tools || "No tools detected."}
 
 ## Local HTTPS Testing
 
-Run \`sidecar dev --tunnel\` from the project root to start the local MCP server and print an HTTPS MCP URL that can be added to ChatGPT, Claude, or a desktop plugin install.
+Run \`sidecar dev --tunnel\` from the project root to start the local MCP server on Streamable HTTP and print an HTTPS MCP URL that can be added to ChatGPT, Claude, or a desktop plugin install.
 `;
 }

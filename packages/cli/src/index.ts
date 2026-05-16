@@ -87,7 +87,7 @@ async function main(argv: string[]): Promise<void> {
       });
 
       server.listen(port, () => {
-        console.log(`Sidecar dev server listening at http://127.0.0.1:${port}/mcp`);
+        console.log(`MCP running on Streamable HTTP at http://127.0.0.1:${port}/mcp`);
         console.log(`Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"} and ${resources.length} resource${resources.length === 1 ? "" : "s"}.`);
         if (tunnel) {
           console.log(`HTTPS tunnel (${tunnel.provider}) ready: ${tunnel.mcpUrl}`);
@@ -126,7 +126,7 @@ async function main(argv: string[]): Promise<void> {
 Usage:
   sidecar build [--cwd <dir>] [--out <dir>] [--plugins] [--strict]
   sidecar check [--cwd <dir>] [--strict]
-  sidecar dev [--cwd <dir>] [--port <port>] [--tunnel [cloudflared|ngrok]]
+  sidecar dev [--cwd <dir>] [--port <port>] [--tunnel [cloudflared|wrangler]]
   sidecar inspect [--cwd <dir>]
 `);
   }
@@ -140,7 +140,7 @@ function readTunnelProvider(argv: string[]): TunnelProvider | undefined {
   }
 
   const value = argv[index + 1];
-  if (value === "cloudflared" || value === "ngrok") {
+  if (value === "cloudflared" || value === "wrangler") {
     return value;
   }
   return "auto";

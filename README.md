@@ -75,7 +75,7 @@ node dist/cli/index.js dev --cwd examples/simple --port 3101 --tunnel
 node dist/create-sidecar-app/index.js /tmp/my-sidecar-app
 ```
 
-`sidecar dev --tunnel` starts the local MCP server and opens an HTTPS tunnel with `cloudflared` when available, falling back to `ngrok`. The printed HTTPS `/mcp` URL is the one to add to ChatGPT, Claude, or the generated desktop plugin package. If no tunnel binary exists, the CLI prints install guidance instead of silently failing.
+`sidecar dev --tunnel` starts the local MCP server on Streamable HTTP and opens an HTTPS tunnel. Sidecar tries `cloudflared` first. If it is missing, the CLI asks whether to install `cloudflared` with Homebrew or continue with `npx wrangler tunnel quick-start`. The printed HTTPS `/mcp` URL is the one to add to ChatGPT, Claude, or the generated desktop plugin package.
 
 `sidecar check` emits diagnostics in `file:line:column` form so terminals and future editor integrations can show squiggly-line-style warnings. Build and dev print the same warnings. Use `// sidecar-ignore DIAGNOSTIC_CODE` when an intentional exception is clearer than changing the code.
 
