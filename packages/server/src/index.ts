@@ -275,6 +275,12 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
   const endpoint = options.path ?? "/mcp";
 
   return createServer(async (request, response) => {
+    if (isRejectedLocalOrigin(request)) {
+      response.writeHead(403, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "forbidden_origin" }));
+      return;
+    }
+
     const proxyResult = await runProxy(options.proxy, request);
     if (proxyResult) {
       response.writeHead(proxyResult.status, proxyResult.headers);
@@ -290,6 +296,12 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
     ) {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify(options.auth.metadata()));
+      return;
+    }
+
+    if (request.method === "GET" && pathname === endpoint) {
+      response.writeHead(405, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "sse_not_supported" }));
       return;
     }
 
@@ -312,8 +324,19 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
         )
       ).filter(Boolean);
 
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(Array.isArray(body) ? responses : responses[0] ?? null));
+      const payload = Array.isArray(body) ? responses : responses[0] ?? null;
+      if (!responses.length) {
+        response.writeHead(202);
+        response.end();
+        return;
+      }
+
+      const authError = Array.isArray(body) ? undefined : httpAuthError(payload);
+      response.writeHead(authError?.status ?? 200, {
+        "content-type": "application/json",
+        ...(authError?.headers ?? {}),
+      });
+      response.end(JSON.stringify(payload));
     } catch (error) {
       response.writeHead(400, { "content-type": "application/json" });
       response.end(
@@ -325,6 +348,35 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
       );
     }
   });
+}
+
+/** Rejects browser-originated requests to local MCP servers from non-local origins. */
+function isRejectedLocalOrigin(request: IncomingMessage): boolean {
+  const origin = request.headers.origin;
+  if (!origin) {
+    return false;
+  }
+
+  const host = request.headers.host ?? "";
+  if (!isLocalHost(host)) {
+    return false;
+  }
+
+  try {
+    return !isLocalHost(new URL(origin).host);
+  } catch {
+    return true;
+  }
+}
+
+/** Returns true for localhost hosts, with or without a port. */
+function isLocalHost(host: string): boolean {
+  if (host.startsWith("[::1]")) {
+    return true;
+  }
+
+  const hostname = host.split(":")[0]?.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
 /** Returns true for the OAuth protected resource metadata endpoints Sidecar serves. */
@@ -404,6 +456,30 @@ function headersToRecord(headers: Headers): Record<string, string> {
     record[key] = value;
   });
   return record;
+}
+
+/** Extracts HTTP auth status/headers from a JSON-RPC auth error response. */
+function httpAuthError(value: unknown): { status: number; headers: Record<string, string> } | undefined {
+  if (!value || typeof value !== "object" || !("error" in value)) {
+    return undefined;
+  }
+
+  const error = (value as { error?: { data?: unknown } }).error;
+  const data = error?.data;
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+
+  const status = (data as { status?: unknown }).status;
+  const headers = (data as { headers?: unknown }).headers;
+  if ((status !== 401 && status !== 403) || !headers || typeof headers !== "object") {
+    return undefined;
+  }
+
+  return {
+    status,
+    headers: headers as Record<string, string>,
+  };
 }
 
 const consoleLogger = {

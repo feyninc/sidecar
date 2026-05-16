@@ -1,5 +1,6 @@
 /** Manifest and option types shared across the Sidecar compiler modules. */
-import type { JsonSchema, McpToolDescriptor, ToolAnnotations } from "@sidecar/core";
+import type { JsonSchema, McpToolDescriptor, ToolAnnotations, ToolWidgetOptions } from "@sidecar/core";
+import type { SidecarDiagnostic } from "./diagnostics.js";
 
 /** Tool entry emitted into `manifest.sidecar.json`. */
 export type SidecarToolManifestEntry = {
@@ -20,6 +21,7 @@ export type SidecarWidgetManifestEntry = {
   sourceFile: string;
   resourceUri: string;
   outputFile?: string;
+  options?: ToolWidgetOptions;
 };
 
 /** Build manifest produced for a Sidecar MCP output. */
@@ -28,6 +30,7 @@ export type SidecarManifest = {
   rootDir: string;
   generatedAt: string;
   tools: SidecarToolManifestEntry[];
+  diagnostics?: SidecarDiagnostic[];
 };
 
 /** Options accepted by `buildProject()`. */
@@ -35,6 +38,7 @@ export type BuildProjectOptions = {
   rootDir: string;
   outDir?: string;
   plugins?: boolean;
+  strict?: boolean;
 };
 
 /** Project identity used by generated plugin packages. */

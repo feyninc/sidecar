@@ -17,6 +17,7 @@ export default defineConfig({
     "server/proxy": "packages/server/src/proxy.ts",
     "cli/index": "packages/cli/src/index.ts",
     "create-sidecar-app/index": "packages/create-sidecar-app/src/index.ts",
+    "openai/index": "packages/openai/src/index.ts",
     "react/index": "packages/react/src/index.ts",
     "native/index": "packages/native/src/index.ts",
     "native/components": "packages/native/src/components/index.tsx"

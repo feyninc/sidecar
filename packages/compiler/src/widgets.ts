@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build as esbuild } from "esbuild";
+import type { ToolWidgetOptions } from "@sidecar/core";
 import type { SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
 import { escapeHtml, safePathSegment, toImportSpecifier } from "./utils.js";
 
@@ -73,7 +74,7 @@ createRoot(document.getElementById("root")!).render(React.createElement(Componen
 
     entry.widget.resourceUri = resourceUri;
     entry.widget.outputFile = path.relative(outDir, outputFile);
-    entry.descriptor._meta = widgetMeta(resourceUri);
+    entry.descriptor._meta = mergeWidgetMeta(entry.descriptor._meta, widgetMeta(resourceUri, entry.widget.options));
   }
 }
 
@@ -82,6 +83,7 @@ export function findWidget(
   rootDir: string,
   toolFile: string,
   id: string,
+  options?: ToolWidgetOptions,
 ): SidecarWidgetManifestEntry | undefined {
   const widgetFile = path.join(path.dirname(toolFile), "widget.tsx");
   if (!existsSync(widgetFile)) {
@@ -92,15 +94,53 @@ export function findWidget(
   return {
     sourceFile: path.relative(rootDir, widgetFile),
     resourceUri: `ui://${safeId}/widget.html`,
+    options,
   };
 }
 
 /** Builds standard and ChatGPT-compatible widget metadata for a descriptor. */
-export function widgetMeta(resourceUri: string): Record<string, unknown> {
-  return {
-    ui: { resourceUri },
-    "openai/outputTemplate": resourceUri,
+export function widgetMeta(resourceUri: string, options: ToolWidgetOptions = {}): Record<string, unknown> {
+  const csp = {
+    connectDomains: options.csp?.connectDomains ? [...options.csp.connectDomains] : [],
+    resourceDomains: options.csp?.resourceDomains ? [...options.csp.resourceDomains] : [],
+    frameDomains: options.csp?.frameDomains ? [...options.csp.frameDomains] : undefined,
   };
+  const chatgptCsp = {
+    connect_domains: csp.connectDomains,
+    resource_domains: csp.resourceDomains,
+    frame_domains: csp.frameDomains,
+    redirect_domains: options.hosts?.chatgpt?.redirectDomains
+      ? [...options.hosts.chatgpt.redirectDomains]
+      : undefined,
+  };
+
+  return {
+    ui: {
+      resourceUri,
+      prefersBorder: options.prefersBorder,
+      csp: stripUndefined(csp),
+    },
+    "openai/outputTemplate": resourceUri,
+    "openai/widgetDescription": options.description,
+    "openai/widgetDomain": options.hosts?.chatgpt?.domain,
+    "openai/widgetCSP": stripUndefined(chatgptCsp),
+  };
+}
+
+/** Merges widget metadata into existing descriptor metadata without losing `ui`. */
+export function mergeWidgetMeta(
+  existing: Record<string, unknown> | undefined,
+  widget: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...(existing ?? {}) };
+  for (const [key, value] of Object.entries(widget)) {
+    if (key === "ui" && isRecord(value) && isRecord(merged.ui)) {
+      merged.ui = { ...merged.ui, ...value };
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 /** Wraps bundled JavaScript in the minimal transparent widget document. */
@@ -124,4 +164,16 @@ function renderWidgetHtml(title: string, javascript: string): string {
   </body>
 </html>
 `;
+}
+
+/** Returns true for metadata objects that can be shallow-merged. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+/** Drops undefined keys from emitted metadata objects. */
+function stripUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as T;
 }

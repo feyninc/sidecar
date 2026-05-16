@@ -12,7 +12,7 @@ type DemoSession = AuthSession<
 >;
 
 const appAuth = auth({
-  resource: "http://127.0.0.1:3101/mcp",
+  resource: process.env.SIDECAR_MCP_URL ?? "http://127.0.0.1:3101/mcp",
   authorizationServers: ["https://auth.example.com"],
   scopes: {
     expensesRead: scope("expenses.read", "Read expense reports.")

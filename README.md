@@ -13,6 +13,7 @@ The current implementation is the first vertical slice:
 - `@sidecar/server`: minimal MCP JSON-RPC runtime for `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
 - `@sidecar/cli`: `sidecar inspect`, `sidecar build`, and `sidecar dev`.
 - `@sidecar/native`: early runtime host feature facade and portable components.
+- `@sidecar/openai`: typed ChatGPT compatibility helpers for optional OpenAI metadata.
 - `create-sidecar-app`: starter scaffold for `npm create sidecar-app` / `npx create-sidecar-app`.
 
 ## Tool Authoring
@@ -42,6 +43,14 @@ export default tool({
     destructiveHint: false,
     openWorldHint: false
   },
+  widget: {
+    description: "Shows policy issues and approval readiness.",
+    csp: {
+      connectDomains: [],
+      resourceDomains: [],
+      frameDomains: []
+    }
+  },
   execute(params: Params, ctx: ToolContext): Promise<Result> {
     return ctx.services.expenses.review(params.reportId);
   }
@@ -60,9 +69,15 @@ npm run build
 node dist/cli/index.js inspect --cwd examples/simple
 node dist/cli/index.js build --cwd examples/simple
 node dist/cli/index.js build --cwd examples/simple --plugins
+node dist/cli/index.js check --cwd examples/simple
 node dist/cli/index.js dev --cwd examples/simple --port 3101
+node dist/cli/index.js dev --cwd examples/simple --port 3101 --tunnel
 node dist/create-sidecar-app/index.js /tmp/my-sidecar-app
 ```
+
+`sidecar dev --tunnel` starts the local MCP server and opens an HTTPS tunnel with `cloudflared` when available, falling back to `ngrok`. The printed HTTPS `/mcp` URL is the one to add to ChatGPT, Claude, or the generated desktop plugin package. If no tunnel binary exists, the CLI prints install guidance instead of silently failing.
+
+`sidecar check` emits diagnostics in `file:line:column` form so terminals and future editor integrations can show squiggly-line-style warnings. Build and dev print the same warnings. Use `// sidecar-ignore DIAGNOSTIC_CODE` when an intentional exception is clearer than changing the code.
 
 ## Widgets
 
@@ -80,13 +95,58 @@ Sidecar bundles the widget into a content-hashed `ui://...` resource and adds st
 ```json
 {
   "_meta": {
-    "ui": { "resourceUri": "ui://add_numbers/widget.<hash>.html" },
-    "openai/outputTemplate": "ui://add_numbers/widget.<hash>.html"
+    "ui": {
+      "resourceUri": "ui://add_numbers/widget.<hash>.html",
+      "csp": {
+        "connectDomains": [],
+        "resourceDomains": [],
+        "frameDomains": []
+      }
+    },
+    "openai/outputTemplate": "ui://add_numbers/widget.<hash>.html",
+    "openai/widgetCSP": {
+      "connect_domains": [],
+      "resource_domains": [],
+      "frame_domains": []
+    }
   }
 }
 ```
 
 Widget code can be any iframe-friendly frontend. Use `@sidecar/client` for framework-agnostic bridge calls. Use `@sidecar/react` only when a React widget wants hooks for tool results, tool calls, model messages, or model context updates.
+
+Runtime host features should go through `@sidecar/native`, which feature-detects the current host and returns `{ ok: false, reason: "unsupported" }` when a capability is absent:
+
+```ts
+import { display, files, links } from "@sidecar/native";
+
+await display.request("fullscreen");
+await files.download(JSON.stringify(data), {
+  filename: "report.json",
+  mimeType: "application/json"
+});
+await links.openExternal("https://example.com");
+```
+
+Optional ChatGPT descriptor metadata is typed through `hosts.chatgpt`:
+
+```ts
+import type { ChatGptToolOptions } from "@sidecar/openai";
+
+export default tool({
+  name: "Review Expense Report",
+  description: "Use this when the user wants policy issues for one expense report.",
+  hosts: {
+    chatgpt: {
+      invoking: "Reviewing expense report",
+      invoked: "Expense report reviewed"
+    } satisfies ChatGptToolOptions
+  },
+  execute(params: { reportId: string }) {
+    return { status: "ready" };
+  }
+});
+```
 
 ## Proxy And Auth
 

@@ -1,5 +1,6 @@
 /** Example protected tool with a typed auth scope requirement. */
 import { tool } from "@sidecar/core";
+import type { ChatGptToolOptions } from "@sidecar/openai";
 import { scopes } from "../../auth.js";
 
 type Params = {
@@ -26,6 +27,12 @@ export default tool({
     readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false
+  },
+  hosts: {
+    chatgpt: {
+      invoking: "Reviewing expense report",
+      invoked: "Expense report reviewed"
+    } satisfies ChatGptToolOptions
   },
   execute(params: Params, ctx): Promise<Result> {
     ctx.log.info("reviewing expense report", {

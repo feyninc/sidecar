@@ -27,7 +27,8 @@
       "@sidecar/server": ["packages/server/src/index.ts"],
       "@sidecar/react": ["packages/react/src/index.ts"],
       "@sidecar/native": ["packages/native/src/index.ts"],
-      "@sidecar/native/*": ["packages/native/src/*"]
+      "@sidecar/native/*": ["packages/native/src/*"],
+      "@sidecar/openai": ["packages/openai/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "packages/**/*.tsx", "examples/**/*.ts", "tsup.config.ts", "vitest.config.ts"],

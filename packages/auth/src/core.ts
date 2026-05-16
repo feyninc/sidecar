@@ -94,6 +94,7 @@ export type SidecarAuth<
   readonly scopes: BindScopeCatalog<Scopes, Session>;
   metadata(): ProtectedResourceMetadata;
   protectedResourceMetadata(): Response;
+  withResource(resource: string): SidecarAuth<Scopes, Session>;
   authorizeRequest(request: Request): Promise<AuthResult<Session>>;
   authorizeTool(
     policy: ToolAuthPolicy<Session> | undefined,
@@ -174,6 +175,13 @@ export function auth<
 
     protectedResourceMetadata(): Response {
       return Response.json(this.metadata());
+    },
+
+    withResource(resource: string): SidecarAuth<Scopes, Session> {
+      return auth({
+        ...definition,
+        resource,
+      });
     },
 
     async authorizeRequest(request: Request): Promise<AuthResult<Session>> {
@@ -275,15 +283,26 @@ export function protectedResourceMetadata(options: {
   };
 }
 
+/** Returns the well-known protected resource metadata URL for an MCP endpoint. */
+export function protectedResourceMetadataUrl(resource: string): string {
+  const url = new URL(resource);
+  const path = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
+  url.pathname = `/.well-known/oauth-protected-resource${path}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 /** Builds a Bearer challenge used for missing, invalid, or insufficient scopes. */
 export function challenge(options: {
   resource: string;
+  resourceMetadata?: string;
   scopes?: readonly string[];
   description?: string;
   status?: 401 | 403;
 }): AuthChallenge {
   const params = [
-    `resource=${JSON.stringify(options.resource)}`,
+    `resource_metadata=${JSON.stringify(options.resourceMetadata ?? protectedResourceMetadataUrl(options.resource))}`,
     options.scopes?.length
       ? `scope=${JSON.stringify(options.scopes.join(" "))}`
       : undefined,

@@ -2,7 +2,12 @@
 import {
   createToolDescriptor,
   toMachineName,
+  type ChatGptToolOptions,
+  type ChatGptWidgetOptions,
+  type ToolHostExtensions,
   type ToolAnnotations,
+  type ToolVisibility,
+  type ToolWidgetOptions,
 } from "@sidecar/core";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
@@ -24,7 +29,7 @@ import { CompilerError } from "./errors.js";
 import { getOutputSchema, getParamsSchema } from "./schema.js";
 import type { SidecarToolManifestEntry } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
-import { findWidget, widgetMeta } from "./widgets.js";
+import { findWidget, mergeWidgetMeta, widgetMeta } from "./widgets.js";
 
 /** Finds all Sidecar tool files under `server/` and returns manifest entries. */
 export async function analyzeProjectTools(
@@ -55,6 +60,9 @@ export function analyzeToolFile(
     sourceFile,
   );
   const annotations = readAnnotations(definition);
+  const visibility = readVisibility(definition);
+  const hosts = readHosts(definition);
+  const widgetOptions = readWidgetOptions(definition);
   const execute = getExecuteFunction(definition, sourceFile);
 
   const inputSchema = getParamsSchema(definition, execute);
@@ -66,14 +74,16 @@ export function analyzeToolFile(
     inputSchema,
     outputSchema,
     annotations,
+    visibility,
+    hosts,
     meta: undefined,
   });
 
   const absoluteFile = sourceFile.getFilePath();
   const directory = path.basename(path.dirname(absoluteFile));
-  const widget = findWidget(rootDir, absoluteFile, id);
+  const widget = findWidget(rootDir, absoluteFile, id, widgetOptions);
   if (widget) {
-    descriptor._meta = widgetMeta(widget.resourceUri);
+    descriptor._meta = mergeWidgetMeta(descriptor._meta, widgetMeta(widget.resourceUri, widget.options));
   }
 
   return {
@@ -278,4 +288,240 @@ function readAnnotations(
   }
 
   return Object.keys(annotations).length ? annotations : undefined;
+}
+
+/** Extracts static Sidecar visibility policy from the tool object. */
+function readVisibility(
+  definition: ObjectLiteralExpression,
+): ToolVisibility | undefined {
+  const initializer = readObjectProperty(definition, "visibility");
+  if (!initializer) {
+    return undefined;
+  }
+
+  const visibility: ToolVisibility = {};
+  for (const key of ["model", "widgets", "tools"] as const) {
+    const property = initializer.getProperty(key);
+    if (!property || !Node.isPropertyAssignment(property)) {
+      continue;
+    }
+
+    const value = property.getInitializer();
+    if (!value) {
+      continue;
+    }
+
+    if (
+      value.getKind() === SyntaxKind.TrueKeyword ||
+      value.getKind() === SyntaxKind.FalseKeyword
+    ) {
+      assignVisibility(visibility, key, value.getKind() === SyntaxKind.TrueKeyword);
+    } else if (Node.isArrayLiteralExpression(value)) {
+      assignVisibility(visibility, key, value
+        .getElements()
+        .filter(Node.isStringLiteral)
+        .map((element) => element.getLiteralText()));
+    }
+  }
+
+  return Object.keys(visibility).length ? visibility : undefined;
+}
+
+/** Assigns a visibility property without losing the precise key type. */
+function assignVisibility<Key extends keyof ToolVisibility>(
+  visibility: ToolVisibility,
+  key: Key,
+  value: ToolVisibility[Key],
+): void {
+  visibility[key] = value;
+}
+
+/** Extracts supported host-specific extension metadata from the tool object. */
+function readHosts(
+  definition: ObjectLiteralExpression,
+): ToolHostExtensions | undefined {
+  const initializer = readObjectProperty(definition, "hosts");
+  if (!initializer) {
+    return undefined;
+  }
+
+  const chatgpt = readObjectProperty(initializer, "chatgpt");
+  if (!chatgpt) {
+    return undefined;
+  }
+
+  const options: ChatGptToolOptions = {};
+  const invoking = readStringProperty(chatgpt, "invoking");
+  const invoked = readStringProperty(chatgpt, "invoked");
+  const visibility = readStringProperty(chatgpt, "visibility");
+  const widgetAccessible = readBooleanProperty(chatgpt, "widgetAccessible");
+  const fileParams = readStringArrayProperty(chatgpt, "fileParams");
+
+  if (invoking) options.invoking = invoking;
+  if (invoked) options.invoked = invoked;
+  if (visibility === "public" || visibility === "private") {
+    options.visibility = visibility;
+  }
+  if (widgetAccessible !== undefined) {
+    options.widgetAccessible = widgetAccessible;
+  }
+  if (fileParams) {
+    options.fileParams = fileParams;
+  }
+
+  return Object.keys(options).length ? { chatgpt: options } : undefined;
+}
+
+/** Extracts widget resource metadata from the tool object. */
+function readWidgetOptions(
+  definition: ObjectLiteralExpression,
+): ToolWidgetOptions | undefined {
+  const initializer = readObjectProperty(definition, "widget");
+  if (!initializer) {
+    return undefined;
+  }
+
+  const options: ToolWidgetOptions = {};
+  const description = readStringProperty(initializer, "description");
+  const prefersBorder = readBooleanProperty(initializer, "prefersBorder");
+  const csp = readWidgetCsp(initializer);
+  const chatgpt = readChatGptWidgetOptions(initializer);
+
+  if (description) options.description = description;
+  if (prefersBorder !== undefined) options.prefersBorder = prefersBorder;
+  if (csp) options.csp = csp;
+  if (chatgpt) options.hosts = { chatgpt };
+
+  return Object.keys(options).length ? options : undefined;
+}
+
+/** Reads standard widget CSP options. */
+function readWidgetCsp(
+  definition: ObjectLiteralExpression,
+): ToolWidgetOptions["csp"] | undefined {
+  const initializer = readObjectProperty(definition, "csp");
+  if (!initializer) {
+    return undefined;
+  }
+
+  const csp = {
+    connectDomains: readStringArrayProperty(initializer, "connectDomains"),
+    resourceDomains: readStringArrayProperty(initializer, "resourceDomains"),
+    frameDomains: readStringArrayProperty(initializer, "frameDomains"),
+  };
+  return stripUndefined(csp);
+}
+
+/** Reads ChatGPT-only widget compatibility options. */
+function readChatGptWidgetOptions(
+  definition: ObjectLiteralExpression,
+): ChatGptWidgetOptions | undefined {
+  const hosts = readObjectProperty(definition, "hosts");
+  const chatgpt = hosts ? readObjectProperty(hosts, "chatgpt") : undefined;
+  if (!chatgpt) {
+    return undefined;
+  }
+
+  const options = {
+    domain: readStringProperty(chatgpt, "domain"),
+    redirectDomains: readStringArrayProperty(chatgpt, "redirectDomains"),
+  };
+  return stripUndefined(options);
+}
+
+/** Reads a nested object literal property, unwrapping `satisfies` expressions. */
+function readObjectProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): ObjectLiteralExpression | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  return initializer && Node.isObjectLiteralExpression(initializer)
+    ? initializer
+    : undefined;
+}
+
+/** Reads a string literal property from an object literal. */
+function readStringProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): string | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  return initializer && Node.isStringLiteral(initializer)
+    ? initializer.getLiteralText()
+    : undefined;
+}
+
+/** Reads a boolean literal property from an object literal. */
+function readBooleanProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): boolean | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  if (!initializer) {
+    return undefined;
+  }
+
+  if (initializer.getKind() === SyntaxKind.TrueKeyword) {
+    return true;
+  }
+  if (initializer.getKind() === SyntaxKind.FalseKeyword) {
+    return false;
+  }
+  return undefined;
+}
+
+/** Reads a string literal array property from an object literal. */
+function readStringArrayProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): string[] | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  if (!initializer || !Node.isArrayLiteralExpression(initializer)) {
+    return undefined;
+  }
+
+  return initializer
+    .getElements()
+    .filter(Node.isStringLiteral)
+    .map((element) => element.getLiteralText());
+}
+
+/** Removes TypeScript-only wrappers such as `satisfies` from initializers. */
+function unwrapExpression(expression: Node | undefined): Node | undefined {
+  if (!expression) {
+    return undefined;
+  }
+
+  if (Node.isSatisfiesExpression(expression) || Node.isAsExpression(expression)) {
+    return expression.getExpression();
+  }
+
+  return expression;
+}
+
+/** Drops undefined properties from small parsed option objects. */
+function stripUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as T;
 }

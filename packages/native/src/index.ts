@@ -57,28 +57,117 @@ export type FileSelectOptions = {
   multiple?: boolean;
 };
 
+/** Download options for generated client-side files. */
+export type FileDownloadOptions = {
+  filename: string;
+  mimeType?: string;
+};
+
 /** File host capability helpers. */
 export const files = {
   /** Requests files from the host when supported. */
   async select(options: FileSelectOptions = {}): Promise<HostFeatureResult<File[]>> {
     const openai = readOpenAI();
-    if (!openai?.selectFiles) {
+    if (openai?.selectFiles) {
+      try {
+        const selected = await openai.selectFiles(options);
+        return { ok: true, value: selected };
+      } catch (error) {
+        return normalizeHostError<File[]>(error);
+      }
+    }
+
+    return selectFilesWithBrowserInput(options);
+  },
+
+  /** Downloads a Blob/string using the browser's native download behavior. */
+  async download(
+    data: BlobPart | Blob,
+    options: FileDownloadOptions,
+  ): Promise<HostFeatureResult> {
+    if (typeof document === "undefined" || typeof URL === "undefined") {
       return { ok: false, reason: "unsupported" };
     }
 
+    const blob = data instanceof Blob
+      ? data
+      : new Blob([data], { type: options.mimeType ?? "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = options.filename;
+    anchor.rel = "noopener noreferrer";
+
     try {
-      const selected = await openai.selectFiles(options);
-      return { ok: true, value: selected };
+      document.body.append(anchor);
+      anchor.click();
+      return { ok: true, value: undefined };
     } catch (error) {
-      return normalizeHostError<File[]>(error);
+      return normalizeHostError(error);
+    } finally {
+      anchor.remove();
+      URL.revokeObjectURL(url);
     }
-  }
+  },
+};
+
+/** External navigation helpers. */
+export const links = {
+  /** Opens an external URL through the host bridge when possible. */
+  async openExternal(url: string): Promise<HostFeatureResult> {
+    const openai = readOpenAI();
+    if (openai?.openExternal) {
+      try {
+        await openai.openExternal({ href: url });
+        return { ok: true, value: undefined };
+      } catch (error) {
+        return normalizeHostError(error);
+      }
+    }
+
+    if (typeof window === "undefined") {
+      return { ok: false, reason: "unsupported" };
+    }
+
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    return opened
+      ? { ok: true, value: undefined }
+      : { ok: false, reason: "denied", message: "The host blocked the popup." };
+  },
 };
 
 type OpenAIBridge = {
   requestDisplayMode?: (request: { mode: DisplayMode }) => Promise<void>;
   selectFiles?: (options: FileSelectOptions) => Promise<File[]>;
+  openExternal?: (request: { href: string }) => Promise<void>;
 };
+
+/** Uses a hidden browser file input when the host has no native picker. */
+function selectFilesWithBrowserInput(options: FileSelectOptions): Promise<HostFeatureResult<File[]>> {
+  if (typeof document === "undefined") {
+    return Promise.resolve({ ok: false, reason: "unsupported" });
+  }
+
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = options.accept?.join(",") ?? "";
+    input.multiple = Boolean(options.multiple);
+    input.style.position = "fixed";
+    input.style.left = "-9999px";
+    input.addEventListener("change", () => {
+      const selected = input.files ? Array.from(input.files) : [];
+      input.remove();
+      resolve({ ok: true, value: selected });
+    }, { once: true });
+    input.addEventListener("cancel", () => {
+      input.remove();
+      resolve({ ok: false, reason: "cancelled" });
+    }, { once: true });
+    document.body.append(input);
+    input.click();
+  });
+}
 
 /** Reads ChatGPT's host bridge when present. */
 function readOpenAI(): OpenAIBridge | undefined {

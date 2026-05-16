@@ -1,6 +1,6 @@
 /** Tests for provider-agnostic auth declarations and scope policies. */
 import { describe, expect, it } from "vitest";
-import { auth, scope, type AuthSession } from "../src/index.js";
+import { auth, protectedResourceMetadataUrl, scope, type AuthSession } from "../src/index.js";
 
 type DemoSession = AuthSession<
   { sub: string; scope: string; org_id: string },
@@ -60,6 +60,32 @@ describe("auth", () => {
           result.auth
         )
       ).toMatchObject({ ok: true });
+    }
+  });
+
+  it("emits protected resource metadata challenges", async () => {
+    const appAuth = auth({
+      resource: "https://api.example.com/mcp",
+      authorizationServers: ["https://auth.example.com"],
+      scopes: {
+        expensesRead: scope("expenses.read", "Read expenses.")
+      },
+      session() {
+        return null;
+      }
+    });
+
+    const result = await appAuth.authorizeRequest(new Request("https://api.example.com/mcp"));
+
+    expect(protectedResourceMetadataUrl("https://api.example.com/mcp")).toBe("https://api.example.com/.well-known/oauth-protected-resource/mcp");
+    expect(result).toMatchObject({
+      ok: false,
+      status: 401
+    });
+    if (!result.ok) {
+      expect(result.headers.get("www-authenticate")).toContain(
+        'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/mcp"',
+      );
     }
   });
 });

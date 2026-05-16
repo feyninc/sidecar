@@ -67,6 +67,57 @@ export type ToolVisibility = {
   tools?: boolean | string[];
 };
 
+/** ChatGPT compatibility metadata for tool descriptors. */
+export type ChatGptToolOptions = {
+  /** Short status shown while ChatGPT is invoking the tool. */
+  invoking?: string;
+  /** Short status shown after ChatGPT has invoked the tool. */
+  invoked?: string;
+  /** Compatibility hint for legacy ChatGPT clients that allow widget tool calls. */
+  widgetAccessible?: boolean;
+  /** Compatibility visibility hint for legacy ChatGPT clients. */
+  visibility?: "public" | "private";
+  /** Top-level input fields that receive ChatGPT file references. */
+  fileParams?: readonly string[];
+};
+
+/** Widget CSP allowlists emitted on the MCP Apps resource metadata. */
+export type WidgetCspOptions = {
+  /** Domains the widget may contact with fetch/XHR. */
+  connectDomains?: readonly string[];
+  /** Domains the widget may use for static resources. */
+  resourceDomains?: readonly string[];
+  /** Origins allowed for subframes. Omit unless the widget embeds iframes. */
+  frameDomains?: readonly string[];
+};
+
+/** ChatGPT-only widget compatibility options. */
+export type ChatGptWidgetOptions = {
+  /** Dedicated widget origin for broad ChatGPT distribution. */
+  domain?: string;
+  /** Redirect targets for ChatGPT external-link handling. */
+  redirectDomains?: readonly string[];
+};
+
+/** Widget resource metadata declared from the sibling tool. */
+export type ToolWidgetOptions = {
+  /** Host-facing summary of what the rendered widget shows. */
+  description?: string;
+  /** Whether the widget prefers a host-provided border. */
+  prefersBorder?: boolean;
+  /** Standard MCP Apps CSP allowlists. */
+  csp?: WidgetCspOptions;
+  /** Host-specific widget compatibility metadata. */
+  hosts?: {
+    chatgpt?: ChatGptWidgetOptions;
+  };
+};
+
+/** Host-specific extension options. Keep standard MCP fields primary. */
+export type ToolHostExtensions = {
+  chatgpt?: ChatGptToolOptions;
+};
+
 /** Typed auth scope object imported by tool files. */
 export type AuthScopeDefinition<
   Id extends string = string,
@@ -200,6 +251,12 @@ export type ToolDefinition<Params = unknown, Output = unknown, Auth = unknown, S
   annotations?: ToolAnnotations;
   /** Optional visibility policy for model, widget, and tool callers. */
   visibility?: ToolVisibility;
+  /** Optional host-specific compatibility metadata. */
+  hosts?: ToolHostExtensions;
+  /** Optional metadata for the sibling widget resource. */
+  widget?: ToolWidgetOptions;
+  /** Low-level descriptor metadata escape hatch. Prefer typed fields when available. */
+  meta?: Record<string, unknown>;
   /** Optional authorization policy. Tools are public unless this is declared. */
   auth?: ToolAuthPolicy<Auth>;
   /** Tool implementation. It may be synchronous or asynchronous. */
@@ -363,6 +420,8 @@ export function createToolDescriptor(definition: {
   inputSchema?: JsonSchema;
   outputSchema?: JsonSchema;
   annotations?: ToolAnnotations;
+  visibility?: ToolVisibility;
+  hosts?: ToolHostExtensions;
   meta?: Record<string, unknown>;
 }): McpToolDescriptor {
   const machineName = definition.id ?? toMachineName(definition.name);
@@ -376,7 +435,11 @@ export function createToolDescriptor(definition: {
     inputSchema: definition.inputSchema ?? emptyObjectSchema(),
     outputSchema: definition.outputSchema,
     annotations: withAnnotationDefaults(definition.annotations),
-    _meta: definition.meta
+    _meta: mergeMeta(
+      visibilityMeta(definition.visibility),
+      chatGptToolMeta(definition.hosts?.chatgpt),
+      definition.meta
+    )
   });
 }
 
@@ -388,6 +451,67 @@ export function toolAuthScopes(toolDefinition: Pick<ToolDefinition, "auth">): st
   }
 
   return authPolicy.scopes.map((entry) => entry.id);
+}
+
+/** Converts visibility booleans into the standard MCP Apps `_meta.ui.visibility` list. */
+function visibilityMeta(visibility: ToolVisibility | undefined): Record<string, unknown> | undefined {
+  if (!visibility) {
+    return undefined;
+  }
+
+  const uiVisibility = [
+    visibility.model !== false ? "model" : undefined,
+    visibility.widgets !== false ? "app" : undefined
+  ].filter(Boolean) as string[];
+
+  return {
+    ui: {
+      visibility: uiVisibility
+    }
+  };
+}
+
+/** Converts typed ChatGPT options into optional OpenAI compatibility metadata. */
+function chatGptToolMeta(options: ChatGptToolOptions | undefined): Record<string, unknown> | undefined {
+  if (!options) {
+    return undefined;
+  }
+
+  return stripUndefined({
+    "openai/widgetAccessible": options.widgetAccessible,
+    "openai/visibility": options.visibility,
+    "openai/toolInvocation/invoking": options.invoking,
+    "openai/toolInvocation/invoked": options.invoked,
+    "openai/fileParams": options.fileParams ? [...options.fileParams] : undefined
+  });
+}
+
+/** Merges descriptor metadata while preserving nested standard `ui` metadata. */
+function mergeMeta(
+  ...entries: Array<Record<string, unknown> | undefined>
+): Record<string, unknown> | undefined {
+  const merged: Record<string, unknown> = {};
+
+  for (const entry of entries) {
+    if (!entry) {
+      continue;
+    }
+
+    for (const [key, value] of Object.entries(entry)) {
+      if (key === "ui" && isRecord(value) && isRecord(merged.ui)) {
+        merged.ui = { ...merged.ui, ...value };
+      } else {
+        merged[key] = value;
+      }
+    }
+  }
+
+  return Object.keys(merged).length ? stripUndefined(merged) : undefined;
+}
+
+/** Returns true for plain metadata objects. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 /** JSON Schema for a tool with no input parameters. */

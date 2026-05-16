@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { result, tool, type ToolContext } from "@sidecar/core";
 import { auth, scope, type AuthSession } from "@sidecar/auth";
-import { createSidecarMcpServer } from "../src/index.js";
+import { createSidecarHttpServer, createSidecarMcpServer } from "../src/index.js";
 
 describe("SidecarMcpServer", () => {
   it("lists and calls tools", async () => {
@@ -163,6 +163,57 @@ describe("SidecarMcpServer", () => {
       }
     });
   });
+
+  it("maps JSON-RPC auth errors to HTTP auth responses", async () => {
+    const appAuth = auth({
+      resource: "http://127.0.0.1:0/mcp",
+      authorizationServers: ["https://auth.example.com"],
+      scopes: {
+        expensesRead: scope("expenses.read", "Read expenses.")
+      },
+      session() {
+        return null;
+      }
+    });
+    const review = tool({
+      name: "Review Expense",
+      description: "Use this when reviewing one expense report.",
+      auth: {
+        scopes: [appAuth.scopes.expensesRead]
+      },
+      execute() {
+        return { ok: true };
+      }
+    });
+    const http = createSidecarHttpServer({
+      auth: appAuth,
+      tools: [{ tool: review }]
+    });
+    const baseUrl = await listen(http);
+
+    try {
+      const response = await fetch(`${baseUrl}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "review_expense", arguments: {} }
+        })
+      });
+
+      expect(response.status).toBe(401);
+      expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: -32001
+        }
+      });
+    } finally {
+      await close(http);
+    }
+  });
 });
 
 /** Creates the minimal context needed to execute tools in server tests. */
@@ -198,4 +249,29 @@ function testContext(): ToolContext {
     },
     env: {}
   };
+}
+
+/** Starts an HTTP server on an ephemeral local port. */
+function listen(server: ReturnType<typeof createSidecarHttpServer>): Promise<string> {
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address && typeof address === "object") {
+        resolve(`http://127.0.0.1:${address.port}`);
+      }
+    });
+  });
+}
+
+/** Stops a test HTTP server. */
+function close(server: ReturnType<typeof createSidecarHttpServer>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
 }

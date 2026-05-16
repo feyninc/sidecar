@@ -12,11 +12,19 @@ import { pathToFileURL } from "node:url";
 import { cwd, exit } from "node:process";
 import { tsImport } from "tsx/esm/api";
 import { isSidecarAuth, type SidecarAuth } from "@sidecar/auth";
-import { buildProject, analyzeProjectTools, type SidecarManifest } from "@sidecar/compiler";
+import {
+  analyzeProjectTools,
+  buildProject,
+  collectProjectDiagnostics,
+  formatDiagnostic,
+  type SidecarDiagnostic,
+  type SidecarManifest,
+} from "@sidecar/compiler";
 import { isSidecarTool } from "@sidecar/core";
 import { createSidecarHttpServer, type LoadedResource, type LoadedTool } from "@sidecar/server";
+import { startTunnel, type TunnelProvider, type TunnelSession } from "./tunnel.js";
 
-type Command = "build" | "dev" | "inspect" | "help";
+type Command = "build" | "check" | "dev" | "inspect" | "help";
 
 /** Dispatches the requested CLI command. */
 async function main(argv: string[]): Promise<void> {
@@ -27,7 +35,12 @@ async function main(argv: string[]): Promise<void> {
     case "build": {
       const outDir = readOption(argv, "--out") ?? "out/mcp";
       const plugins = argv.includes("--plugins");
-      const manifest = await buildProject({ rootDir, outDir, plugins });
+      const strict = argv.includes("--strict");
+      const manifest = await buildProject({ rootDir, outDir, plugins, strict });
+      printDiagnostics(manifest.diagnostics ?? []);
+      if (strict && manifest.diagnostics?.length) {
+        exit(1);
+      }
       console.log(`Built ${manifest.tools.length} tool${manifest.tools.length === 1 ? "" : "s"} to ${outDir}.`);
       if (plugins) {
         console.log("Built codex-plugin and claude-plugin packages.");
@@ -35,12 +48,34 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
 
+    case "check": {
+      const tools = await analyzeProjectTools(rootDir);
+      const diagnostics = await collectProjectDiagnostics(rootDir, tools);
+      printDiagnostics(diagnostics);
+      if (diagnostics.some((diagnostic) => diagnostic.severity === "error") || (argv.includes("--strict") && diagnostics.length > 0)) {
+        exit(1);
+      }
+      if (!diagnostics.length) {
+        console.log("No Sidecar diagnostics.");
+      }
+      return;
+    }
+
     case "dev": {
       const port = Number(readOption(argv, "--port") ?? "3001");
+      const tunnelProvider = readTunnelProvider(argv);
       const outDir = ".sidecar/dev/mcp";
       const manifest = await buildProject({ rootDir, outDir });
+      printDiagnostics(manifest.diagnostics ?? []);
       const tools = await loadRuntimeTools(rootDir, manifest);
-      const auth = await loadRuntimeAuth(rootDir);
+      let tunnel: TunnelSession | undefined;
+      if (tunnelProvider) {
+        tunnel = await startTunnel({ provider: tunnelProvider, port, path: "/mcp" });
+        process.env.SIDECAR_MCP_URL = tunnel.mcpUrl;
+      }
+
+      const loadedAuth = await loadRuntimeAuth(rootDir);
+      const auth = loadedAuth && tunnel ? loadedAuth.withResource(tunnel.mcpUrl) : loadedAuth;
       const resources = await loadResources(rootDir, outDir, manifest);
       const server = createSidecarHttpServer({
         name: "sidecar-dev",
@@ -54,7 +89,18 @@ async function main(argv: string[]): Promise<void> {
       server.listen(port, () => {
         console.log(`Sidecar dev server listening at http://127.0.0.1:${port}/mcp`);
         console.log(`Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"} and ${resources.length} resource${resources.length === 1 ? "" : "s"}.`);
+        if (tunnel) {
+          console.log(`HTTPS tunnel (${tunnel.provider}) ready: ${tunnel.mcpUrl}`);
+          console.log("Use this HTTPS MCP URL in ChatGPT, Claude, or a desktop plugin install.");
+        }
       });
+
+      const shutdown = () => {
+        tunnel?.close();
+        server.close(() => exit(0));
+      };
+      process.once("SIGINT", shutdown);
+      process.once("SIGTERM", shutdown);
       return;
     }
 
@@ -78,10 +124,32 @@ async function main(argv: string[]): Promise<void> {
       console.log(`Sidecar
 
 Usage:
-  sidecar build [--cwd <dir>] [--out <dir>] [--plugins]
-  sidecar dev [--cwd <dir>] [--port <port>]
+  sidecar build [--cwd <dir>] [--out <dir>] [--plugins] [--strict]
+  sidecar check [--cwd <dir>] [--strict]
+  sidecar dev [--cwd <dir>] [--port <port>] [--tunnel [cloudflared|ngrok]]
   sidecar inspect [--cwd <dir>]
 `);
+  }
+}
+
+/** Reads `--tunnel`, supporting either a bare flag or an explicit provider. */
+function readTunnelProvider(argv: string[]): TunnelProvider | undefined {
+  const index = argv.indexOf("--tunnel");
+  if (index === -1) {
+    return undefined;
+  }
+
+  const value = argv[index + 1];
+  if (value === "cloudflared" || value === "ngrok") {
+    return value;
+  }
+  return "auto";
+}
+
+/** Prints diagnostics in an editor-friendly file:line:column format. */
+function printDiagnostics(diagnostics: SidecarDiagnostic[]): void {
+  for (const diagnostic of diagnostics) {
+    console.warn(formatDiagnostic(diagnostic));
   }
 }
 

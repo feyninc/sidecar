@@ -60,7 +60,9 @@ async function writeProject(rootDir: string, appName: string): Promise<void> {
           type: "module",
           scripts: {
             dev: "sidecar dev",
+            "dev:https": "sidecar dev --tunnel",
             build: "sidecar build --plugins",
+            check: "sidecar check",
             inspect: "sidecar inspect",
           },
           dependencies: {
@@ -188,6 +190,8 @@ This is a Sidecar MCP app.
 
 \`\`\`sh
 npm run dev
+npm run dev:https
+npm run check
 npm run build
 npm run inspect
 \`\`\`
@@ -218,6 +222,13 @@ export default tool({
     readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false
+  },
+  widget: {
+    description: "Shows the computed sum from the Add Numbers tool.",
+    csp: {
+      connectDomains: [],
+      resourceDomains: []
+    }
   },
   execute(params: Params): Result {
     return { sum: params.a + params.b };
