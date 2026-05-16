@@ -1,0 +1,15 @@
+{
+  "name": "sidecar-simple-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sidecar/anthropic": "0.0.0-dev",
+    "@sidecar/client": "0.0.0-dev",
+    "@sidecar/core": "0.0.0-dev",
+    "@sidecar/native": "0.0.0-dev",
+    "@sidecar/react": "0.0.0-dev",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.1.0"
+  }
+}

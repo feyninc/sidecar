@@ -1,0 +1,13 @@
+{
+  "SubagentStop": [
+    {
+      "matcher": "review-writer",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "echo review-writer finished"
+        }
+      ]
+    }
+  ]
+}

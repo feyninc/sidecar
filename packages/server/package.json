@@ -1,0 +1,13 @@
+{
+  "name": "@sidecar/server",
+  "version": "0.0.0-dev",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./proxy": "./src/proxy.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@sidecar/core": "0.0.0-dev"
+  }
+}

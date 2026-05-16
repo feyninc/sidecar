@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@sidecar/core": ["packages/core/src/index.ts"],
+      "@sidecar/client": ["packages/client/src/index.ts"],
+      "@sidecar/auth": ["packages/auth/src/index.ts"],
+      "@sidecar/auth/*": ["packages/auth/src/*"],
+      "@sidecar/anthropic": ["packages/anthropic/src/index.ts"],
+      "@sidecar/anthropic/*": ["packages/anthropic/src/*"],
+      "@sidecar/compiler": ["packages/compiler/src/index.ts"],
+      "@sidecar/server": ["packages/server/src/index.ts"],
+      "@sidecar/react": ["packages/react/src/index.ts"],
+      "@sidecar/native": ["packages/native/src/index.ts"],
+      "@sidecar/native/*": ["packages/native/src/*"]
+    }
+  },
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "examples/**/*.ts", "tsup.config.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "out", "dist"]
+}
