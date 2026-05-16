@@ -28,7 +28,9 @@
       "@sidecar/react": ["packages/react/src/index.ts"],
       "@sidecar/native": ["packages/native/src/index.ts"],
       "@sidecar/native/*": ["packages/native/src/*"],
-      "@sidecar/openai": ["packages/openai/src/index.ts"]
+      "@sidecar/openai": ["packages/openai/src/index.ts"],
+      "@sidecar/openai/*": ["packages/openai/src/*"],
+      "@openai/apps-sdk-ui/*": ["node_modules/@openai/apps-sdk-ui/dist/types/*"]
     }
   },
   "include": ["packages/**/*.ts", "packages/**/*.tsx", "examples/**/*.ts", "tsup.config.ts", "vitest.config.ts"],

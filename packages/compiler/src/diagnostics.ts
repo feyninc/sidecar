@@ -164,6 +164,39 @@ function diagnoseWidgetSource(
     });
   }
 
+  if (/@sidecar\/openai\/components/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_COMPONENT_CROSS_HOST")) {
+    diagnostics.push({
+      severity: "warning",
+      code: "SIDECAR_OPENAI_COMPONENT_CROSS_HOST",
+      message: `Widget for "${entry.id}" imports ChatGPT-only components.`,
+      filePath: widgetFile,
+      ...locate(source, "@sidecar/openai/components"),
+      hint: "Use @sidecar/native for portable primitives. Keep @sidecar/openai/components for widgets intentionally targeted to ChatGPT.",
+    });
+  }
+
+  if (/@sidecar\/anthropic\/components/.test(source) && !isIgnored(source, "SIDECAR_ANTHROPIC_COMPONENT_CROSS_HOST")) {
+    diagnostics.push({
+      severity: "warning",
+      code: "SIDECAR_ANTHROPIC_COMPONENT_CROSS_HOST",
+      message: `Widget for "${entry.id}" imports Claude-only components.`,
+      filePath: widgetFile,
+      ...locate(source, "@sidecar/anthropic/components"),
+      hint: "Use @sidecar/native for portable primitives. Keep @sidecar/anthropic/components for widgets intentionally targeted to Claude.",
+    });
+  }
+
+  if (/\bPopover\b/.test(source) && /@sidecar\/native/.test(source) && !isIgnored(source, "SIDECAR_NATIVE_NON_PORTABLE_COMPONENT")) {
+    diagnostics.push({
+      severity: "warning",
+      code: "SIDECAR_NATIVE_NON_PORTABLE_COMPONENT",
+      message: `Widget for "${entry.id}" appears to expect a native Popover.`,
+      filePath: widgetFile,
+      ...locate(source, "Popover"),
+      hint: "Popover is host-specific because Claude inline apps discourage clipped overlay UI. Use @sidecar/openai/components for ChatGPT-only popovers.",
+    });
+  }
+
   return diagnostics.filter((diagnostic) => !isIgnored(source, diagnostic.code));
 }
 

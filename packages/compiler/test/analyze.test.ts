@@ -65,6 +65,10 @@ describe("analyzeProjectTools", () => {
       });
 
       await expect(readFile(path.join(rootDir, ".sidecar/generated/tools.ts"), "utf8")).resolves.toContain("createToolClient");
+      await expect(readFile(path.join(rootDir, "out/mcp", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("SidecarWidgetRoot");
+      await expect(readFile(path.join(rootDir, "out/mcp", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("data-sc-component");
+      await expect(readFile(path.join(rootDir, "out/mcp", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".sidecar-example-output");
+      await expect(readFile(path.join(rootDir, "out/mcp", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".grid");
       await expect(readFile(path.join(rootDir, "out/codex-plugin/.codex-plugin/plugin.json"), "utf8")).resolves.toContain("simple-sidecar-example");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.claude-plugin/plugin.json"), "utf8")).resolves.toContain("available");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/skills/review-writer/SKILL.md"), "utf8")).resolves.toContain("expense review summary");
@@ -122,6 +126,44 @@ export default tool({
         line: expect.any(Number),
         column: expect.any(Number)
       });
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when widgets import host-pinned components in cross-host code", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-host-components-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "server", "component-test", "tool.ts"),
+        `import { tool } from "@sidecar/core";
+
+export default tool({
+  name: "Component Test",
+  description: "Use this when checking component imports.",
+  execute() {
+    return { ok: true };
+  }
+});
+`,
+      );
+      await writeFixture(
+        path.join(rootDir, "server", "component-test", "widget.tsx"),
+        `import { Popover } from "@sidecar/openai/components";
+
+export default function Widget() {
+  return <Popover trigger="More">OpenAI only</Popover>;
+}
+`,
+      );
+
+      const tools = await analyzeProjectTools(rootDir);
+      const diagnostics = await collectProjectDiagnostics(rootDir, tools);
+
+      expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        "SIDECAR_OPENAI_COMPONENT_CROSS_HOST",
+      );
     } finally {
       await rm(rootDir, { recursive: true, force: true });
     }

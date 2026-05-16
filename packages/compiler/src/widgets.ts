@@ -1,9 +1,10 @@
 /** Widget discovery and HTML bundling. */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build as esbuild } from "esbuild";
+import postcss from "postcss";
 import type { ToolWidgetOptions } from "@sidecar/core";
 import type { SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
 import { escapeHtml, safePathSegment, toImportSpecifier } from "./utils.js";
@@ -27,6 +28,7 @@ export async function buildWidgets(
 
   const cacheDir = path.join(rootDir, ".sidecar", "cache", "widgets");
   await mkdir(cacheDir, { recursive: true });
+  const appStyle = await prepareAppStyle(rootDir, cacheDir);
 
   for (const entry of widgets) {
     const sourceFile = path.join(rootDir, entry.widget.sourceFile);
@@ -38,9 +40,14 @@ export async function buildWidgets(
       entryFile,
       `import React from "react";
 import { createRoot } from "react-dom/client";
+import { SidecarWidgetRoot } from "@sidecar/react";
+import "@sidecar/native/styles.css";
+${appStyle ? `import ${JSON.stringify(toImportSpecifier(path.dirname(entryFile), appStyle))};` : ""}
 import Component from ${JSON.stringify(importPath)};
 
-createRoot(document.getElementById("root")!).render(React.createElement(Component));
+createRoot(document.getElementById("root")!).render(
+  React.createElement(SidecarWidgetRoot, null, React.createElement(Component))
+);
 `,
     );
 
@@ -61,9 +68,12 @@ createRoot(document.getElementById("root")!).render(React.createElement(Componen
       write: false,
     });
 
-    const javascript =
-      bundled.outputFiles.find((file) => file.path.endsWith(".js"))?.text ?? "";
-    const html = renderWidgetHtml(entry.name, javascript);
+    const javascript = bundled.outputFiles.find((file) => file.path.endsWith(".js"))?.text ?? "";
+    const css = bundled.outputFiles
+      .filter((file) => file.path.endsWith(".css"))
+      .map((file) => file.text)
+      .join("\n");
+    const html = renderWidgetHtml(entry.name, javascript, css);
     const hash = createHash("sha256").update(html).digest("hex").slice(0, 12);
     const outputDir = path.join(outDir, "public", "widgets", safeId);
     const outputFile = path.join(outputDir, `widget.${hash}.html`);
@@ -76,6 +86,50 @@ createRoot(document.getElementById("root")!).render(React.createElement(Componen
     entry.widget.outputFile = path.relative(outDir, outputFile);
     entry.descriptor._meta = mergeWidgetMeta(entry.descriptor._meta, widgetMeta(resourceUri, entry.widget.options));
   }
+}
+
+/** Copies and optionally processes root `style.css` for widget builds. */
+async function prepareAppStyle(rootDir: string, cacheDir: string): Promise<string | undefined> {
+  const sourceFile = path.join(rootDir, "style.css");
+  if (!existsSync(sourceFile)) {
+    return undefined;
+  }
+
+  const source = await readFile(sourceFile, "utf8");
+  const css = await processAppStyle(source, sourceFile);
+  const outputFile = path.join(cacheDir, "style.css");
+  await writeFile(outputFile, css);
+  return outputFile;
+}
+
+/** Runs Tailwind/PostCSS only when the app stylesheet needs it. */
+async function processAppStyle(source: string, from: string): Promise<string> {
+  if (!needsPostcss(source)) {
+    return source;
+  }
+
+  const cssSource = source
+    .replace(/@import\s+["']tailwindcss["'];?/g, "@tailwind utilities;")
+    .replace(/@import\s+["']@openai\/apps-sdk-ui\/css["'];?/g, "");
+  const plugins = [];
+  if (cssSource.includes("@tailwind")) {
+    const tailwind = await import("@tailwindcss/postcss");
+    plugins.push(tailwind.default({ base: path.dirname(from) }));
+  }
+
+  const autoprefixer = await import("autoprefixer");
+  plugins.push(autoprefixer.default());
+
+  const result = await postcss(plugins).process(cssSource, {
+    from,
+    map: false,
+  });
+  return result.css;
+}
+
+/** Returns true when CSS contains framework directives that esbuild does not own. */
+function needsPostcss(source: string): boolean {
+  return /@import\s+["']tailwindcss["']|@tailwind|@source|@theme|@plugin/.test(source);
 }
 
 /** Finds a sibling `widget.tsx` for a tool file. */
@@ -144,7 +198,7 @@ export function mergeWidgetMeta(
 }
 
 /** Wraps bundled JavaScript in the minimal transparent widget document. */
-function renderWidgetHtml(title: string, javascript: string): string {
+function renderWidgetHtml(title: string, javascript: string, css = ""): string {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -156,6 +210,7 @@ function renderWidgetHtml(title: string, javascript: string): string {
       html, body, #root { min-height: 100%; margin: 0; background: transparent; }
       body { color: CanvasText; }
       * { box-sizing: border-box; }
+      ${css}
     </style>
   </head>
   <body>

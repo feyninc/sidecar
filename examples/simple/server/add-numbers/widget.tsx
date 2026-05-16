@@ -11,9 +11,9 @@ export default function AddNumbersWidget() {
   const { structured } = useToolResult<Result>();
 
   return (
-    <main style={{ padding: 16 }}>
+    <main className="grid gap-3 p-4">
       <h1 style={{ fontSize: 18, margin: "0 0 8px" }}>Sum</h1>
-      <output style={{ display: "block", fontSize: 32, fontWeight: 650, marginBottom: 12 }}>
+      <output className="sidecar-example-output block text-3xl font-semibold">
         {structured?.sum ?? "--"}
       </output>
       <Button variant="secondary" type="button">

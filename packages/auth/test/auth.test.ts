@@ -1,6 +1,12 @@
 /** Tests for provider-agnostic auth declarations and scope policies. */
 import { describe, expect, it } from "vitest";
-import { auth, protectedResourceMetadataUrl, scope, type AuthSession } from "../src/index.js";
+import {
+  SidecarAuthError,
+  auth,
+  protectedResourceMetadataUrl,
+  scope,
+  type AuthSession,
+} from "../src/index.js";
 
 type DemoSession = AuthSession<
   { sub: string; scope: string; org_id: string },
@@ -87,5 +93,44 @@ describe("auth", () => {
         'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/mcp"',
       );
     }
+  });
+
+  it("rejects undeclared tool scopes during authorization", async () => {
+    const appAuth = auth({
+      resource: "https://api.example.com/mcp",
+      authorizationServers: ["https://auth.example.com"],
+      scopes: {
+        expensesRead: scope("expenses.read", "Read expenses.")
+      },
+      session(): AuthSession {
+        return { scopes: ["expenses.read"] };
+      }
+    });
+
+    expect(() =>
+      appAuth.authorizeTool(
+        { scopes: [scope("expenses.write", "Write expenses.")] },
+        { scopes: ["expenses.read"] } as AuthSession,
+      ),
+    ).toThrow(SidecarAuthError);
+  });
+
+  it("validates the AuthSession shape returned by user auth code", async () => {
+    const appAuth = auth({
+      resource: "https://api.example.com/mcp",
+      authorizationServers: ["https://auth.example.com"],
+      scopes: {},
+      session() {
+        return { userId: "user_123" } as unknown as AuthSession;
+      }
+    });
+
+    await expect(
+      appAuth.authorizeRequest(
+        new Request("https://api.example.com/mcp", {
+          headers: { authorization: "Bearer abc" }
+        }),
+      ),
+    ).rejects.toThrow("scopes array");
   });
 });

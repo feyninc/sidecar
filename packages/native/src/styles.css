@@ -1,0 +1,292 @@
+/**
+ * Sidecar native component recipes.
+ *
+ * The root data attributes are set by `SidecarWidgetRoot` at runtime. Scoped
+ * host packages pin individual components with `data-sc-recipe`.
+ */
+:root {
+  color-scheme: light dark;
+  --sc-font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sc-bg: transparent;
+  --sc-surface: color-mix(in srgb, Canvas 94%, CanvasText 6%);
+  --sc-surface-inset: color-mix(in srgb, CanvasText 4%, transparent);
+  --sc-text: CanvasText;
+  --sc-muted: color-mix(in srgb, CanvasText 66%, transparent);
+  --sc-border: color-mix(in srgb, CanvasText 14%, transparent);
+  --sc-accent: CanvasText;
+  --sc-accent-text: Canvas;
+  --sc-danger: #b42318;
+  --sc-success: #067647;
+  --sc-warning: #b54708;
+  --sc-radius-sm: 6px;
+  --sc-radius-md: 8px;
+  --sc-control-height: 32px;
+  --sc-focus: color-mix(in srgb, CanvasText 28%, transparent);
+}
+
+:root[data-sidecar-host="chatgpt"],
+:root [data-sc-recipe="chatgpt"] {
+  /* Calibrated from @openai/apps-sdk-ui 0.2.2 design tokens. */
+  --sc-font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sc-surface: #ffffff;
+  --sc-surface-inset: #ededed;
+  --sc-text: #0d0d0d;
+  --sc-muted: #5d5d5d;
+  --sc-border: color-mix(in oklab, #0d0d0d 10%, transparent);
+  --sc-accent: #181818;
+  --sc-accent-text: #ffffff;
+  --sc-radius-sm: 6px;
+  --sc-radius-md: 8px;
+  --sc-control-height: 32px;
+  --sc-focus: #0169cc;
+}
+
+:root[data-sidecar-host="chatgpt"][data-sidecar-theme="dark"],
+:root[data-sidecar-theme="dark"] [data-sc-recipe="chatgpt"] {
+  --sc-surface: #212121;
+  --sc-surface-inset: #303030;
+  --sc-text: #ffffff;
+  --sc-muted: #8f8f8f;
+  --sc-border: color-mix(in oklab, #ffffff 12%, transparent);
+  --sc-accent: #f3f3f3;
+  --sc-accent-text: #0d0d0d;
+  --sc-focus: #0285ff;
+}
+
+:root[data-sidecar-host="claude"],
+:root [data-sc-recipe="claude"] {
+  --sc-font-sans: "Anthropic Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sc-surface: var(--claude-background-color, #ffffff);
+  --sc-surface-inset: var(--claude-muted-background-color, #f7f3ed);
+  --sc-text: var(--claude-text-color, #1f1f1d);
+  --sc-muted: var(--claude-muted-text-color, #6b6258);
+  --sc-border: var(--claude-border-color, #ded6cc);
+  --sc-accent: var(--claude-accent-color, #d97706);
+  --sc-accent-text: var(--claude-accent-foreground-color, #ffffff);
+  --sc-radius-sm: 7px;
+  --sc-radius-md: 8px;
+  --sc-control-height: 34px;
+  --sc-focus: color-mix(in srgb, var(--sc-accent) 30%, transparent);
+}
+
+:root[data-sidecar-host="claude"][data-sidecar-theme="dark"],
+:root[data-sidecar-theme="dark"] [data-sc-recipe="claude"] {
+  --sc-surface: var(--claude-background-color, #20201d);
+  --sc-surface-inset: var(--claude-muted-background-color, #2a2925);
+  --sc-text: var(--claude-text-color, #f4f0e8);
+  --sc-muted: var(--claude-muted-text-color, #b8afa2);
+  --sc-border: var(--claude-border-color, #403d36);
+  --sc-accent: var(--claude-accent-color, #f0a23a);
+  --sc-accent-text: var(--claude-accent-foreground-color, #201407);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  color: var(--sc-text);
+  font-family: var(--sc-font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[data-sc-component="button"] {
+  align-items: center;
+  appearance: none;
+  background: var(--sc-surface-inset);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-md);
+  color: var(--sc-text);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 6px;
+  min-height: var(--sc-control-height);
+  justify-content: center;
+  line-height: 1;
+  padding: 0 12px;
+}
+
+[data-sc-component="button"][data-sc-intent="primary"] {
+  background: var(--sc-accent);
+  border-color: var(--sc-accent);
+  color: var(--sc-accent-text);
+}
+
+[data-sc-component="button"][data-sc-intent="danger"] {
+  background: var(--sc-danger);
+  border-color: var(--sc-danger);
+  color: #ffffff;
+}
+
+[data-sc-component="button"][data-sc-intent="ghost"] {
+  background: transparent;
+  border-color: transparent;
+}
+
+[data-sc-component="button"]:focus-visible,
+[data-sc-component="textfield"]:focus-visible,
+[data-sc-component="checkbox"]:focus-visible {
+  outline: 2px solid var(--sc-focus);
+  outline-offset: 2px;
+}
+
+[data-sc-component="button"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+[data-sc-component="spinner"] {
+  animation: sc-spin 0.8s linear infinite;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  display: inline-block;
+  height: 14px;
+  width: 14px;
+}
+
+[data-sc-component="text"] {
+  color: var(--sc-text);
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+[data-sc-component="text"][data-sc-tone="muted"] {
+  color: var(--sc-muted);
+}
+
+[data-sc-tone="success"] {
+  color: var(--sc-success);
+}
+
+[data-sc-tone="warning"] {
+  color: var(--sc-warning);
+}
+
+[data-sc-tone="danger"] {
+  color: var(--sc-danger);
+}
+
+[data-sc-component="heading"] {
+  color: var(--sc-text);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.25;
+  margin: 0;
+}
+
+[data-sc-component="heading"][data-sc-level="1"] {
+  font-size: 20px;
+}
+
+[data-sc-component="textfield"] {
+  appearance: none;
+  background: var(--sc-surface);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-md);
+  color: var(--sc-text);
+  font: inherit;
+  min-height: var(--sc-control-height);
+  padding: 0 10px;
+}
+
+[data-sc-component="textfield"][data-sc-invalid] {
+  border-color: var(--sc-danger);
+}
+
+[data-sc-component="checkbox-label"] {
+  align-items: center;
+  color: var(--sc-text);
+  display: inline-flex;
+  font: inherit;
+  gap: 8px;
+}
+
+[data-sc-component="checkbox"] {
+  accent-color: var(--sc-accent);
+  height: 16px;
+  width: 16px;
+}
+
+[data-sc-component="surface"] {
+  color: var(--sc-text);
+}
+
+[data-sc-component="surface"][data-sc-variant="card"] {
+  background: var(--sc-surface);
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-md);
+  padding: 12px;
+}
+
+[data-sc-component="surface"][data-sc-variant="inset"] {
+  background: var(--sc-surface-inset);
+  border-radius: var(--sc-radius-md);
+  padding: 12px;
+}
+
+[data-sc-component="stack"] {
+  display: flex;
+  flex-direction: column;
+}
+
+[data-sc-component="stack"][data-sc-gap="xs"] {
+  gap: 4px;
+}
+
+[data-sc-component="stack"][data-sc-gap="sm"] {
+  gap: 8px;
+}
+
+[data-sc-component="stack"][data-sc-gap="md"] {
+  gap: 12px;
+}
+
+[data-sc-component="stack"][data-sc-gap="lg"] {
+  gap: 16px;
+}
+
+[data-sc-component="badge"] {
+  align-items: center;
+  background: var(--sc-surface-inset);
+  border: 1px solid var(--sc-border);
+  border-radius: 999px;
+  color: var(--sc-muted);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  min-height: 22px;
+  padding: 0 8px;
+}
+
+[data-sc-component="skeleton"] {
+  animation: sc-pulse 1.2s ease-in-out infinite;
+  background: color-mix(in srgb, var(--sc-muted) 20%, transparent);
+  border-radius: var(--sc-radius-md);
+  min-height: 16px;
+}
+
+@keyframes sc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sc-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}

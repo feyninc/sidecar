@@ -4,6 +4,32 @@
  * APIs in this package feature-detect host globals at runtime and return a
  * typed unsupported/denied/failed result instead of assuming ChatGPT support.
  */
+export {
+  Badge,
+  Button,
+  Checkbox,
+  Heading,
+  Skeleton,
+  Stack,
+  Surface,
+  Text,
+  TextField,
+  createPrimitiveComponents,
+} from "@sidecar/native/components";
+export type {
+  BadgeProps,
+  ButtonProps,
+  CheckboxProps,
+  ComponentRecipe,
+  ControlIntent,
+  HeadingProps,
+  PrimitiveProps,
+  SkeletonProps,
+  StackProps,
+  SurfaceProps,
+  TextFieldProps,
+  TextProps,
+} from "@sidecar/native/components";
 
 /** Host detected from runtime globals. */
 export type HostName = "chatgpt" | "claude" | "codex-plugin" | "claude-plugin" | "unknown";

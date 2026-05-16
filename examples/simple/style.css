@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@source "./server/**/*.{ts,tsx}";
+
+.sidecar-example-output {
+  font-variant-numeric: tabular-nums;
+}

@@ -1,6 +1,6 @@
 /** Tests for framework-agnostic widget client helpers. */
 import { describe, expect, it } from "vitest";
-import { createToolClient, type WidgetBridge } from "../src/index.js";
+import { createToolClient, detectHostContext, type WidgetBridge } from "../src/index.js";
 
 describe("createToolClient", () => {
   it("turns typed methods into bridge tool calls", async () => {
@@ -30,5 +30,14 @@ describe("createToolClient", () => {
     expect(calls).toEqual([
       { name: "add_numbers", params: { a: 3, b: 4 } }
     ]);
+  });
+});
+
+describe("detectHostContext", () => {
+  it("falls back to a generic host outside the browser", () => {
+    expect(detectHostContext()).toMatchObject({
+      name: "generic",
+      source: "fallback"
+    });
   });
 });
