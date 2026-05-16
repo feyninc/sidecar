@@ -1,3 +1,4 @@
+/** Example Claude plugin subagent emitted by Sidecar. */
 import { agent } from "@sidecar/anthropic/plugin";
 
 export default agent({

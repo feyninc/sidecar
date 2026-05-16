@@ -1,9 +1,17 @@
+/**
+ * Portable React components for Sidecar widgets.
+ *
+ * These components use browser-native styling tokens so they remain usable
+ * before host-specific component adapters exist.
+ */
 import { forwardRef, type ButtonHTMLAttributes, type CSSProperties } from "react";
 
+/** Props for the portable button component. */
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "ghost";
 };
 
+/** Basic host-neutral button with Canvas colors and small-radius defaults. */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = "secondary", style, ...props },
   ref
@@ -19,6 +27,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
 });
 
+/** Returns inline styles for the current button variant. */
 function buttonStyle(variant: ButtonProps["variant"]): CSSProperties {
   const base: CSSProperties = {
     alignItems: "center",

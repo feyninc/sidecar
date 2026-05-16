@@ -1,4 +1,6 @@
-import { tool, type ToolContext } from "@sidecar/core";
+/** Example protected tool with a typed auth scope requirement. */
+import { tool } from "@sidecar/core";
+import { scopes } from "../../auth.js";
 
 type Params = {
   /** Expense report id, for example exp_123. */
@@ -17,13 +19,19 @@ export default tool({
   id: "expenses.review",
   description:
     "Use this when the user wants policy issues, approver notes, or a readiness check for one expense report. Do not use this to approve or reject a report.",
+  auth: {
+    scopes: [scopes.expensesRead]
+  },
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false
   },
-  execute(params: Params, ctx: ToolContext): Promise<Result> {
-    ctx.log.info("reviewing expense report", { reportId: params.reportId });
+  execute(params: Params, ctx): Promise<Result> {
+    ctx.log.info("reviewing expense report", {
+      reportId: params.reportId,
+      orgId: ctx.auth.orgId
+    });
     return Promise.resolve({
       status: "ready",
       issues: []

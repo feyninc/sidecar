@@ -1,3 +1,4 @@
+/** Claude agent generation from typed Sidecar agent files. */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -7,6 +8,7 @@ import {
   stripUndefined,
 } from "../utils.js";
 
+/** Emits `agents/*.md` from `agents/*.agent.ts` files. */
 export async function emitClaudeAgents(
   rootDir: string,
   destination: string,
@@ -38,6 +40,7 @@ export async function emitClaudeAgents(
   }
 }
 
+/** Parses the object-literal agent declaration into Claude markdown. */
 function parseClaudeAgent(source: string, fallbackName: string): string {
   const name = readObjectString(source, "name") ?? fallbackName;
   const description =

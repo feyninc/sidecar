@@ -7,7 +7,7 @@ The current implementation is the first vertical slice:
 - `@sidecar/core`: public `tool({ execute })` API, MCP descriptor helpers, result normalization.
 - `@sidecar/client`: framework-agnostic widget bridge for tool calls, tool results, model messages, and model context.
 - `@sidecar/react`: optional React hooks around `@sidecar/client`.
-- `@sidecar/auth`: provider-agnostic resource-server auth helpers plus a Better Auth adapter.
+- `@sidecar/auth`: provider-agnostic MCP auth helpers, typed scopes, and `AuthSession`.
 - `@sidecar/anthropic`: Claude plugin authoring helpers for skills, slash commands, hooks, MCP servers, agents, and plugin metadata.
 - `@sidecar/compiler`: reserved `server/**/tool.ts` discovery and TypeScript/JSDoc schema extraction.
 - `@sidecar/server`: minimal MCP JSON-RPC runtime for `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
@@ -107,27 +107,77 @@ export default proxy({
 });
 ```
 
-Auth is provider-agnostic at the Sidecar layer:
+Auth is provider-agnostic at the Sidecar layer. Sidecar owns the MCP resource-server contract; your auth system owns token verification.
 
 ```ts
-import { createResourceServerAuth } from "@sidecar/auth";
+// auth.ts
+import { auth, scope, type AuthSession } from "@sidecar/auth";
 
-export const auth = createResourceServerAuth({
+type Session = AuthSession<
+  { sub: string; scope: string; org_id: string },
+  { orgId: string }
+>;
+
+const appAuth = auth({
   resource: "https://api.example.com/mcp",
   authorizationServers: ["https://auth.example.com"],
   scopes: {
-    "expenses.read": "Read expenses."
+    expensesRead: scope("expenses.read", "Read expense reports.")
   },
-  tools: {
-    review_expense_report: ["expenses.read"]
+  async session(request): Promise<Session | null> {
+    const claims = await verifyWithYourProvider(request.bearerToken(), {
+      audience: "https://api.example.com/mcp"
+    });
+    if (!claims) return null;
+
+    return {
+      userId: claims.sub,
+      scopes: claims.scope.split(" "),
+      claims,
+      orgId: claims.org_id
+    };
+  }
+});
+
+export const { scopes } = appAuth;
+export default appAuth;
+```
+
+Tool-level policy belongs in `tool.ts`:
+
+```ts
+import { tool } from "@sidecar/core";
+import { scopes } from "../../auth.js";
+
+export default tool({
+  name: "Review Expense Report",
+  description: "Use this to review one expense report for policy issues.",
+  auth: {
+    scopes: [scopes.expensesRead]
   },
-  async verifyToken(token) {
-    return verifyWithYourProvider(token);
+  execute(params: { reportId: string }, ctx) {
+    return ctx.services.expenses.review(params.reportId, {
+      orgId: ctx.auth.orgId
+    });
   }
 });
 ```
 
-`@sidecar/auth/better-auth` is one adapter built on the generic resource-server helper, not the framework's auth foundation.
+Tools are public by default, even when `auth.ts` exists. Use a policy only when the tool needs auth:
+
+```ts
+auth: {
+  authenticated: true
+}
+```
+
+Explicit public policy is available when you want the source to make that choice obvious:
+
+```ts
+auth: {
+  public: true
+}
+```
 
 ## Claude Plugin Agents
 

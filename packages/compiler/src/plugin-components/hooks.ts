@@ -1,7 +1,9 @@
+/** Hook passthrough for plugin packages. */
 import { cp, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { existsSyncSafe } from "../utils.js";
 
+/** Copies root hook config into a plugin package when present. */
 export async function copyHooks(
   rootDir: string,
   destination: string,

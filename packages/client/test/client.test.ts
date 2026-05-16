@@ -1,3 +1,4 @@
+/** Tests for framework-agnostic widget client helpers. */
 import { describe, expect, it } from "vitest";
 import { createToolClient, type WidgetBridge } from "../src/index.js";
 

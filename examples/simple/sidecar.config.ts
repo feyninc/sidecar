@@ -1,3 +1,4 @@
+/** Example Sidecar project identity used by build and plugin outputs. */
 export default {
   name: "Simple Sidecar Example",
   version: "0.0.0-dev",

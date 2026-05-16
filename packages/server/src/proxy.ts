@@ -1,24 +1,35 @@
+/**
+ * Small HTTP middleware layer for Sidecar MCP servers.
+ *
+ * Proxy middleware handles transport-adjacent concerns such as origin checks,
+ * request ids, and rate limiting. It deliberately does not define auth policy.
+ */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 
+/** HTTP response returned by proxy middleware to short-circuit a request. */
 export type ProxyResult = {
   status: number;
   headers?: Record<string, string>;
   body?: string;
 };
 
+/** Middleware invoked before the MCP request handler. */
 export type ProxyMiddleware = (request: IncomingMessage) => ProxyResult | undefined | Promise<ProxyResult | undefined>;
 
+/** Ordered proxy middleware configuration. */
 export type SidecarProxy = {
   before: ProxyMiddleware[];
 };
 
+/** Creates a proxy middleware container. */
 export function proxy(options: { before?: ProxyMiddleware[] } = {}): SidecarProxy {
   return {
     before: options.before ?? []
   };
 }
 
+/** Runs configured proxy middleware until one returns a response. */
 export async function runProxy(proxyConfig: SidecarProxy | undefined, request: IncomingMessage): Promise<ProxyResult | undefined> {
   for (const middleware of proxyConfig?.before ?? []) {
     const result = await middleware(request);
@@ -30,6 +41,7 @@ export async function runProxy(proxyConfig: SidecarProxy | undefined, request: I
   return undefined;
 }
 
+/** Restricts browser origins for hosted MCP and widget resource requests. */
 export function origin(options: { allow: string[]; dev?: string[] }): ProxyMiddleware {
   return (request) => {
     const originHeader = request.headers.origin;
@@ -52,6 +64,7 @@ export function origin(options: { allow: string[]; dev?: string[] }): ProxyMiddl
   };
 }
 
+/** Adds a request id header value for downstream logging. */
 export function requestId(header = "x-sidecar-request-id"): ProxyMiddleware {
   return (request) => {
     request.headers[header] = randomUUID();
@@ -59,6 +72,7 @@ export function requestId(header = "x-sidecar-request-id"): ProxyMiddleware {
   };
 }
 
+/** In-memory per-process rate limiter for dev and simple deployments. */
 export function rateLimit(options: { windowMs: number; max: number }): ProxyMiddleware {
   const hits = new Map<string, { count: number; resetAt: number }>();
 
@@ -88,6 +102,7 @@ export function rateLimit(options: { windowMs: number; max: number }): ProxyMidd
   };
 }
 
+/** Matches exact origin strings or wildcard dev patterns. */
 function matchesOrigin(pattern: string, origin: string): boolean {
   if (pattern === origin || pattern === "*") {
     return true;
@@ -101,6 +116,7 @@ function matchesOrigin(pattern: string, origin: string): boolean {
   return false;
 }
 
+/** Escapes a string before embedding it in a wildcard-origin regexp. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

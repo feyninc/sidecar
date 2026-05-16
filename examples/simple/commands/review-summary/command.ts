@@ -1,3 +1,4 @@
+/** Example Claude slash command emitted by Sidecar. */
 import { command } from "@sidecar/anthropic/plugin";
 
 export default command({

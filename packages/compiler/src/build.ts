@@ -1,3 +1,4 @@
+/** Build orchestration for Sidecar projects. */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { analyzeProjectTools } from "./analyze.js";
@@ -6,6 +7,7 @@ import { buildPluginPackages } from "./plugins.js";
 import type { BuildProjectOptions, SidecarManifest } from "./types.js";
 import { buildWidgets } from "./widgets.js";
 
+/** Builds the MCP output, generated types, and optional plugin packages. */
 export async function buildProject(
   options: BuildProjectOptions,
 ): Promise<SidecarManifest> {
@@ -35,6 +37,7 @@ export async function buildProject(
   return manifest;
 }
 
+/** Renders a short build README with detected tools and install context. */
 function renderMcpReadme(manifest: SidecarManifest): string {
   const tools = manifest.tools
     .map((toolEntry) => `- \`${toolEntry.id}\`: ${toolEntry.description}`)

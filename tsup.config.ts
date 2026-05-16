@@ -5,8 +5,6 @@ export default defineConfig({
     "core/index": "packages/core/src/index.ts",
     "client/index": "packages/client/src/index.ts",
     "auth/index": "packages/auth/src/index.ts",
-    "auth/resource-server": "packages/auth/src/resource-server.ts",
-    "auth/better-auth": "packages/auth/src/better-auth.ts",
     "anthropic/index": "packages/anthropic/src/index.ts",
     "anthropic/agent": "packages/anthropic/src/agent.ts",
     "anthropic/command": "packages/anthropic/src/command.ts",

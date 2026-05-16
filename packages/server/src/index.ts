@@ -1,6 +1,14 @@
+/**
+ * Minimal MCP JSON-RPC runtime for Sidecar tools and widget resources.
+ *
+ * The server package is deliberately small: it maps MCP methods to loaded
+ * Sidecar tools, applies optional auth/proxy layers, and serves generated UI
+ * resources during development or simple deployments.
+ */
 import { createServer, type IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
 import { runProxy, type SidecarProxy } from "./proxy.js";
+import type { SidecarAuth } from "@sidecar/auth";
 import {
   createToolDescriptor,
   executeTool,
@@ -12,6 +20,7 @@ import {
   type ToolContext
 } from "@sidecar/core";
 
+/** JSON-RPC request shape accepted by the MCP runtime. */
 export type JsonRpcRequest = {
   jsonrpc: "2.0";
   id?: string | number | null;
@@ -19,6 +28,7 @@ export type JsonRpcRequest = {
   params?: unknown;
 };
 
+/** JSON-RPC response shape returned by the MCP runtime. */
 export type JsonRpcResponse =
   | {
       jsonrpc: "2.0";
@@ -37,11 +47,13 @@ export type JsonRpcResponse =
 
 type JsonRpcErrorPayload = Extract<JsonRpcResponse, { error: unknown }>["error"];
 
+/** Runtime tool plus an optional precomputed descriptor from the compiler. */
 export type LoadedTool = {
-  tool: SidecarTool<any, any>;
+  tool: SidecarTool<any, any, any>;
   descriptor?: McpToolDescriptor;
 };
 
+/** HTML/text resource served to MCP Apps clients. */
 export type LoadedResource = {
   uri: string;
   name?: string;
@@ -49,14 +61,22 @@ export type LoadedResource = {
   text: string;
 };
 
+/** Options for the in-memory MCP request dispatcher. */
 export type SidecarMcpServerOptions = {
   name?: string;
   version?: string;
   tools: LoadedTool[];
   resources?: LoadedResource[];
+  auth?: SidecarAuth;
   createContext?: (request: JsonRpcRequest) => ToolContext | Promise<ToolContext>;
 };
 
+/** Additional request context supplied by HTTP adapters. */
+export type SidecarHandleContext = {
+  request?: Request;
+};
+
+/** JSON-RPC MCP dispatcher for Sidecar tools and resources. */
 export class SidecarMcpServer {
   private readonly tools = new Map<string, LoadedTool>();
   private readonly resources = new Map<string, LoadedResource>();
@@ -72,18 +92,23 @@ export class SidecarMcpServer {
     }
   }
 
+  /** Returns all tool descriptors exposed through `tools/list`. */
   descriptors(): McpToolDescriptor[] {
     return [...this.tools.values()].map((loaded) => loaded.descriptor ?? createToolDescriptor(loaded.tool));
   }
 
-  async handle(request: JsonRpcRequest): Promise<JsonRpcResponse | undefined> {
+  /** Handles a JSON-RPC request or notification. */
+  async handle(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext = {},
+  ): Promise<JsonRpcResponse | undefined> {
     if (request.id === undefined) {
       await this.handleNotification(request);
       return undefined;
     }
 
     try {
-      const result = await this.dispatch(request);
+      const result = await this.dispatch(request, context);
       return {
         jsonrpc: "2.0",
         id: request.id,
@@ -98,7 +123,11 @@ export class SidecarMcpServer {
     }
   }
 
-  private async dispatch(request: JsonRpcRequest): Promise<unknown> {
+  /** Routes an MCP method to its implementation. */
+  private async dispatch(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<unknown> {
     switch (request.method) {
       case "initialize":
         return {
@@ -123,7 +152,7 @@ export class SidecarMcpServer {
         };
 
       case "tools/call":
-        return this.callTool(request);
+        return this.callTool(request, context);
 
       case "resources/list":
         return {
@@ -142,7 +171,11 @@ export class SidecarMcpServer {
     }
   }
 
-  private async callTool(request: JsonRpcRequest): Promise<McpToolResult> {
+  /** Executes a tool after request-level and tool-level auth checks. */
+  private async callTool(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<McpToolResult> {
     const params = request.params as { name?: unknown; arguments?: unknown } | undefined;
     const name = typeof params?.name === "string" ? params.name : undefined;
     if (!name) {
@@ -154,13 +187,52 @@ export class SidecarMcpServer {
       throw new JsonRpcError(-32602, `Unknown tool "${name}".`);
     }
 
+    const authSession = await this.authorizeTool(loaded, context);
     const ctx = this.options.createContext
       ? await this.options.createContext(request)
       : createDefaultContext(request);
+    if (authSession !== undefined) {
+      ctx.auth = authSession;
+    }
 
     return executeTool(loaded.tool, params?.arguments ?? {}, ctx);
   }
 
+  /** Applies Sidecar auth policy for a tool call. */
+  private async authorizeTool(
+    loaded: LoadedTool,
+    context: SidecarHandleContext,
+  ): Promise<unknown | undefined> {
+    const policy = loaded.tool.auth;
+    if (!policy || policy.public === true) {
+      return undefined;
+    }
+
+    if (!this.options.auth) {
+      if (policy) {
+        throw new JsonRpcError(
+          -32001,
+          `Tool "${loaded.descriptor?.name ?? loaded.tool.name}" requires auth, but no auth.ts configuration is loaded.`,
+        );
+      }
+      return undefined;
+    }
+
+    const request = context.request ?? new Request(this.options.auth.resource);
+    const requestAuth = await this.options.auth.authorizeRequest(request);
+    if (!requestAuth.ok) {
+      throw authJsonRpcError(requestAuth);
+    }
+
+    const toolAuth = this.options.auth.authorizeTool(policy, requestAuth.auth);
+    if (!toolAuth.ok) {
+      throw authJsonRpcError(toolAuth);
+    }
+
+    return toolAuth.auth;
+  }
+
+  /** Reads a generated widget/resource by URI. */
   private readResource(request: JsonRpcRequest): { contents: Array<{ uri: string; mimeType: string; text: string }> } {
     const params = request.params as { uri?: unknown } | undefined;
     const uri = typeof params?.uri === "string" ? params.uri : undefined;
@@ -184,6 +256,7 @@ export class SidecarMcpServer {
     };
   }
 
+  /** Accepts notifications without side effects for client compatibility. */
   private async handleNotification(_request: JsonRpcRequest): Promise<void> {
     // Notifications intentionally do not produce responses. The v0 server does
     // not need notification side effects yet, but accepting them makes MCP
@@ -191,10 +264,12 @@ export class SidecarMcpServer {
   }
 }
 
+/** Creates an in-memory MCP dispatcher. */
 export function createSidecarMcpServer(options: SidecarMcpServerOptions): SidecarMcpServer {
   return new SidecarMcpServer(options);
 }
 
+/** Creates a Node HTTP server exposing the MCP dispatcher at one endpoint. */
 export function createSidecarHttpServer(options: SidecarMcpServerOptions & { path?: string; proxy?: SidecarProxy }) {
   const mcp = createSidecarMcpServer(options);
   const endpoint = options.path ?? "/mcp";
@@ -207,7 +282,18 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
       return;
     }
 
-    if (request.method !== "POST" || request.url?.split("?")[0] !== endpoint) {
+    const pathname = request.url?.split("?")[0];
+    if (
+      options.auth &&
+      request.method === "GET" &&
+      isProtectedResourceMetadataPath(pathname, endpoint)
+    ) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(options.auth.metadata()));
+      return;
+    }
+
+    if (request.method !== "POST" || pathname !== endpoint) {
       response.writeHead(404, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "not_found" }));
       return;
@@ -217,7 +303,13 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
       const body = await readJson(request);
       const requests = Array.isArray(body) ? body : [body];
       const responses = (
-        await Promise.all(requests.map((entry) => mcp.handle(assertJsonRpcRequest(entry))))
+        await Promise.all(
+          requests.map((entry) =>
+            mcp.handle(assertJsonRpcRequest(entry), {
+              request: toFetchRequest(request)
+            })
+          )
+        )
       ).filter(Boolean);
 
       response.writeHead(200, { "content-type": "application/json" });
@@ -235,8 +327,20 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
   });
 }
 
+/** Returns true for the OAuth protected resource metadata endpoints Sidecar serves. */
+function isProtectedResourceMetadataPath(
+  pathname: string | undefined,
+  endpoint: string,
+): boolean {
+  return (
+    pathname === "/.well-known/oauth-protected-resource" ||
+    pathname === `/.well-known/oauth-protected-resource${endpoint}`
+  );
+}
+
 export * from "./proxy.js";
 
+/** JSON-RPC error with optional structured metadata. */
 export class JsonRpcError extends Error {
   constructor(readonly code: number, message: string, readonly data?: unknown) {
     super(message);
@@ -244,6 +348,7 @@ export class JsonRpcError extends Error {
   }
 }
 
+/** Creates the default tool context used by tests and the dev server. */
 function createDefaultContext(request: JsonRpcRequest): ToolContext {
   const memory = new Map<string, unknown>();
 
@@ -279,6 +384,28 @@ function createDefaultContext(request: JsonRpcRequest): ToolContext {
   };
 }
 
+/** Converts auth challenges into JSON-RPC errors while preserving HTTP metadata. */
+function authJsonRpcError(result: Exclude<Awaited<ReturnType<SidecarAuth["authorizeRequest"]>>, { ok: true }>): JsonRpcError {
+  return new JsonRpcError(
+    result.status === 401 ? -32001 : -32003,
+    result.body.error_description ?? result.body.error,
+    {
+      status: result.status,
+      headers: headersToRecord(result.headers),
+      body: result.body
+    }
+  );
+}
+
+/** Converts Fetch headers to a plain object for JSON-RPC error metadata. */
+function headersToRecord(headers: Headers): Record<string, string> {
+  const record: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    record[key] = value;
+  });
+  return record;
+}
+
 const consoleLogger = {
   debug(message: string, data?: Record<string, unknown>) {
     console.debug(message, data ?? "");
@@ -294,6 +421,7 @@ const consoleLogger = {
   }
 };
 
+/** Reads and parses a JSON HTTP request body. */
 async function readJson(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -302,6 +430,28 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+/** Converts a Node request into a Fetch Request for auth/session code. */
+function toFetchRequest(request: IncomingMessage): Request {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(request.headers)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        headers.append(key, entry);
+      }
+    } else if (value !== undefined) {
+      headers.set(key, value);
+    }
+  }
+
+  const protocol = headers.get("x-forwarded-proto") ?? "http";
+  const host = headers.get("host") ?? "127.0.0.1";
+  return new Request(`${protocol}://${host}${request.url ?? "/"}`, {
+    headers,
+    method: request.method
+  });
+}
+
+/** Validates an arbitrary value as a JSON-RPC request. */
 function assertJsonRpcRequest(value: unknown): JsonRpcRequest {
   if (!value || typeof value !== "object") {
     throw new JsonRpcError(-32600, "Request must be a JSON object.");
@@ -320,6 +470,7 @@ function assertJsonRpcRequest(value: unknown): JsonRpcRequest {
   };
 }
 
+/** Normalizes unknown errors into JSON-RPC error payloads. */
 function normalizeError(error: unknown): JsonRpcErrorPayload {
   if (error instanceof JsonRpcError) {
     return {

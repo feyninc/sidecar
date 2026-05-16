@@ -1,3 +1,4 @@
+/** TypeScript and lightweight Zod-to-JSON-Schema extraction. */
 import { emptyObjectSchema, type JsonSchema } from "@sidecar/core";
 import {
   Node,
@@ -10,8 +11,10 @@ import {
   type Type,
 } from "ts-morph";
 
+/** Supported AST nodes that can execute a Sidecar tool. */
 export type ExecutableNode = MethodDeclaration | ArrowFunction | FunctionExpression;
 
+/** Builds the input schema from explicit params or the execute param type. */
 export function getParamsSchema(
   definition: ObjectLiteralExpression,
   execute: ExecutableNode,
@@ -35,6 +38,7 @@ export function getParamsSchema(
   );
 }
 
+/** Builds the output schema from explicit output or the execute return type. */
 export function getOutputSchema(
   definition: ObjectLiteralExpression,
   execute: ExecutableNode,
@@ -52,6 +56,7 @@ export function getOutputSchema(
   return typeToJsonSchema(returnType);
 }
 
+/** Extracts a small JSON Schema subset from `params: z.object(...)`. */
 function getSchemaFromZodProperty(
   property: PropertyAssignment,
 ): JsonSchema | undefined {
@@ -73,6 +78,7 @@ function getSchemaFromZodProperty(
   return undefined;
 }
 
+/** Converts a Zod object literal shape into JSON Schema. */
 function zodObjectLiteralToSchema(shape: ObjectLiteralExpression): JsonSchema {
   const properties: Record<string, JsonSchema> = {};
   const required: string[] = [];
@@ -103,6 +109,7 @@ function zodObjectLiteralToSchema(shape: ObjectLiteralExpression): JsonSchema {
   };
 }
 
+/** Converts a supported Zod expression into a property schema. */
 function zodExpressionToSchema(expression: Node): {
   schema: JsonSchema;
   optional: boolean;
@@ -141,6 +148,7 @@ function zodExpressionToSchema(expression: Node): {
   return { schema, optional };
 }
 
+/** Converts a TypeScript type into a JSON Schema object. */
 function typeToJsonSchema(type: Type, description?: string): JsonSchema {
   const withoutUndefined = removeUndefined(type);
   const schema = typeToJsonSchemaInner(withoutUndefined);
@@ -150,6 +158,7 @@ function typeToJsonSchema(type: Type, description?: string): JsonSchema {
   return schema;
 }
 
+/** Recursively maps TypeScript primitives, unions, arrays, tuples, and objects. */
 function typeToJsonSchemaInner(type: Type): JsonSchema {
   if (type.isString() || type.isStringLiteral()) {
     return literalOrPrimitive(type, "string");
@@ -195,6 +204,7 @@ function typeToJsonSchemaInner(type: Type): JsonSchema {
   return {};
 }
 
+/** Converts object properties into JSON Schema properties and required lists. */
 function objectTypeToSchema(properties: MorphSymbol[]): JsonSchema {
   const schemaProperties: Record<string, JsonSchema> = {};
   const required: string[] = [];
@@ -228,6 +238,7 @@ function objectTypeToSchema(properties: MorphSymbol[]): JsonSchema {
   };
 }
 
+/** Returns a literal const schema when possible, otherwise a primitive schema. */
 function literalOrPrimitive(
   type: Type,
   primitive: "string" | "number" | "boolean",
@@ -238,12 +249,14 @@ function literalOrPrimitive(
   return { type: primitive };
 }
 
+/** Returns true for literal string, number, and boolean types. */
 function isLiteralType(type: Type): boolean {
   return (
     type.isStringLiteral() || type.isNumberLiteral() || type.isBooleanLiteral()
   );
 }
 
+/** Reads a JavaScript literal value from a TypeScript literal type. */
 function literalValue(type: Type): string | number | boolean {
   if (type.isStringLiteral()) return String(type.getLiteralValue());
   if (type.isNumberLiteral()) return Number(type.getLiteralValue());
@@ -251,6 +264,7 @@ function literalValue(type: Type): string | number | boolean {
   return text === "true";
 }
 
+/** Unwraps `Promise<T>` return types for output schema inference. */
 function unwrapPromiseType(type: Type): Type {
   if (!type.getText().startsWith("Promise<")) {
     return type;
@@ -259,6 +273,7 @@ function unwrapPromiseType(type: Type): Type {
   return args[0] ?? type;
 }
 
+/** Removes `undefined` from simple union types. */
 function removeUndefined(type: Type): Type {
   if (!type.isUnion()) {
     return type;
@@ -270,12 +285,14 @@ function removeUndefined(type: Type): Type {
   return nonUndefined.length === 1 ? nonUndefined[0]! : type;
 }
 
+/** Returns true when a union includes `undefined`. */
 function containsUndefined(type: Type): boolean {
   return (
     type.isUnion() && type.getUnionTypes().some((part) => part.isUndefined())
   );
 }
 
+/** Reads the first JSDoc description attached to a symbol. */
 function schemaDescription(
   symbol: MorphSymbol | undefined,
 ): string | undefined {

@@ -1,9 +1,11 @@
+/** Project identity loading for generated manifests and plugin packages. */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { toMachineName } from "@sidecar/core";
 import type { ProjectIdentity } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
 
+/** Loads project name, slug, version, and description from config/package metadata. */
 export async function loadProjectIdentity(
   rootDir: string,
 ): Promise<ProjectIdentity> {
@@ -32,6 +34,7 @@ export async function loadProjectIdentity(
   };
 }
 
+/** Reads JSON when the file exists. */
 async function readOptionalJson(
   filePath: string,
 ): Promise<Record<string, string> | undefined> {
@@ -42,6 +45,7 @@ async function readOptionalJson(
   return JSON.parse(await readFile(filePath, "utf8")) as Record<string, string>;
 }
 
+/** Reads text when the file exists. */
 async function readOptionalText(filePath: string): Promise<string | undefined> {
   if (!existsSyncSafe(filePath)) {
     return undefined;
@@ -50,6 +54,7 @@ async function readOptionalText(filePath: string): Promise<string | undefined> {
   return readFile(filePath, "utf8");
 }
 
+/** Extracts a simple string property from `sidecar.config.ts` without executing it. */
 function readConfigString(
   configText: string | undefined,
   key: string,

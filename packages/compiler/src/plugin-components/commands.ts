@@ -1,3 +1,4 @@
+/** Claude slash-command generation from static markdown or typed command files. */
 import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -7,6 +8,7 @@ import {
   stripUndefined,
 } from "../utils.js";
 
+/** Copies markdown commands and emits `command.ts` declarations as markdown. */
 export async function copyCommands(
   rootDir: string,
   destination: string,
@@ -44,6 +46,7 @@ export async function copyCommands(
   }
 }
 
+/** Parses a typed command declaration into Claude slash-command markdown. */
 function parseDynamicCommand(source: string, fallbackName: string): string {
   const name = readObjectString(source, "name") ?? fallbackName;
   const description = readObjectString(source, "description");

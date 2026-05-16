@@ -10,6 +10,7 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
+    "@sidecar/auth": "0.0.0-dev",
     "@sidecar/compiler": "0.0.0-dev",
     "@sidecar/core": "0.0.0-dev",
     "@sidecar/server": "0.0.0-dev",

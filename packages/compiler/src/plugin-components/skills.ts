@@ -1,8 +1,10 @@
+/** Skill copying and typed skill generation for plugin outputs. */
 import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { existsSyncSafe, readObjectString } from "../utils.js";
 
+/** Copies static skills or emits `skill.ts` declarations as `SKILL.md`. */
 export async function copySkills(
   rootDir: string,
   destination: string,
@@ -40,6 +42,7 @@ export async function copySkills(
   }
 }
 
+/** Parses a typed skill declaration into a `SKILL.md` document. */
 function parseDynamicSkill(source: string, fallbackName: string): string {
   const name = readObjectString(source, "name") ?? fallbackName;
   const description =

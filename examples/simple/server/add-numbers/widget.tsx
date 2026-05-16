@@ -1,3 +1,4 @@
+/** Example React widget rendered for the sibling Add Numbers tool. */
 import { useToolResult } from "@sidecar/react";
 import { Button } from "@sidecar/native/components";
 
@@ -5,6 +6,7 @@ type Result = {
   sum: number;
 };
 
+/** Renders the structured result from the Add Numbers tool. */
 export default function AddNumbersWidget() {
   const { structured } = useToolResult<Result>();
 

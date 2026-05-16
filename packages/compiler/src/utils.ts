@@ -1,10 +1,13 @@
+/** Shared compiler utility helpers. */
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+/** Safe filesystem existence check wrapped for testability and consistency. */
 export function existsSyncSafe(filePath: string): boolean {
   return existsSync(filePath);
 }
 
+/** Creates an ESM import specifier from one file location to another. */
 export function toImportSpecifier(
   fromDir: string,
   toFile: string,
@@ -23,6 +26,7 @@ export function toImportSpecifier(
   }
 }
 
+/** Converts a tool id into a valid JavaScript property identifier. */
 export function toIdentifier(value: string): string {
   const identifier = value
     .replace(/[^A-Za-z0-9]+(.)/g, (_match, char: string) => char.toUpperCase())
@@ -32,10 +36,12 @@ export function toIdentifier(value: string): string {
   return identifier || "tool";
 }
 
+/** Sanitizes a value for use as a path segment. */
 export function safePathSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, "_");
 }
 
+/** Escapes text that will be embedded into HTML. */
 export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -44,12 +50,14 @@ export function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+/** Drops undefined values from JSON-like objects before writing files. */
 export function stripUndefined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(
     Object.entries(value).filter(([, entry]) => entry !== undefined),
   ) as T;
 }
 
+/** Reads a simple string property from a TypeScript object literal string. */
 export function readObjectString(source: string, key: string): string | undefined {
   const match = source.match(
     new RegExp(`${key}\\s*:\\s*(["'\`])([\\s\\S]*?)\\1`),
@@ -57,6 +65,7 @@ export function readObjectString(source: string, key: string): string | undefine
   return match?.[2]?.trim();
 }
 
+/** Reads a simple string array property from a TypeScript object literal string. */
 export function readObjectStringArray(
   source: string,
   key: string,

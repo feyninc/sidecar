@@ -1,3 +1,4 @@
+/** Tests for core tool declaration and result normalization. */
 import { describe, expect, it } from "vitest";
 import { createToolDescriptor, executeTool, result, tool, type ToolContext } from "../src/index.js";
 
@@ -56,6 +57,7 @@ describe("tool", () => {
   });
 });
 
+/** Creates the minimal context needed to execute a tool in tests. */
 function testContext(): ToolContext {
   return {
     auth: undefined,

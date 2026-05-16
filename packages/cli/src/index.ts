@@ -1,16 +1,24 @@
 #!/usr/bin/env node
+/**
+ * Sidecar command-line interface.
+ *
+ * The CLI currently provides the vertical slice needed for local development:
+ * static inspection, build output generation, and a dev MCP server.
+ */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { cwd, exit } from "node:process";
 import { tsImport } from "tsx/esm/api";
+import { isSidecarAuth, type SidecarAuth } from "@sidecar/auth";
 import { buildProject, analyzeProjectTools, type SidecarManifest } from "@sidecar/compiler";
 import { isSidecarTool } from "@sidecar/core";
 import { createSidecarHttpServer, type LoadedResource, type LoadedTool } from "@sidecar/server";
 
 type Command = "build" | "dev" | "inspect" | "help";
 
+/** Dispatches the requested CLI command. */
 async function main(argv: string[]): Promise<void> {
   const command = (argv[2] ?? "help") as Command;
   const rootDir = readOption(argv, "--cwd") ?? cwd();
@@ -32,11 +40,13 @@ async function main(argv: string[]): Promise<void> {
       const outDir = ".sidecar/dev/mcp";
       const manifest = await buildProject({ rootDir, outDir });
       const tools = await loadRuntimeTools(rootDir, manifest);
+      const auth = await loadRuntimeAuth(rootDir);
       const resources = await loadResources(rootDir, outDir, manifest);
       const server = createSidecarHttpServer({
         name: "sidecar-dev",
         version: "0.0.0-dev",
         path: "/mcp",
+        auth,
         tools,
         resources
       });
@@ -75,6 +85,29 @@ Usage:
   }
 }
 
+/** Loads `auth.ts` at runtime for the dev server when present. */
+async function loadRuntimeAuth(rootDir: string): Promise<SidecarAuth | undefined> {
+  const authPath = path.join(rootDir, "auth.ts");
+  if (!existsSync(authPath)) {
+    return undefined;
+  }
+
+  const parentURL = pathToFileURL(path.join(rootDir, "sidecar.config.ts")).href;
+  const tsconfigPath = path.join(rootDir, "tsconfig.json");
+  const tsconfig = existsSync(tsconfigPath) ? tsconfigPath : false;
+  const module = (await tsImport(pathToFileURL(authPath).href, {
+    parentURL,
+    tsconfig
+  })) as { default?: unknown };
+
+  if (!isSidecarAuth(module.default)) {
+    throw new Error("auth.ts must default-export auth({ ... }) from @sidecar/auth.");
+  }
+
+  return module.default;
+}
+
+/** Imports built-time discovered tools for the dev server. */
 async function loadRuntimeTools(rootDir: string, manifest: SidecarManifest): Promise<LoadedTool[]> {
   const parentURL = pathToFileURL(path.join(rootDir, "sidecar.config.ts")).href;
   const tsconfigPath = path.join(rootDir, "tsconfig.json");
@@ -101,6 +134,7 @@ async function loadRuntimeTools(rootDir: string, manifest: SidecarManifest): Pro
   return loaded;
 }
 
+/** Reads generated widget resources so the dev server can serve them through MCP. */
 async function loadResources(rootDir: string, outDir: string, manifest: SidecarManifest): Promise<LoadedResource[]> {
   const resources: LoadedResource[] = [];
   for (const entry of manifest.tools) {
@@ -120,6 +154,7 @@ async function loadResources(rootDir: string, outDir: string, manifest: SidecarM
   return resources;
 }
 
+/** Reads a simple `--name value` option from argv. */
 function readOption(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name);
   if (index === -1) {

@@ -1,3 +1,4 @@
+/** Example public tool that relies on the default public auth policy. */
 import { tool } from "@sidecar/core";
 
 type Params = {

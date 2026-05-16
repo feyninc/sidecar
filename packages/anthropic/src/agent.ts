@@ -1,3 +1,6 @@
+/** Typed authoring helpers for Claude plugin subagents. */
+
+/** Claude plugin subagent definition emitted as markdown frontmatter and body. */
 export type ClaudeAgentDefinition = {
   name: string;
   description: string;
@@ -8,6 +11,7 @@ export type ClaudeAgentDefinition = {
   color?: string;
 };
 
+/** Declares a Claude plugin subagent. */
 export function agent(
   definition: ClaudeAgentDefinition,
 ): ClaudeAgentDefinition {

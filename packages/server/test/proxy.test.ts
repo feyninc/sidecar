@@ -1,3 +1,4 @@
+/** Tests for Sidecar proxy middleware. */
 import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
 import { describe, expect, it } from "vitest";

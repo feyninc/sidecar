@@ -1,3 +1,4 @@
+/** Example typed skill emitted as SKILL.md. */
 import { skill } from "@sidecar/core";
 
 export default skill({

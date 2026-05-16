@@ -1,7 +1,9 @@
+/** Claude plugin directory passthrough helpers. */
 import { cp } from "node:fs/promises";
 import path from "node:path";
 import { existsSyncSafe } from "../utils.js";
 
+/** Copies Claude-specific directories that Sidecar does not transform yet. */
 export async function copyClaudePassthroughDirectories(
   rootDir: string,
   pluginDir: string,

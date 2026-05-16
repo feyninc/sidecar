@@ -1,3 +1,4 @@
+/** Tests for compiler discovery, schema extraction, widgets, and plugin output. */
 import path from "node:path";
 import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

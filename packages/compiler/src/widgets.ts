@@ -1,3 +1,4 @@
+/** Widget discovery and HTML bundling. */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -6,6 +7,7 @@ import { build as esbuild } from "esbuild";
 import type { SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
 import { escapeHtml, safePathSegment, toImportSpecifier } from "./utils.js";
 
+/** Bundles every discovered `widget.tsx` into a content-hashed HTML resource. */
 export async function buildWidgets(
   rootDir: string,
   outDir: string,
@@ -75,6 +77,7 @@ createRoot(document.getElementById("root")!).render(React.createElement(Componen
   }
 }
 
+/** Finds a sibling `widget.tsx` for a tool file. */
 export function findWidget(
   rootDir: string,
   toolFile: string,
@@ -92,6 +95,7 @@ export function findWidget(
   };
 }
 
+/** Builds standard and ChatGPT-compatible widget metadata for a descriptor. */
 export function widgetMeta(resourceUri: string): Record<string, unknown> {
   return {
     ui: { resourceUri },
@@ -99,6 +103,7 @@ export function widgetMeta(resourceUri: string): Record<string, unknown> {
   };
 }
 
+/** Wraps bundled JavaScript in the minimal transparent widget document. */
 function renderWidgetHtml(title: string, javascript: string): string {
   return `<!doctype html>
 <html lang="en">

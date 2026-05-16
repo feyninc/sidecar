@@ -1,3 +1,4 @@
+/** Plugin package generation for Codex and Claude desktop hosts. */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadProjectIdentity } from "./identity.js";
@@ -9,6 +10,7 @@ import { copySkills } from "./plugin-components/skills.js";
 import type { ProjectIdentity, SidecarManifest } from "./types.js";
 import { existsSyncSafe, stripUndefined } from "./utils.js";
 
+/** Emits all plugin package targets for the current MCP manifest. */
 export async function buildPluginPackages(
   rootDir: string,
   outRoot: string,
@@ -21,6 +23,7 @@ export async function buildPluginPackages(
   ]);
 }
 
+/** Emits a Codex plugin package that references the hosted MCP server. */
 async function buildCodexPlugin(
   rootDir: string,
   outRoot: string,
@@ -75,6 +78,7 @@ Codex plugin hooks are not generated unless the Sidecar project defines hooks, a
   );
 }
 
+/** Emits a Claude/Cowork plugin package that references the hosted MCP server. */
 async function buildClaudePlugin(
   rootDir: string,
   outRoot: string,
@@ -130,6 +134,7 @@ Claude/Cowork plugin-specific components such as skills, slash commands, agents,
   );
 }
 
+/** Writes formatted JSON while dropping undefined fields. */
 async function writeJson(
   filePath: string,
   value: Record<string, unknown>,

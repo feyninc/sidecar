@@ -1,3 +1,4 @@
+/** Static analysis for reserved server tool files. */
 import {
   createToolDescriptor,
   toMachineName,
@@ -25,6 +26,7 @@ import type { SidecarToolManifestEntry } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
 import { findWidget, widgetMeta } from "./widgets.js";
 
+/** Finds all Sidecar tool files under `server/` and returns manifest entries. */
 export async function analyzeProjectTools(
   rootDir: string,
 ): Promise<SidecarToolManifestEntry[]> {
@@ -39,6 +41,7 @@ export async function analyzeProjectTools(
   );
 }
 
+/** Analyzes one `tool.ts` source file into a compiler manifest entry. */
 export function analyzeToolFile(
   sourceFile: SourceFile,
   rootDir: string,
@@ -87,6 +90,7 @@ export function analyzeToolFile(
   };
 }
 
+/** Creates a ts-morph project using the app tsconfig when available. */
 function createProject(rootDir: string): Project {
   const tsconfig = path.join(rootDir, "tsconfig.json");
 
@@ -106,6 +110,7 @@ function createProject(rootDir: string): Project {
   });
 }
 
+/** Finds immediate server child tool files in deterministic order. */
 async function findToolFiles(serverDir: string): Promise<string[]> {
   if (!existsSyncSafe(serverDir)) {
     return [];
@@ -127,6 +132,7 @@ async function findToolFiles(serverDir: string): Promise<string[]> {
   return files.sort();
 }
 
+/** Locates the default-exported `tool({ ... })` object literal. */
 function findToolDefinition(sourceFile: SourceFile): ObjectLiteralExpression {
   const exportAssignment = sourceFile.getExportAssignment(
     (assignment) => !assignment.isExportEquals(),
@@ -160,6 +166,7 @@ function findToolDefinition(sourceFile: SourceFile): ObjectLiteralExpression {
   return definition;
 }
 
+/** Reads the supported `execute` declaration shapes from a tool definition. */
 function getExecuteFunction(
   definition: ObjectLiteralExpression,
   sourceFile: SourceFile,
@@ -193,6 +200,7 @@ function getExecuteFunction(
   );
 }
 
+/** Reads a required string property from the tool object. */
 function getRequiredStringProperty(
   definition: ObjectLiteralExpression,
   propertyName: string,
@@ -208,6 +216,7 @@ function getRequiredStringProperty(
   return value;
 }
 
+/** Reads an optional string literal property from the tool object. */
 function getOptionalStringProperty(
   definition: ObjectLiteralExpression,
   propertyName: string,
@@ -225,6 +234,7 @@ function getOptionalStringProperty(
   return initializer.getLiteralText();
 }
 
+/** Extracts static MCP annotation hints from the tool object. */
 function readAnnotations(
   definition: ObjectLiteralExpression,
 ): ToolAnnotations | undefined {

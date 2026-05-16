@@ -1,3 +1,5 @@
+/** Aggregated Claude plugin authoring entrypoint. */
+
 export { agent, type ClaudeAgentDefinition } from "./agent.js";
 export {
   command,
@@ -18,6 +20,7 @@ export {
 } from "./mcp.js";
 export { skill, type ClaudeSkillDefinition } from "./skill.js";
 
+/** Claude plugin manifest fields Sidecar can generate. */
 export type ClaudePluginDefinition = {
   name: string;
   version: string;
@@ -26,6 +29,7 @@ export type ClaudePluginDefinition = {
   installationPreference?: "enabled" | "available" | "disabled" | (string & {});
 };
 
+/** Declares Claude plugin manifest metadata. */
 export function claudePlugin(
   definition: ClaudePluginDefinition,
 ): ClaudePluginDefinition {
