@@ -182,6 +182,12 @@ export function createToolClient<TTools extends ToolClientShape>(
     {},
     {
       get(_target, property) {
+        if (typeof property !== "string" || property === "then" || property === "catch" || property === "finally") {
+          return undefined;
+        }
+        if (!(property in names)) {
+          return undefined;
+        }
         const method = property as Extract<keyof TTools, string>;
         return (params: Record<string, unknown>) =>
           bridge.callTool(String(names[method]), params);

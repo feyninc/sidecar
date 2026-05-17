@@ -11,6 +11,7 @@ export async function writeGeneratedTypes(
 ): Promise<void> {
   const generatedDir = path.join(rootDir, ".sidecar", "generated");
   await mkdir(generatedDir, { recursive: true });
+  const methodNames = uniqueMethodNames(tools.map((entry) => toIdentifier(entry.id)));
 
   const imports = tools
     .map(
@@ -19,12 +20,12 @@ export async function writeGeneratedTypes(
     )
     .join("\n");
   const ids = tools
-    .map((entry) => `  ${toIdentifier(entry.id)}: ${JSON.stringify(entry.id)}`)
+    .map((entry, index) => `  ${methodNames[index]}: ${JSON.stringify(entry.id)}`)
     .join(",\n");
   const toolTypes = tools
     .map(
       (entry, index) =>
-        `  ${toIdentifier(entry.id)}(params: ToolParams<typeof tool${index}>): Promise<ToolOutput<typeof tool${index}>>;`,
+        `  ${methodNames[index]}(params: ToolParams<typeof tool${index}>): Promise<ToolOutput<typeof tool${index}>>;`,
     )
     .join("\n");
 
@@ -59,4 +60,14 @@ ${toolTypes}
 export const tools = createToolClient<WidgetTools>(toolIds);
 `,
   );
+}
+
+/** Ensures generated widget method names cannot silently collide. */
+function uniqueMethodNames(names: string[]): string[] {
+  const seen = new Map<string, number>();
+  return names.map((name) => {
+    const count = seen.get(name) ?? 0;
+    seen.set(name, count + 1);
+    return count === 0 ? name : `${name}${count + 1}`;
+  });
 }

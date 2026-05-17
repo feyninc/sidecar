@@ -1,8 +1,8 @@
 /** Skill copying and typed skill generation for plugin outputs. */
 import { existsSync } from "node:fs";
-import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { existsSyncSafe, readObjectString } from "../utils.js";
+import { existsSyncSafe, readObjectString, yamlScalar } from "../utils.js";
 
 /** Copies static skills or emits `skill.ts` declarations as `SKILL.md`. */
 export async function copySkills(
@@ -30,7 +30,9 @@ export async function copySkills(
     if (existsSync(staticSkill)) {
       await cp(sourceDir, destinationDir, {
         recursive: true,
-        filter: (sourcePath) => !sourcePath.endsWith(`${path.sep}skill.ts`),
+        filter: async (sourcePath) =>
+          !sourcePath.endsWith(`${path.sep}skill.ts`) &&
+          await safeSkillCopyFilter(sourcePath),
       });
     } else if (existsSync(dynamicSkill)) {
       const generated = parseDynamicSkill(
@@ -42,6 +44,16 @@ export async function copySkills(
   }
 }
 
+/** Avoids copying symlinks and common secret files into generated plugins. */
+async function safeSkillCopyFilter(sourcePath: string): Promise<boolean> {
+  const basename = path.basename(sourcePath);
+  if (basename === ".env" || basename.startsWith(".env.") || basename === "node_modules" || basename === ".git") {
+    return false;
+  }
+  const stat = await lstat(sourcePath);
+  return !stat.isSymbolicLink();
+}
+
 /** Parses a typed skill declaration into a `SKILL.md` document. */
 function parseDynamicSkill(source: string, fallbackName: string): string {
   const name = readObjectString(source, "name") ?? fallbackName;
@@ -49,9 +61,9 @@ function parseDynamicSkill(source: string, fallbackName: string): string {
     readObjectString(source, "description") ?? `${name} skill.`;
   const body = readObjectString(source, "body") ?? "";
 
-  return `---
-name: ${name}
-description: ${description}
+return `---
+name: ${yamlScalar(name)}
+description: ${yamlScalar(description)}
 ---
 
 ${body.trim()}

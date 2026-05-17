@@ -5,7 +5,9 @@ import {
   existsSyncSafe,
   readObjectString,
   readObjectStringArray,
+  safeFileStem,
   stripUndefined,
+  yamlScalar,
 } from "../utils.js";
 
 /** Emits `agents/*.md` from reserved agent directories. */
@@ -36,7 +38,7 @@ export async function emitClaudeAgents(
     const agentName =
       readObjectString(sourceText, "name") ??
       entry.name;
-    await writeFile(path.join(destination, `${agentName}.md`), markdown);
+    await writeFile(path.join(destination, `${safeFileStem(agentName)}.md`), markdown);
   }
 }
 
@@ -62,7 +64,7 @@ function parseClaudeAgent(source: string, fallbackName: string): string {
 
   return `---
 ${Object.entries(frontmatter)
-  .map(([key, value]) => `${key}: ${value}`)
+  .map(([key, value]) => `${key}: ${yamlScalar(value)}`)
   .join("\n")}
 ---
 

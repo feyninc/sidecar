@@ -71,6 +71,27 @@ describe("tool", () => {
       additionalProperties: false
     });
   });
+
+  it("advertises tool auth requirements in descriptor security schemes", () => {
+    const descriptor = createToolDescriptor({
+      name: "Review Expense Report",
+      description: "Use this when reviewing one expense report.",
+      auth: {
+        scopes: [{
+          kind: "sidecar.scope",
+          id: "expenses.read",
+          description: "Read expenses."
+        }]
+      }
+    });
+
+    expect(descriptor.securitySchemes).toEqual([
+      { type: "oauth2", scopes: ["expenses.read"] }
+    ]);
+    expect(descriptor._meta).toMatchObject({
+      securitySchemes: [{ type: "oauth2", scopes: ["expenses.read"] }]
+    });
+  });
 });
 
 /** Creates the minimal context needed to execute a tool in tests. */

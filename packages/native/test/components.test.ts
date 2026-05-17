@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import * as anthropicComponents from "../../anthropic/src/components.js";
+import { links } from "../src/index.js";
 import {
   Alert,
   Button,
@@ -18,6 +19,13 @@ import {
 } from "../src/components/index.js";
 
 describe("@sidecar/native components", () => {
+  it("denies unsafe external URL schemes before host fallback", async () => {
+    await expect(links.openExternal("javascript:alert(1)")).resolves.toMatchObject({
+      ok: false,
+      reason: "denied",
+    });
+  });
+
   it("renders shared primitives with the adaptive recipe by default", () => {
     const html = renderToStaticMarkup(
       createElement(Button, { color: "primary", variant: "solid" }, "Approve"),

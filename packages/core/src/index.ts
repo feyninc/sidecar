@@ -56,6 +56,14 @@ export type JsonSchema = {
   format?: string;
 };
 
+/** Descriptor-level auth scheme advertised to MCP/App clients. */
+export type SecurityScheme =
+  | { type: "noauth" }
+  | {
+      type: "oauth2";
+      scopes: string[];
+    };
+
 /** MCP tool annotation hints used by hosts to understand tool behavior. */
 export type ToolAnnotations = {
   /** Human-facing display title. Defaults to the tool name. */
@@ -336,6 +344,7 @@ export type McpToolDescriptor = {
   description: string;
   inputSchema: JsonSchema;
   outputSchema?: JsonSchema;
+  securitySchemes?: SecurityScheme[];
   annotations?: ToolAnnotations;
   _meta?: Record<string, unknown>;
 };
@@ -513,6 +522,7 @@ export function createToolDescriptor(definition: {
   visibility?: ToolVisibility;
   hosts?: ToolHostExtensions;
   meta?: Record<string, unknown>;
+  auth?: ToolAuthPolicy<unknown>;
 }): McpToolDescriptor {
   const machineName = definition.id ?? toMachineName(definition.name);
 
@@ -525,13 +535,35 @@ export function createToolDescriptor(definition: {
     description: definition.description,
     inputSchema: definition.inputSchema ?? emptyObjectSchema(),
     outputSchema: definition.outputSchema,
+    securitySchemes: securitySchemes(definition.auth),
     annotations: withAnnotationDefaults(definition.annotations),
     _meta: mergeMeta(
+      securitySchemesMeta(definition.auth),
       visibilityMeta(definition.visibility),
       target === "chatgpt" ? chatGptToolMeta(definition.hosts?.chatgpt) : undefined,
       definition.meta
     )
   });
+}
+
+/** Converts a Sidecar auth policy into descriptor security schemes. */
+function securitySchemes(policy: ToolAuthPolicy<unknown> | undefined): SecurityScheme[] {
+  if (!policy || policy.public === true) {
+    return [{ type: "noauth" }];
+  }
+
+  if ("scopes" in policy && policy.scopes?.length) {
+    return [{ type: "oauth2", scopes: policy.scopes.map((entry) => entry.id) }];
+  }
+
+  return [{ type: "oauth2", scopes: [] }];
+}
+
+/** Mirrors security schemes into `_meta` for older Apps clients. */
+function securitySchemesMeta(policy: ToolAuthPolicy<unknown> | undefined): Record<string, unknown> {
+  return {
+    securitySchemes: securitySchemes(policy),
+  };
 }
 
 /** Returns scope ids required by a tool's auth policy. */
@@ -629,7 +661,13 @@ export function toMachineName(name: string): string {
 
 /** Throws when a machine tool id is not MCP-safe. */
 export function validateToolId(id: string): void {
-  if (!/^[A-Za-z0-9._-]{1,128}$/.test(id)) {
+  if (
+    !/^[A-Za-z0-9._-]{1,128}$/.test(id) ||
+    id === "." ||
+    id === ".." ||
+    id.includes("/..") ||
+    id.includes("../")
+  ) {
     throw new SidecarDefinitionError(
       `Invalid tool id "${id}". Tool ids must be 1-128 ASCII letters, digits, dots, hyphens, or underscores.`
     );

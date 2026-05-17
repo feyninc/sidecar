@@ -2,7 +2,7 @@
 import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
 import { describe, expect, it } from "vitest";
-import { origin, rateLimit, runProxy } from "../src/proxy.js";
+import { origin, proxy, rateLimit, runProxy } from "../src/proxy.js";
 
 describe("proxy middleware", () => {
   it("rejects disallowed origins", async () => {
@@ -11,9 +11,9 @@ describe("proxy middleware", () => {
 
     await expect(
       runProxy(
-        {
+        proxy({
           before: [origin({ allow: ["https://chatgpt.com"] })]
-        },
+        }),
         request
       )
     ).resolves.toMatchObject({
@@ -25,8 +25,9 @@ describe("proxy middleware", () => {
     const request = new IncomingMessage(new Socket());
 
     const limiter = rateLimit({ windowMs: 1_000, max: 1 });
-    await expect(runProxy({ before: [limiter] }, request)).resolves.toBeUndefined();
-    await expect(runProxy({ before: [limiter] }, request)).resolves.toMatchObject({
+    const proxyConfig = proxy({ before: [limiter] });
+    await expect(runProxy(proxyConfig, request)).resolves.toBeUndefined();
+    await expect(runProxy(proxyConfig, request)).resolves.toMatchObject({
       status: 429
     });
   });

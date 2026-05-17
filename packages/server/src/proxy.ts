@@ -19,14 +19,28 @@ export type ProxyMiddleware = (request: IncomingMessage) => ProxyResult | undefi
 
 /** Ordered proxy middleware configuration. */
 export type SidecarProxy = {
+  readonly kind: "sidecar.proxy";
   before: ProxyMiddleware[];
 };
+
+const proxyBrand = Symbol.for("sidecar.proxy");
 
 /** Creates a proxy middleware container. */
 export function proxy(options: { before?: ProxyMiddleware[] } = {}): SidecarProxy {
   return {
+    kind: "sidecar.proxy",
+    [proxyBrand]: true,
     before: options.before ?? []
-  };
+  } as SidecarProxy;
+}
+
+/** Returns true when a value was created by `proxy()`. */
+export function isSidecarProxy(value: unknown): value is SidecarProxy {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      (value as Record<symbol, unknown>)[proxyBrand] === true,
+  );
 }
 
 /** Runs configured proxy middleware until one returns a response. */
@@ -73,15 +87,29 @@ export function requestId(header = "x-sidecar-request-id"): ProxyMiddleware {
 }
 
 /** In-memory per-process rate limiter for dev and simple deployments. */
-export function rateLimit(options: { windowMs: number; max: number }): ProxyMiddleware {
+export function rateLimit(options: {
+  windowMs: number;
+  max: number;
+  key?: (request: IncomingMessage) => string;
+  maxKeys?: number;
+}): ProxyMiddleware {
   const hits = new Map<string, { count: number; resetAt: number }>();
+  let lastPrunedAt = 0;
 
   return (request) => {
-    const key = request.socket.remoteAddress ?? "unknown";
     const now = Date.now();
+    if (now - lastPrunedAt > options.windowMs) {
+      pruneExpired(hits, now);
+      lastPrunedAt = now;
+    }
+
+    const key = options.key?.(request) ?? request.socket.remoteAddress ?? "unknown";
     const current = hits.get(key);
 
     if (!current || current.resetAt <= now) {
+      if (hits.size >= (options.maxKeys ?? 10_000)) {
+        pruneExpired(hits, now);
+      }
       hits.set(key, { count: 1, resetAt: now + options.windowMs });
       return undefined;
     }
@@ -100,6 +128,18 @@ export function rateLimit(options: { windowMs: number; max: number }): ProxyMidd
       body: JSON.stringify({ error: "rate_limited" })
     };
   };
+}
+
+/** Removes expired rate-limit buckets so long-running dev servers do not leak keys. */
+function pruneExpired(
+  hits: Map<string, { count: number; resetAt: number }>,
+  now: number,
+): void {
+  for (const [key, value] of hits) {
+    if (value.resetAt <= now) {
+      hits.delete(key);
+    }
+  }
 }
 
 /** Matches exact origin strings or wildcard dev patterns. */

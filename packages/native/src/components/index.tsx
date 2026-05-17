@@ -244,7 +244,7 @@ export const ButtonLink = React.forwardRef<HTMLAnchorElement, ButtonLinkProps>(f
       "data-sc-uniform": uniform ? "" : undefined,
       "data-sc-variant": visual.variant,
       href,
-      rel: isExternal && target === "_blank" ? "noreferrer" : rel,
+      rel: isExternal && target === "_blank" ? mergeRel(rel, "noopener noreferrer") : rel,
       target,
       ...props,
     },
@@ -1911,7 +1911,7 @@ export const TextLink = React.forwardRef<HTMLAnchorElement, TextLinkProps>(funct
       "data-sc-recipe": recipe,
       "data-sc-underline": underline ? "" : undefined,
       href,
-      rel: external && target === "_blank" ? "noreferrer" : rel,
+      rel: external && target === "_blank" ? mergeRel(rel, "noopener noreferrer") : rel,
       target,
       ...props,
     },
@@ -2354,6 +2354,11 @@ function toneToColor(tone?: "default" | "success" | "warning" | "danger") {
     case undefined:
       return undefined;
   }
+}
+
+/** Merges anchor rel tokens without duplicating caller-supplied values. */
+function mergeRel(current: string | undefined, required: string): string {
+  return [...new Set([...(current?.split(/\s+/).filter(Boolean) ?? []), ...required.split(/\s+/)])].join(" ");
 }
 
 function useControllableValue<T>({

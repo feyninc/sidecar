@@ -31,6 +31,17 @@ describe("createToolClient", () => {
       { name: "add_numbers", params: { a: 3, b: 4 } }
     ]);
   });
+
+  it("does not synthesize calls for promise probes or unknown properties", () => {
+    type Tools = {
+      addNumbers(params: { a: number; b: number }): Promise<{ sum: number }>;
+    };
+
+    const tools = createToolClient<Tools>({ addNumbers: "add_numbers" });
+
+    expect((tools as unknown as { then?: unknown }).then).toBeUndefined();
+    expect((tools as unknown as { missing?: unknown }).missing).toBeUndefined();
+  });
 });
 
 describe("detectHostContext", () => {

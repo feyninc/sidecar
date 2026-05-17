@@ -290,6 +290,10 @@ export const files = {
 export const links = {
   /** Opens an external URL through the host bridge when possible. */
   async openExternal(url: string): Promise<HostFeatureResult> {
+    if (!isAllowedExternalUrl(url)) {
+      return { ok: false, reason: "denied", message: "Only http, https, and mailto URLs can be opened externally." };
+    }
+
     const openai = readOpenAI();
     if (openai?.openExternal) {
       try {
@@ -310,6 +314,16 @@ export const links = {
       : { ok: false, reason: "denied", message: "The host blocked the popup." };
   },
 };
+
+/** Allows only URL schemes that are safe for external navigation helpers. */
+function isAllowedExternalUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" || url.protocol === "mailto:";
+  } catch {
+    return false;
+  }
+}
 
 type OpenAIBridge = {
   requestDisplayMode?: (request: { mode: DisplayMode }) => Promise<void>;

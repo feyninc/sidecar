@@ -2,7 +2,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { analyzeProjectTools } from "./analyze.js";
-import { collectProjectDiagnostics } from "./diagnostics.js";
+import { collectProjectDiagnostics, formatDiagnostic } from "./diagnostics.js";
 import { writeGeneratedTypes } from "./generated.js";
 import { buildPluginPackages } from "./plugins.js";
 import type { BuildProjectOptions, SidecarManifest } from "./types.js";
@@ -16,13 +16,18 @@ export async function buildProject(
   const target = options.target ?? "mcp";
   const tools = await analyzeProjectTools(rootDir, { target });
   const diagnostics = await collectProjectDiagnostics(rootDir, tools);
-  const outDir = path.resolve(rootDir, options.outDir ?? "out/mcp");
+  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  if (errors.length) {
+    throw new Error(errors.map(formatDiagnostic).join("\n"));
+  }
+
+  const outDir = resolveInsideRoot(rootDir, options.outDir ?? "out/mcp");
   await buildWidgets(rootDir, outDir, tools);
 
   const manifest: SidecarManifest = {
     version: 1,
     target,
-    rootDir,
+    rootDir: ".",
     generatedAt: new Date().toISOString(),
     tools,
     diagnostics,
@@ -40,6 +45,16 @@ export async function buildProject(
   }
 
   return manifest;
+}
+
+/** Resolves build output paths while preventing writes outside the project. */
+function resolveInsideRoot(rootDir: string, output: string): string {
+  const resolved = path.resolve(rootDir, output);
+  const relative = path.relative(rootDir, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Build output must stay inside the project root: ${output}`);
+  }
+  return resolved;
 }
 
 /** Renders a short build README with detected tools and install context. */

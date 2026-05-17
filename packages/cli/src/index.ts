@@ -24,7 +24,7 @@ import {
   type SidecarTarget,
 } from "@sidecar/compiler";
 import { isSidecarTool } from "@sidecar/core";
-import { createSidecarHttpServer, type LoadedResource, type LoadedTool } from "@sidecar/server";
+import { createSidecarHttpServer, isSidecarProxy, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar/server";
 import { startTunnel, type TunnelProvider, type TunnelSession } from "./tunnel.js";
 
 type Command = "build" | "check" | "dev" | "inspect" | "preview" | "help";
@@ -82,17 +82,19 @@ export async function main(argv: string[]): Promise<void> {
 
       const loadedAuth = await loadRuntimeAuth(rootDir);
       const auth = loadedAuth && tunnel ? loadedAuth.withResource(tunnel.mcpUrl) : loadedAuth;
+      const proxy = await loadRuntimeProxy(rootDir);
       const resources = await loadResources(rootDir, outDir, manifest);
       const server = createSidecarHttpServer({
         name: "sidecar-dev",
         version: "0.0.0-dev",
         path: "/mcp",
         auth,
+        proxy,
         tools,
         resources
       });
 
-      server.listen(port, () => {
+      server.listen(port, "127.0.0.1", () => {
         console.log(`MCP running on Streamable HTTP (${target}) at http://127.0.0.1:${port}/mcp`);
         console.log(`Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"} and ${resources.length} resource${resources.length === 1 ? "" : "s"}.`);
         if (tunnel) {
@@ -691,6 +693,28 @@ async function loadRuntimeAuth(rootDir: string): Promise<SidecarAuth | undefined
 
   if (!isSidecarAuth(module.default)) {
     throw new Error("auth.ts must default-export auth({ ... }) from @sidecar/auth.");
+  }
+
+  return module.default;
+}
+
+/** Loads `proxy.ts` at runtime for the dev server when present. */
+async function loadRuntimeProxy(rootDir: string): Promise<SidecarProxy | undefined> {
+  const proxyPath = path.join(rootDir, "proxy.ts");
+  if (!existsSync(proxyPath)) {
+    return undefined;
+  }
+
+  const parentURL = pathToFileURL(path.join(rootDir, "sidecar.config.ts")).href;
+  const tsconfigPath = path.join(rootDir, "tsconfig.json");
+  const tsconfig = existsSync(tsconfigPath) ? tsconfigPath : false;
+  const module = (await tsImport(pathToFileURL(proxyPath).href, {
+    parentURL,
+    tsconfig
+  })) as { default?: unknown };
+
+  if (!isSidecarProxy(module.default)) {
+    throw new Error("proxy.ts must default-export proxy({ ... }) from @sidecar/server/proxy.");
   }
 
   return module.default;

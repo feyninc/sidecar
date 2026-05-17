@@ -38,7 +38,21 @@ export function toIdentifier(value: string): string {
 
 /** Sanitizes a value for use as a path segment. */
 export function safePathSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]+/g, "_");
+  const segment = value.replace(/[^A-Za-z0-9._-]+/g, "_");
+  if (!segment || segment === "." || segment === "..") {
+    return "_";
+  }
+  return segment;
+}
+
+/** Sanitizes a metadata-provided file stem for generated plugin files. */
+export function safeFileStem(value: string): string {
+  return safePathSegment(value).replace(/^\.+/, "_").replace(/^_+/, "_");
+}
+
+/** Escapes a scalar value for simple YAML/frontmatter generation. */
+export function yamlScalar(value: unknown): string {
+  return JSON.stringify(String(value ?? ""));
 }
 
 /** Escapes text that will be embedded into HTML. */

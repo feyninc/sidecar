@@ -59,7 +59,11 @@ describe("analyzeProjectTools", () => {
       });
 
       const reviewTool = manifest.tools.find((entry: SidecarToolManifestEntry) => entry.id === "expenses.review");
+      expect(reviewTool?.descriptor.securitySchemes).toEqual([
+        { type: "oauth2", scopes: ["expenses.read"] }
+      ]);
       expect(reviewTool?.descriptor._meta).toMatchObject({
+        securitySchemes: [{ type: "oauth2", scopes: ["expenses.read"] }],
         "openai/toolInvocation/invoking": "Reviewing expense report",
         "openai/toolInvocation/invoked": "Expense report reviewed"
       });
@@ -73,8 +77,8 @@ describe("analyzeProjectTools", () => {
       await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".grid");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.claude-plugin/plugin.json"), "utf8")).resolves.toContain("available");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/skills/review-writer/SKILL.md"), "utf8")).resolves.toContain("expense review summary");
-      await expect(readFile(path.join(rootDir, "out/claude-plugin/commands/review-summary.md"), "utf8")).resolves.toContain("allowed-tools: expenses.review");
-      await expect(readFile(path.join(rootDir, "out/claude-plugin/agents/review-writer.md"), "utf8")).resolves.toContain("disallowed-tools: Write");
+      await expect(readFile(path.join(rootDir, "out/claude-plugin/commands/review-summary.md"), "utf8")).resolves.toContain('allowed-tools: "expenses.review"');
+      await expect(readFile(path.join(rootDir, "out/claude-plugin/agents/review-writer.md"), "utf8")).resolves.toContain('disallowed-tools: "Write"');
       await expect(readFile(path.join(rootDir, "out/claude-plugin/hooks/hooks.json"), "utf8")).resolves.toContain("SubagentStop");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/hooks/hooks.json"), "utf8")).resolves.toContain("PreToolUse");
     } finally {

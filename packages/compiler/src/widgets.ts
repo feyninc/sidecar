@@ -61,7 +61,7 @@ createRoot(document.getElementById("root")!).render(
 
     const bundled = await esbuild({
       absWorkingDir: rootDir,
-      alias: devSidecarBundleAliases(),
+      alias: devSidecarBundleAliases(rootDir),
       bundle: true,
       entryPoints: [entryFile],
       format: "iife",
@@ -98,8 +98,11 @@ createRoot(document.getElementById("root")!).render(
 }
 
 /** Provides source aliases when bundling repo-local examples before dist exists. */
-function devSidecarBundleAliases(): Record<string, string> | undefined {
-  const repoRoot = process.cwd();
+function devSidecarBundleAliases(rootDir: string): Record<string, string> | undefined {
+  const repoRoot = findSidecarRepoRoot(rootDir) ?? findSidecarRepoRoot(process.cwd());
+  if (!repoRoot) {
+    return undefined;
+  }
   const reactEntry = path.join(repoRoot, "packages", "react", "src", "index.ts");
   if (!existsSync(reactEntry)) {
     return undefined;
@@ -113,6 +116,21 @@ function devSidecarBundleAliases(): Record<string, string> | undefined {
     "@sidecar/native/components": path.join(repoRoot, "packages", "native", "src", "components", "index.tsx"),
     "@sidecar/native/styles.css": path.join(repoRoot, "packages", "native", "src", "styles.css"),
   };
+}
+
+/** Finds the repository root for source aliases used by local workspace tests. */
+function findSidecarRepoRoot(startDir: string): string | undefined {
+  let current = path.resolve(startDir);
+  while (true) {
+    if (existsSync(path.join(current, "packages", "core", "src", "index.ts"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
 }
 
 /** Copies and optionally processes root `style.css` for widget builds. */

@@ -5,6 +5,7 @@ import {
   type ChatGptToolOptions,
   type ToolHostExtensions,
   type ToolAnnotations,
+  type ToolAuthPolicy,
   type ToolVisibility,
 } from "@sidecar/core";
 import { readdir } from "node:fs/promises";
@@ -17,6 +18,7 @@ import {
   ScriptTarget,
   SyntaxKind,
   type ArrowFunction,
+  type CallExpression,
   type FunctionExpression,
   type MethodDeclaration,
   type ObjectLiteralExpression,
@@ -30,6 +32,8 @@ import { existsSyncSafe } from "./utils.js";
 import { findWidget, mergeWidgetMeta, readWidgetOptions, widgetMeta } from "./widgets.js";
 import type { SidecarSourceVariant, SidecarTarget } from "./types.js";
 
+type AuthScopeCatalog = Record<string, { id: string; description: string }>;
+
 /** Finds all Sidecar tool files under `server/` and returns manifest entries. */
 export async function analyzeProjectTools(
   rootDir: string,
@@ -42,10 +46,12 @@ export async function analyzeProjectTools(
   }
 
   const project = createProject(rootDir);
+  const authScopes = readAuthScopeCatalog(project, rootDir);
   return toolFiles.map((candidate) =>
     analyzeToolFile(project.addSourceFileAtPath(candidate.filePath), rootDir, {
       target,
       variant: candidate.variant,
+      authScopes,
     }),
   );
 }
@@ -54,7 +60,7 @@ export async function analyzeProjectTools(
 export function analyzeToolFile(
   sourceFile: SourceFile,
   rootDir: string,
-  options: { target?: SidecarTarget; variant?: SidecarSourceVariant } = {},
+  options: { target?: SidecarTarget; variant?: SidecarSourceVariant; authScopes?: AuthScopeCatalog } = {},
 ): SidecarToolManifestEntry {
   const target = options.target ?? "mcp";
   const variant = options.variant ?? "shared";
@@ -71,6 +77,7 @@ export function analyzeToolFile(
   const annotations = readAnnotations(definition);
   const visibility = readVisibility(definition);
   const hosts = readHosts(definition);
+  const auth = readAuthPolicy(definition, options.authScopes ?? {});
   const execute = getExecuteFunction(definition, sourceFile);
 
   const inputSchema = getParamsSchema(definition, execute);
@@ -85,6 +92,7 @@ export function analyzeToolFile(
     annotations,
     visibility,
     hosts,
+    auth,
     meta: undefined,
   });
 
@@ -117,6 +125,137 @@ export function analyzeToolFile(
     widget,
     descriptor,
   };
+}
+
+/** Extracts static auth shape for descriptor security-scheme generation. */
+function readAuthPolicy(
+  definition: ObjectLiteralExpression,
+  authScopes: AuthScopeCatalog,
+): ToolAuthPolicy | undefined {
+  const initializer = readObjectProperty(definition, "auth");
+  if (!initializer) {
+    return undefined;
+  }
+
+  const publicValue = readBooleanProperty(initializer, "public");
+  if (publicValue === true) {
+    return { public: true };
+  }
+
+  const scopesProperty = initializer.getProperty("scopes");
+  if (scopesProperty && Node.isPropertyAssignment(scopesProperty)) {
+    return { scopes: readScopeReferences(scopesProperty.getInitializer(), authScopes) };
+  }
+
+  return { authenticated: true };
+}
+
+/** Extracts auth.ts scope declarations so generated descriptors can name required scopes. */
+function readAuthScopeCatalog(project: Project, rootDir: string): AuthScopeCatalog {
+  const authPath = path.join(rootDir, "auth.ts");
+  if (!existsSyncSafe(authPath)) {
+    return {};
+  }
+
+  const sourceFile = project.addSourceFileAtPath(authPath);
+  const catalog: AuthScopeCatalog = {};
+  for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isNamedCall(call, "auth")) {
+      continue;
+    }
+
+    const definition = unwrapExpression(call.getArguments()[0]);
+    if (!definition || !Node.isObjectLiteralExpression(definition)) {
+      continue;
+    }
+
+    const scopes = readObjectProperty(definition, "scopes");
+    if (!scopes) {
+      continue;
+    }
+
+    for (const property of scopes.getProperties()) {
+      if (!Node.isPropertyAssignment(property)) {
+        continue;
+      }
+
+      const scope = readScopeCall(property.getInitializer());
+      if (scope) {
+        catalog[property.getName().replace(/^["']|["']$/g, "")] = scope;
+      }
+    }
+  }
+
+  return catalog;
+}
+
+/** Reads a tool auth `scopes: [...]` initializer into Sidecar scope placeholders. */
+function readScopeReferences(
+  initializer: Node | undefined,
+  authScopes: AuthScopeCatalog,
+): NonNullable<Extract<ToolAuthPolicy, { scopes: unknown }>["scopes"]> {
+  const expression = unwrapExpression(initializer);
+  if (!expression || !Node.isArrayLiteralExpression(expression)) {
+    return [];
+  }
+
+  return expression.getElements().flatMap((element) => {
+    const direct = readScopeCall(element);
+    if (direct) {
+      return [{ kind: "sidecar.scope" as const, ...direct }];
+    }
+
+    const name = scopeReferenceName(element);
+    const declared = name ? authScopes[name] : undefined;
+    if (declared) {
+      return [{ kind: "sidecar.scope" as const, ...declared }];
+    }
+
+    const literal = unwrapExpression(element);
+    if (literal && Node.isStringLiteral(literal)) {
+      return [{
+        kind: "sidecar.scope" as const,
+        id: literal.getLiteralText(),
+        description: "",
+      }];
+    }
+
+    return [];
+  });
+}
+
+/** Reads `scope("id", "description")` helper calls without executing auth.ts. */
+function readScopeCall(node: Node | undefined): { id: string; description: string } | undefined {
+  const expression = unwrapExpression(node);
+  if (!expression || !Node.isCallExpression(expression) || !isNamedCall(expression, "scope")) {
+    return undefined;
+  }
+
+  const [idArg, descriptionArg] = expression.getArguments();
+  if (!idArg || !Node.isStringLiteral(idArg)) {
+    return undefined;
+  }
+
+  return {
+    id: idArg.getLiteralText(),
+    description: Node.isStringLiteral(descriptionArg) ? descriptionArg.getLiteralText() : "",
+  };
+}
+
+/** Returns the final property name from references like `scopes.expensesRead`. */
+function scopeReferenceName(node: Node): string | undefined {
+  const expression = unwrapExpression(node);
+  if (!expression || !Node.isPropertyAccessExpression(expression)) {
+    return undefined;
+  }
+
+  return expression.getName();
+}
+
+/** Returns true for direct or namespace-qualified helper calls. */
+function isNamedCall(call: CallExpression, name: string): boolean {
+  const callee = call.getExpression().getText();
+  return callee === name || callee.endsWith(`.${name}`);
 }
 
 /** Enforces Sidecar's hierarchical reserved-file platform rule. */

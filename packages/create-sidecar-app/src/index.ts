@@ -28,7 +28,7 @@ async function main(argv: string[]): Promise<void> {
     );
   }
 
-  await writeProject(targetDir, appName);
+  await writeProject(targetDir, appName, options.force);
 
   console.log(`Created Sidecar app in ${targetDir}`);
   console.log("");
@@ -49,7 +49,8 @@ function parseArgs(argv: string[]): CreateOptions {
 }
 
 /** Writes the starter project files. */
-async function writeProject(rootDir: string, appName: string): Promise<void> {
+async function writeProject(rootDir: string, appName: string, force: boolean): Promise<void> {
+  const sidecarVersion = "0.0.0-dev";
   await mkdir(rootDir, { recursive: true });
   await Promise.all([
     writeFileIfNew(
@@ -67,10 +68,10 @@ async function writeProject(rootDir: string, appName: string): Promise<void> {
             inspect: "sidecar inspect",
           },
           dependencies: {
-            "@sidecar/cli": "latest",
-            "@sidecar/core": "latest",
-            "@sidecar/native": "latest",
-            "@sidecar/react": "latest",
+            "@sidecar/cli": sidecarVersion,
+            "@sidecar/core": sidecarVersion,
+            "@sidecar/native": sidecarVersion,
+            "@sidecar/react": sidecarVersion,
             react: "^19.0.0",
             "react-dom": "^19.0.0",
           },
@@ -83,29 +84,33 @@ async function writeProject(rootDir: string, appName: string): Promise<void> {
         null,
         2,
       )}\n`,
+      force,
     ),
-    writeFileIfNew(path.join(rootDir, "tsconfig.json"), tsconfigTemplate()),
+    writeFileIfNew(path.join(rootDir, "tsconfig.json"), tsconfigTemplate(), force),
     writeFileIfNew(
       path.join(rootDir, "sidecar.config.ts"),
       sidecarConfigTemplate(appName),
+      force,
     ),
-    writeFileIfNew(path.join(rootDir, "style.css"), styleTemplate()),
-    writeFileIfNew(path.join(rootDir, ".gitignore"), gitignoreTemplate()),
-    writeFileIfNew(path.join(rootDir, "README.md"), readmeTemplate(appName)),
+    writeFileIfNew(path.join(rootDir, "style.css"), styleTemplate(), force),
+    writeFileIfNew(path.join(rootDir, ".gitignore"), gitignoreTemplate(), force),
+    writeFileIfNew(path.join(rootDir, "README.md"), readmeTemplate(appName), force),
     writeFileIfNew(
       path.join(rootDir, "server", "add-numbers", "tool.ts"),
       toolTemplate(),
+      force,
     ),
     writeFileIfNew(
       path.join(rootDir, "server", "add-numbers", "widget.tsx"),
       widgetTemplate(),
+      force,
     ),
   ]);
 }
 
 /** Writes a file only when the scaffold target does not already exist. */
-async function writeFileIfNew(filePath: string, content: string): Promise<void> {
-  if (existsSync(filePath)) {
+async function writeFileIfNew(filePath: string, content: string, force = false): Promise<void> {
+  if (existsSync(filePath) && !force) {
     return;
   }
 

@@ -260,7 +260,8 @@ export function readBearerToken(request: Request): string | undefined {
   }
 
   const [scheme, token] = authorization.split(/\s+/, 2);
-  if (scheme?.toLowerCase() !== "bearer" || !token) {
+  const parts = authorization.trim().split(/\s+/);
+  if (parts.length !== 2 || scheme?.toLowerCase() !== "bearer" || !token) {
     return undefined;
   }
 
@@ -302,10 +303,12 @@ export function challenge(options: {
   status?: 401 | 403;
 }): AuthChallenge {
   const params = [
+    options.status === 403 ? `error="insufficient_scope"` : undefined,
     `resource_metadata=${JSON.stringify(options.resourceMetadata ?? protectedResourceMetadataUrl(options.resource))}`,
     options.scopes?.length
       ? `scope=${JSON.stringify(options.scopes.join(" "))}`
       : undefined,
+    options.description ? `error_description=${JSON.stringify(options.description)}` : undefined,
   ].filter(Boolean);
 
   return {
@@ -345,10 +348,14 @@ function validateAuthDefinition(
   if (!definition.resource.trim()) {
     throw new SidecarAuthError("auth({ resource }) is required.");
   }
+  validateResourceUri(definition.resource);
   if (!definition.authorizationServers.length) {
     throw new SidecarAuthError(
       "auth({ authorizationServers }) must include at least one authorization server.",
     );
+  }
+  for (const authorizationServer of definition.authorizationServers) {
+    validateAuthorizationServerUri(authorizationServer);
   }
 }
 
@@ -359,4 +366,43 @@ function assertSession(session: AuthSession): void {
       "auth.session() must return an AuthSession with a scopes array.",
     );
   }
+}
+
+/** Validates the canonical MCP resource URI used for OAuth audience binding. */
+function validateResourceUri(resource: string): void {
+  let url: URL;
+  try {
+    url = new URL(resource);
+  } catch {
+    throw new SidecarAuthError("auth({ resource }) must be an absolute URI.");
+  }
+
+  if (url.hash) {
+    throw new SidecarAuthError("auth({ resource }) must not include a URI fragment.");
+  }
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalHost(url.hostname))) {
+    throw new SidecarAuthError("auth({ resource }) must use https, except for localhost development.");
+  }
+}
+
+/** Validates OAuth authorization server metadata origins. */
+function validateAuthorizationServerUri(value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new SidecarAuthError("auth({ authorizationServers }) entries must be absolute URLs.");
+  }
+
+  if (url.hash) {
+    throw new SidecarAuthError("auth({ authorizationServers }) entries must not include fragments.");
+  }
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocalHost(url.hostname))) {
+    throw new SidecarAuthError("auth({ authorizationServers }) entries must use https, except for localhost development.");
+  }
+}
+
+/** Returns true for localhost names accepted in development auth metadata. */
+function isLocalHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }

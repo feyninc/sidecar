@@ -133,4 +133,64 @@ describe("auth", () => {
       ),
     ).rejects.toThrow("scopes array");
   });
+
+  it("rejects malformed bearer headers before provider session logic", async () => {
+    let sessionCalls = 0;
+    const appAuth = auth({
+      resource: "https://api.example.com/mcp",
+      authorizationServers: ["https://auth.example.com"],
+      scopes: {},
+      session() {
+        sessionCalls += 1;
+        return { scopes: [] };
+      }
+    });
+
+    const result = await appAuth.authorizeRequest(
+      new Request("https://api.example.com/mcp", {
+        headers: { authorization: "Bearer abc extra" }
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 401
+    });
+    expect(sessionCalls).toBe(0);
+  });
+
+  it("validates OAuth resource and authorization server URLs", () => {
+    expect(() =>
+      auth({
+        resource: "http://api.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        scopes: {},
+        session() {
+          return { scopes: [] };
+        }
+      }),
+    ).toThrow(SidecarAuthError);
+
+    expect(() =>
+      auth({
+        resource: "https://api.example.com/mcp#fragment",
+        authorizationServers: ["https://auth.example.com"],
+        scopes: {},
+        session() {
+          return { scopes: [] };
+        }
+      }),
+    ).toThrow(SidecarAuthError);
+
+    expect(() =>
+      auth({
+        resource: "http://127.0.0.1:3000/mcp",
+        authorizationServers: ["http://localhost:4000"],
+        scopes: {},
+        session() {
+          return { scopes: [] };
+        }
+      }),
+    ).not.toThrow();
+  });
 });

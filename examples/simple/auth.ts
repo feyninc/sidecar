@@ -1,8 +1,10 @@
 /**
  * Demo auth configuration used by the simple example.
  *
- * Real projects should validate the bearer token with their OAuth provider and
- * return an AuthSession with whatever custom fields their tools need.
+ * This demo accepts SIDECAR_DEMO_TOKEN only so examples can run locally without
+ * embedding reusable credentials. Real projects should validate the bearer
+ * token with their OAuth provider and return an AuthSession with whatever
+ * custom fields their tools need.
  */
 import { auth, scope, type AuthSession } from "@sidecar/auth";
 
@@ -19,7 +21,7 @@ const appAuth = auth({
   },
   async session(request): Promise<DemoSession | null> {
     const token = request.bearerToken();
-    if (token !== "dev-token") {
+    if (!process.env.SIDECAR_DEMO_TOKEN || token !== process.env.SIDECAR_DEMO_TOKEN) {
       return null;
     }
 

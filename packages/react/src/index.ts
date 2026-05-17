@@ -150,15 +150,23 @@ export function useWidgetState<T>(key: string, initialValue: T): [T, (value: T) 
       return initialValue;
     }
 
-    const stored = window.sessionStorage.getItem(storageKey);
-    return stored === null ? initialValue : (JSON.parse(stored) as T);
+    try {
+      const stored = window.sessionStorage.getItem(storageKey);
+      return stored === null ? initialValue : (JSON.parse(stored) as T);
+    } catch {
+      return initialValue;
+    }
   });
 
   const update = useMemo(
     () => (next: T) => {
       setValue(next);
       if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(storageKey, JSON.stringify(next));
+        try {
+          window.sessionStorage.setItem(storageKey, JSON.stringify(next));
+        } catch {
+          // Session storage can be unavailable or quota-limited in host iframes.
+        }
       }
     },
     [storageKey]

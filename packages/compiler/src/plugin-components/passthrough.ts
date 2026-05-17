@@ -1,5 +1,5 @@
 /** Claude plugin directory passthrough helpers. */
-import { cp } from "node:fs/promises";
+import { cp, lstat } from "node:fs/promises";
 import path from "node:path";
 import { existsSyncSafe } from "../utils.js";
 
@@ -20,6 +20,25 @@ export async function copyClaudePassthroughDirectories(
       continue;
     }
 
-    await cp(source, path.join(pluginDir, directory), { recursive: true });
+    await cp(source, path.join(pluginDir, directory), {
+      recursive: true,
+      filter: safePluginCopyFilter,
+    });
   }
+}
+
+/** Avoids accidentally packaging symlinks, env files, or package managers' metadata. */
+async function safePluginCopyFilter(sourcePath: string): Promise<boolean> {
+  const basename = path.basename(sourcePath);
+  if (
+    basename === "node_modules" ||
+    basename === ".git" ||
+    basename === ".env" ||
+    basename.startsWith(".env.")
+  ) {
+    return false;
+  }
+
+  const stat = await lstat(sourcePath);
+  return !stat.isSymbolicLink();
 }
