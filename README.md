@@ -519,7 +519,7 @@ examples/
 ```
 
 Package releases are cut from GitHub Actions using npm trusted publishing. See
-[RELEASING.md](./RELEASING.md) for the maintainer workflow.
+[RELEASE.md](./RELEASE.md) for the maintainer workflow.
 
 Contributor commands:
 
