@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { cwd, exit } from "node:process";
+import { pathToFileURL } from "node:url";
 
 type CreateOptions = {
   directory: string;
@@ -152,19 +153,47 @@ export default defineConfig({
 }
 
 /** Template for app-wide widget CSS and Tailwind entrypoint. */
-function styleTemplate(): string {
+export function styleTemplate(): string {
   return `/*
- * Sidecar widgets render inside host-owned iframes.
- * Defaults are intentionally boring: transparent background, system font,
- * host/native component colors, and light/dark compatibility via color-scheme.
+ * App-wide widget CSS.
+ *
+ * Sidecar automatically loads @sidecar/native/styles.css before this file.
+ * Keep this file for normal app CSS: Tailwind, product tokens, layout classes,
+ * charts, tables, and intentional overrides.
+ *
+ * Stable native override tokens:
+ *   --sc-font-sans
+ *   --sc-font-mono
+ *   --sc-primary
+ *   --sc-primary-text
+ *   --sc-radius-sm
+ *   --sc-radius-md
+ *   --sc-radius-lg
+ *   --sc-focus
+ *   --sc-control-height
+ *
+ * Leave --sc-* tokens unset unless you intentionally want to brand native
+ * controls away from the host defaults. Use --app-* tokens for app UI first.
  */
 @import "tailwindcss";
 @source "./server/**/*.{ts,tsx}";
 
 :root {
   color-scheme: light dark;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: transparent;
+
+  --app-font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-surface: transparent;
+  --app-text: CanvasText;
+  --app-muted: color-mix(in srgb, CanvasText 64%, transparent);
+  --app-border: color-mix(in srgb, CanvasText 14%, transparent);
+
+  /*
+   * Example native overrides:
+   * --sc-primary: #2563eb;
+   * --sc-primary-text: #ffffff;
+   * --sc-radius-md: 10px;
+   */
 }
 
 html,
@@ -176,7 +205,8 @@ body,
 }
 
 body {
-  color: CanvasText;
+  color: var(--app-text);
+  font-family: var(--app-font-sans);
 }
 `;
 }
@@ -218,6 +248,13 @@ function readmeTemplate(appName: string): string {
   return `# ${appName}
 
 This is a Sidecar MCP app.
+
+## Styling
+
+Sidecar loads \`@sidecar/native/styles.css\` before your app \`style.css\`.
+Use \`style.css\` for Tailwind, app tokens, layout classes, and intentional
+native token overrides. The generated stylesheet documents the stable
+\`--sc-*\` tokens you can override.
 
 ## Commands
 
@@ -305,7 +342,15 @@ export default widget(
 `;
 }
 
-main(process.argv.slice(2)).catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  exit(1);
-});
+/** Returns true when this file is being run as the CLI entrypoint. */
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  return Boolean(entry && import.meta.url === pathToFileURL(entry).href);
+}
+
+if (isDirectRun()) {
+  main(process.argv.slice(2)).catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    exit(1);
+  });
+}

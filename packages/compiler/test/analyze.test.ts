@@ -68,6 +68,8 @@ describe("analyzeProjectTools", () => {
       await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("SidecarWidgetRoot");
       await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("data-sc-component");
       await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".sidecar-example-output");
+      await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("--app-font-sans");
+      await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("--app-surface");
       await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".grid");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.claude-plugin/plugin.json"), "utf8")).resolves.toContain("available");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/skills/review-writer/SKILL.md"), "utf8")).resolves.toContain("expense review summary");
