@@ -5,7 +5,7 @@
  * The generated project intentionally stays small: one public tool, one React
  * widget, and the config needed to run `sidecar dev`.
  */
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { cwd, exit } from "node:process";
@@ -345,7 +345,12 @@ export default widget(
 /** Returns true when this file is being run as the CLI entrypoint. */
 function isDirectRun(): boolean {
   const entry = process.argv[1];
-  return Boolean(entry && import.meta.url === pathToFileURL(entry).href);
+  if (!entry) {
+    return false;
+  }
+
+  const entryPath = realpathSync.native(entry);
+  return import.meta.url === pathToFileURL(entryPath).href;
 }
 
 if (isDirectRun()) {

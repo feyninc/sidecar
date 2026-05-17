@@ -3,11 +3,20 @@
   "version": "0.0.0-dev",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./components": "./src/components.tsx",
-    "./official": "./src/official.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./components": {
+      "types": "./dist/components.d.ts",
+      "default": "./dist/components.js"
+    },
+    "./official": {
+      "types": "./dist/official.d.ts",
+      "default": "./dist/official.js"
+    }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "dependencies": {
     "@openai/apps-sdk-ui": "^0.2.2",
     "@sidecar/core": "0.0.0-dev",

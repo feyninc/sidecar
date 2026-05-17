@@ -5,7 +5,7 @@
  * The CLI currently provides the vertical slice needed for local development:
  * static inspection, build output generation, and a dev MCP server.
  */
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
@@ -755,7 +755,12 @@ function readOption(argv: string[], name: string): string | undefined {
 /** Returns true when this module is being executed as the CLI entrypoint. */
 function isDirectRun(): boolean {
   const entry = process.argv[1];
-  return Boolean(entry && import.meta.url === pathToFileURL(entry).href);
+  if (!entry) {
+    return false;
+  }
+
+  const entryPath = realpathSync.native(entry);
+  return import.meta.url === pathToFileURL(entryPath).href;
 }
 
 if (isDirectRun()) {

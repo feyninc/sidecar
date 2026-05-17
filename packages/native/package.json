@@ -3,11 +3,17 @@
   "version": "0.0.0-dev",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./components": "./src/components/index.tsx",
-    "./styles.css": "./src/styles.css"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./components": {
+      "types": "./dist/components/index.d.ts",
+      "default": "./dist/components/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
   }

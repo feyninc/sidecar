@@ -40,6 +40,7 @@ export default defineConfig({
     "anthropic/index": "packages/anthropic/src/index.ts",
     "anthropic/agent": "packages/anthropic/src/agent.ts",
     "anthropic/command": "packages/anthropic/src/command.ts",
+    "anthropic/components": "packages/anthropic/src/components.tsx",
     "anthropic/hooks": "packages/anthropic/src/hooks.ts",
     "anthropic/mcp": "packages/anthropic/src/mcp.ts",
     "anthropic/plugin": "packages/anthropic/src/plugin.ts",
@@ -53,7 +54,8 @@ export default defineConfig({
     "openai/components": "packages/openai/src/components.tsx",
     "openai/official": "packages/openai/src/official.ts",
     "react/index": "packages/react/src/index.ts",
-    "native/index": "packages/native/src/index.ts"
+    "native/index": "packages/native/src/index.ts",
+    "native/components/index": "packages/native/src/components/index.tsx"
   },
   clean: true,
   dts: true,

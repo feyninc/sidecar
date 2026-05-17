@@ -3,10 +3,16 @@
   "version": "0.0.0-dev",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./proxy": "./src/proxy.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./proxy": {
+      "types": "./dist/proxy.d.ts",
+      "default": "./dist/proxy.js"
+    }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "dependencies": {
     "@sidecar/auth": "0.0.0-dev",
     "@sidecar/core": "0.0.0-dev"

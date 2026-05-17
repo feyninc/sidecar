@@ -61,6 +61,7 @@ createRoot(document.getElementById("root")!).render(
 
     const bundled = await esbuild({
       absWorkingDir: rootDir,
+      alias: devSidecarBundleAliases(),
       bundle: true,
       entryPoints: [entryFile],
       format: "iife",
@@ -94,6 +95,24 @@ createRoot(document.getElementById("root")!).render(
     entry.widget.outputFile = path.relative(outDir, outputFile);
     entry.descriptor._meta = mergeWidgetMeta(entry.descriptor._meta, widgetMeta(resourceUri, entry.widget.options, entry.target));
   }
+}
+
+/** Provides source aliases when bundling repo-local examples before dist exists. */
+function devSidecarBundleAliases(): Record<string, string> | undefined {
+  const repoRoot = process.cwd();
+  const reactEntry = path.join(repoRoot, "packages", "react", "src", "index.ts");
+  if (!existsSync(reactEntry)) {
+    return undefined;
+  }
+
+  return {
+    "@sidecar/client": path.join(repoRoot, "packages", "client", "src", "index.ts"),
+    "@sidecar/core": path.join(repoRoot, "packages", "core", "src", "index.ts"),
+    "@sidecar/react": reactEntry,
+    "@sidecar/native": path.join(repoRoot, "packages", "native", "src", "index.ts"),
+    "@sidecar/native/components": path.join(repoRoot, "packages", "native", "src", "components", "index.tsx"),
+    "@sidecar/native/styles.css": path.join(repoRoot, "packages", "native", "src", "styles.css"),
+  };
 }
 
 /** Copies and optionally processes root `style.css` for widget builds. */

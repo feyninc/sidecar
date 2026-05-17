@@ -3,12 +3,15 @@
   "version": "0.0.0-dev",
   "type": "module",
   "bin": {
-    "sidecar": "./src/index.ts"
+    "sidecar": "./dist/index.js"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "dependencies": {
     "@sidecar/auth": "0.0.0-dev",
     "@sidecar/compiler": "0.0.0-dev",

@@ -3,16 +3,40 @@
   "version": "0.0.0-dev",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./agent": "./src/agent.ts",
-    "./command": "./src/command.ts",
-    "./components": "./src/components.tsx",
-    "./hooks": "./src/hooks.ts",
-    "./mcp": "./src/mcp.ts",
-    "./plugin": "./src/plugin.ts",
-    "./skill": "./src/skill.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "default": "./dist/agent.js"
+    },
+    "./command": {
+      "types": "./dist/command.d.ts",
+      "default": "./dist/command.js"
+    },
+    "./components": {
+      "types": "./dist/components.d.ts",
+      "default": "./dist/components.js"
+    },
+    "./hooks": {
+      "types": "./dist/hooks.d.ts",
+      "default": "./dist/hooks.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "default": "./dist/mcp.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "default": "./dist/plugin.js"
+    },
+    "./skill": {
+      "types": "./dist/skill.d.ts",
+      "default": "./dist/skill.js"
+    }
   },
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "dependencies": {
     "@sidecar/native": "0.0.0-dev"
   },

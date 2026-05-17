@@ -3,10 +3,13 @@
   "version": "0.0.0-dev",
   "type": "module",
   "bin": {
-    "create-sidecar-app": "./src/index.ts"
+    "create-sidecar-app": "./dist/index.js"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
-  "types": "./src/index.ts"
+  "types": "./dist/index.d.ts"
 }
