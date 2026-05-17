@@ -136,6 +136,8 @@ async function main(argv: string[]): Promise<void> {
         host: readOption(argv, "--host") ?? "chatgpt",
         port: Number(readOption(argv, "--port") ?? "3102"),
         compare: readOption(argv, "--compare") ?? "native,openai",
+        componentSet: readPreviewComponentSet(readOption(argv, "--components")),
+        themes: readPreviewThemes(readOption(argv, "--theme")),
         approve: !argv.includes("--no-approve"),
       });
       return;
@@ -150,7 +152,7 @@ Usage:
   sidecar check [--cwd <dir>] [--target mcp|chatgpt|claude] [--strict]
   sidecar dev [--cwd <dir>] [--target mcp|chatgpt|claude] [--port <port>] [--tunnel [cloudflared|wrangler]]
   sidecar inspect [--cwd <dir>] [--target mcp|chatgpt|claude]
-  sidecar preview components [--cwd <dir>] [--host chatgpt|claude|generic] [--compare native,openai] [--port <port>] [--no-approve]
+  sidecar preview components [--cwd <dir>] [--host chatgpt|claude|generic] [--compare native,openai] [--components representative|all] [--theme light|dark|both] [--port <port>] [--no-approve]
 `);
   }
 }
@@ -170,8 +172,16 @@ type ComponentPreviewOptions = {
   host: string;
   port: number;
   compare: string;
+  componentSet: ComponentPreviewSet;
+  themes: ComponentPreviewTheme[];
   approve: boolean;
 };
+
+/** Component inventory rendered in the preview matrix. */
+type ComponentPreviewSet = "representative" | "all";
+
+/** Theme variants rendered by the preview matrix. */
+type ComponentPreviewTheme = "light" | "dark";
 
 /** Starts a component matrix preview and optionally records human approval. */
 async function previewComponents(options: ComponentPreviewOptions): Promise<void> {
@@ -179,7 +189,13 @@ async function previewComponents(options: ComponentPreviewOptions): Promise<void
   const css = await readFile(path.join(cliDir, "../../native/src/styles.css"), "utf8")
     .catch(() => readFile(path.join(process.cwd(), "packages/native/src/styles.css"), "utf8"))
     .catch(() => "");
-  const html = renderComponentPreviewHtml(options.host, options.compare, css);
+  const html = renderComponentPreviewHtml(
+    options.host,
+    options.compare,
+    css,
+    options.themes,
+    options.componentSet,
+  );
   const server = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(html);
@@ -192,6 +208,8 @@ async function previewComponents(options: ComponentPreviewOptions): Promise<void
   const url = `http://127.0.0.1:${options.port}`;
   console.log(`Sidecar component preview running at ${url}`);
   console.log(`Compare set: ${options.compare}`);
+  console.log(`Component set: ${options.componentSet}`);
+  console.log(`Themes: ${options.themes.join(", ")}`);
 
   if (!options.approve || !stdin.isTTY) {
     return;
@@ -205,7 +223,7 @@ async function previewComponents(options: ComponentPreviewOptions): Promise<void
       host: options.host,
       compare: options.compare.split(",").map((entry) => entry.trim()).filter(Boolean),
       approvedAt: new Date().toISOString(),
-      components: ["Button", "TextField", "Checkbox", "Badge", "Surface", "Skeleton"],
+      components: previewComponentNames(options.componentSet),
     });
     console.log("Recorded component parity approval.");
   } else {
@@ -245,11 +263,53 @@ async function askYesNo(question: string): Promise<boolean> {
 }
 
 /** Renders the static preview matrix used for human parity checks. */
-function renderComponentPreviewHtml(host: string, compare: string, css: string): string {
+function renderComponentPreviewHtml(
+  host: string,
+  compare: string,
+  css: string,
+  themes: readonly ComponentPreviewTheme[],
+  componentSet: ComponentPreviewSet,
+): string {
+  const themeFrames = themes
+    .map((theme) =>
+      `<section class="theme-panel">
+        <div class="theme-label">${escapeHtml(theme)}</div>
+        <iframe title="${escapeHtml(theme)} component preview" srcdoc="${escapeHtml(renderComponentPreviewFrame(host, compare, css, theme, componentSet))}"></iframe>
+      </section>`,
+    )
+    .join("");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sidecar component preview</title>
+    <style>
+      body { background: #f4f4f5; color: #18181b; font: 14px/1.4 ui-sans-serif, -apple-system, system-ui, "Segoe UI", sans-serif; margin: 0; padding: 18px; }
+      .preview-shell { display: grid; gap: 18px; }
+      .theme-panel { display: grid; gap: 8px; }
+      .theme-label { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+      iframe { background: transparent; border: 1px solid rgb(0 0 0 / 12%); border-radius: 10px; height: 82vh; min-height: 680px; width: 100%; }
+    </style>
+  </head>
+  <body>
+    <main class="preview-shell">${themeFrames}</main>
+  </body>
+</html>`;
+}
+
+/** Renders one isolated theme frame so root host/theme selectors work normally. */
+function renderComponentPreviewFrame(
+  host: string,
+  compare: string,
+  css: string,
+  theme: ComponentPreviewTheme,
+  componentSet: ComponentPreviewSet,
+): string {
   const columns = compare.split(",").map((entry) => entry.trim()).filter(Boolean);
-  const theme = "light";
   const cells = columns
-    .map((column) => renderPreviewColumn(column, host))
+    .map((column) => renderPreviewColumn(column, host, componentSet))
     .join("");
 
   return `<!doctype html>
@@ -260,10 +320,15 @@ function renderComponentPreviewHtml(host: string, compare: string, css: string):
     <title>Sidecar component preview</title>
     <style>
       ${css}
+      html, body { background: var(--sc-surface); }
       body { padding: 24px; }
       .preview-grid { display: grid; gap: 20px; grid-template-columns: repeat(${Math.max(columns.length, 1)}, minmax(240px, 1fr)); }
       .preview-column { display: flex; flex-direction: column; gap: 14px; }
-      .preview-label { color: var(--sc-muted); font: 600 12px/1.2 var(--sc-font-sans); text-transform: uppercase; }
+      .preview-group { border-bottom: 1px solid var(--sc-border); display: grid; gap: 10px; padding-bottom: 14px; }
+      .preview-group:last-child { border-bottom: 0; }
+      .component-label { color: var(--sc-text-muted); font: 600 11px/1.2 var(--sc-font-sans); text-transform: uppercase; }
+      .preview-row { align-items: start; display: grid; gap: 8px; }
+      .preview-label { color: var(--sc-text-muted); font: 600 12px/1.2 var(--sc-font-sans); text-transform: uppercase; }
     </style>
   </head>
   <body>
@@ -273,19 +338,301 @@ function renderComponentPreviewHtml(host: string, compare: string, css: string):
 }
 
 /** Renders one package/recipe column in the preview matrix. */
-function renderPreviewColumn(column: string, host: string): string {
-  const recipe = column === "native" ? "auto" : column === "openai" ? "chatgpt" : column === "anthropic" ? "claude" : host;
+function renderPreviewColumn(column: string, host: string, componentSet: ComponentPreviewSet): string {
+  const recipe = previewRecipe(column, host);
+  const groups = componentSet === "all"
+    ? renderAllPreviewGroups(recipe)
+    : renderRepresentativePreviewGroups(recipe);
   return `<section class="preview-column">
     <div class="preview-label">${escapeHtml(column)}</div>
-    <button data-sc-component="button" data-sc-intent="primary" data-sc-recipe="${recipe}" type="button"><span data-sc-component="button-label">Primary</span></button>
-    <button data-sc-component="button" data-sc-intent="secondary" data-sc-recipe="${recipe}" type="button"><span data-sc-component="button-label">Secondary</span></button>
-    <button data-sc-component="button" data-sc-intent="ghost" data-sc-recipe="${recipe}" type="button"><span data-sc-component="button-label">Ghost</span></button>
-    <input data-sc-component="textfield" data-sc-recipe="${recipe}" value="Text field" />
-    <label data-sc-component="checkbox-label" data-sc-recipe="${recipe}"><input data-sc-component="checkbox" data-sc-recipe="${recipe}" type="checkbox" checked /> <span>Checkbox</span></label>
-    <span data-sc-component="badge" data-sc-tone="success" data-sc-recipe="${recipe}">Badge</span>
-    <div data-sc-component="surface" data-sc-variant="card" data-sc-recipe="${recipe}"><p data-sc-component="text" data-sc-recipe="${recipe}">Surface text</p></div>
-    <div data-sc-component="skeleton" data-sc-recipe="${recipe}" style="width: 100%; height: 24px;"></div>
+    ${groups}
   </section>`;
+}
+
+/** Maps preview columns to the recipe they exercise. */
+function previewRecipe(column: string, host: string): string {
+  switch (column) {
+    case "native":
+      return "auto";
+    case "native-chatgpt":
+    case "openai":
+      return "chatgpt";
+    case "native-claude":
+    case "anthropic":
+      return "claude";
+    default:
+      return host;
+  }
+}
+
+/** Renders the default representative component set. */
+function renderRepresentativePreviewGroups(recipe: string): string {
+  return [
+    previewGroup("Buttons", buttonsPreview(recipe)),
+    previewGroup("Fields", fieldsPreview(recipe)),
+    previewGroup("Choices", choicesPreview(recipe)),
+    previewGroup("Feedback", feedbackPreview(recipe)),
+    previewGroup("Loading", loadingPreview(recipe)),
+  ].join("");
+}
+
+/** Renders the full native shared component set. */
+function renderAllPreviewGroups(recipe: string): string {
+  return [
+    previewGroup("Text", textPreview(recipe)),
+    previewGroup("Buttons", buttonsPreview(recipe)),
+    previewGroup("Links", linksPreview(recipe)),
+    previewGroup("Fields", fieldsPreview(recipe)),
+    previewGroup("Choice Controls", choicesPreview(recipe)),
+    previewGroup("Select", selectPreview(recipe)),
+    previewGroup("Feedback", feedbackPreview(recipe)),
+    previewGroup("Identity", identityPreview(recipe)),
+    previewGroup("Empty State", emptyPreview(recipe)),
+    previewGroup("Loading", loadingPreview(recipe)),
+    previewGroup("Layout", layoutPreview(recipe)),
+    previewGroup("Data", dataPreview(recipe)),
+    previewGroup("Media", mediaPreview(recipe)),
+  ].join("");
+}
+
+/** Wraps one preview group with a readable label. */
+function previewGroup(label: string, body: string): string {
+  return `<div class="preview-group"><div class="component-label">${escapeHtml(label)}</div>${body}</div>`;
+}
+
+/** Text and inline typography examples. */
+function textPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <h2 data-sc-component="heading" data-sc-level="2" data-sc-recipe="${recipe}">Heading</h2>
+    <p data-sc-component="text" data-sc-recipe="${recipe}">Body text follows the active host typography.</p>
+    <p data-sc-component="text" data-sc-tone="muted" data-sc-recipe="${recipe}">Muted supporting text</p>
+    <code data-sc-component="code" data-sc-recipe="${recipe}">tool_result.id</code>
+    <span data-sc-component="shimmer-text" data-sc-recipe="${recipe}">Shimmer text</span>
+  </div>`;
+}
+
+/** Button examples. */
+function buttonsPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <button data-sc-component="button" data-sc-color="primary" data-sc-variant="solid" data-sc-size="md" data-sc-pill data-sc-recipe="${recipe}" type="button"><span data-sc-component="button-label">Primary</span></button>
+    <button data-sc-component="button" data-sc-color="secondary" data-sc-variant="soft" data-sc-size="md" data-sc-pill data-sc-recipe="${recipe}" type="button"><span data-sc-component="button-label">Secondary</span></button>
+    <button data-sc-component="button" data-sc-color="danger" data-sc-variant="outline" data-sc-size="md" data-sc-pill data-sc-recipe="${recipe}" type="button"><span data-sc-component="button-label">Danger</span></button>
+    <button data-sc-component="button" data-sc-color="secondary" data-sc-variant="ghost" data-sc-size="md" data-sc-pill data-sc-recipe="${recipe}" type="button"><span data-sc-component="button-label">Ghost</span></button>
+    <button data-sc-component="button" data-sc-color="primary" data-sc-variant="solid" data-sc-size="md" data-sc-pill data-sc-loading data-sc-recipe="${recipe}" type="button"><span data-sc-component="loading-indicator" data-sc-recipe="${recipe}" style="--sc-indicator-size: 1em;"></span><span data-sc-component="button-label">Loading</span></button>
+  </div>`;
+}
+
+/** Link examples. */
+function linksPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <a data-sc-component="button" data-sc-color="primary" data-sc-variant="solid" data-sc-size="md" data-sc-pill data-sc-recipe="${recipe}" href="#"><span data-sc-component="button-label">ButtonLink</span></a>
+    <a data-sc-component="text-link" data-sc-primary data-sc-underline data-sc-recipe="${recipe}" href="#">TextLink</a>
+  </div>`;
+}
+
+/** Field examples. */
+function fieldsPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <div data-sc-component="form-field" data-sc-recipe="${recipe}">
+      <label data-sc-component="field-label" data-sc-recipe="${recipe}">FormField label</label>
+      <span data-sc-component="input-shell" data-sc-variant="outline" data-sc-size="md" data-sc-recipe="${recipe}"><input data-sc-component="input" value="Input" /></span>
+      <p data-sc-component="field-description" data-sc-recipe="${recipe}">Field description</p>
+    </div>
+    <span data-sc-component="input-shell" data-sc-variant="soft" data-sc-size="md" data-sc-recipe="${recipe}"><span data-sc-component="input-adornment">$</span><input data-sc-component="input" value="Soft input" /></span>
+    <textarea data-sc-component="textarea" data-sc-variant="outline" data-sc-size="md" data-sc-recipe="${recipe}">Textarea</textarea>
+    <div data-sc-component="form-field" data-sc-invalid data-sc-recipe="${recipe}">
+      <span data-sc-component="input-shell" data-sc-invalid data-sc-variant="outline" data-sc-size="md" data-sc-recipe="${recipe}"><input data-sc-component="input" value="Invalid" aria-invalid="true" /></span>
+      <p data-sc-component="field-error" data-sc-recipe="${recipe}">Field error</p>
+    </div>
+  </div>`;
+}
+
+/** Choice-control examples. */
+function choicesPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <label data-sc-component="checkbox-label" data-sc-recipe="${recipe}"><button data-sc-component="checkbox" data-sc-checked data-sc-recipe="${recipe}" role="checkbox" aria-checked="true" type="button"></button><span>Checkbox</span></label>
+    <label data-sc-component="switch-label" data-sc-recipe="${recipe}"><button data-sc-component="switch" data-sc-checked data-sc-recipe="${recipe}" role="switch" aria-checked="true" type="button"><span data-sc-component="switch-thumb"></span></button><span>Switch</span></label>
+    <div data-sc-component="radio-group" data-sc-direction="row" data-sc-recipe="${recipe}" role="radiogroup">
+      <button data-sc-component="radio-item" data-sc-checked data-sc-recipe="${recipe}" role="radio" aria-checked="true" type="button"><span data-sc-component="radio-indicator"></span><span data-sc-component="radio-label">List</span></button>
+      <button data-sc-component="radio-item" data-sc-recipe="${recipe}" role="radio" aria-checked="false" type="button"><span data-sc-component="radio-indicator"></span><span data-sc-component="radio-label">Grid</span></button>
+    </div>
+    <div data-sc-component="segmented-control" data-sc-size="md" data-sc-recipe="${recipe}"><button data-sc-component="segmented-option" data-sc-selected type="button">List</button><button data-sc-component="segmented-option" type="button">Grid</button></div>
+    <input data-sc-component="slider" data-sc-recipe="${recipe}" type="range" value="60" />
+  </div>`;
+}
+
+/** Select examples. */
+function selectPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <span data-sc-component="select-control" data-sc-variant="outline" data-sc-size="md" data-sc-selected data-sc-recipe="${recipe}"><span data-sc-component="select-control-value">Selected option</span><span data-sc-component="select-dropdown-icon">▾</span></span>
+    <div data-sc-component="select" data-sc-open data-sc-recipe="${recipe}">
+      <span data-sc-component="select-control" data-sc-variant="outline" data-sc-size="md" data-sc-selected data-sc-recipe="${recipe}"><span data-sc-component="select-control-value">CSV</span><span data-sc-component="select-dropdown-icon">▾</span></span>
+      <div data-sc-component="select-list" data-sc-recipe="${recipe}" role="listbox">
+        <button data-sc-component="select-option" data-sc-selected role="option" aria-selected="true" type="button"><span data-sc-component="select-option-label">CSV</span><span data-sc-component="select-option-description">Comma-separated values</span></button>
+        <button data-sc-component="select-option" role="option" aria-selected="false" type="button"><span data-sc-component="select-option-label">PDF</span><span data-sc-component="select-option-description">Portable document</span></button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/** Feedback examples. */
+function feedbackPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <div data-sc-component="alert" data-sc-color="info" data-sc-variant="soft" data-sc-recipe="${recipe}"><span data-sc-component="alert-indicator">•</span><div data-sc-component="alert-content"><div data-sc-component="alert-title">Alert</div><div data-sc-component="alert-description">Native recipe check</div></div></div>
+    <span data-sc-component="badge" data-sc-color="success" data-sc-variant="soft" data-sc-size="sm" data-sc-recipe="${recipe}">Badge</span>
+    <span data-sc-component="badge" data-sc-color="danger" data-sc-variant="outline" data-sc-size="md" data-sc-pill data-sc-recipe="${recipe}">Pill badge</span>
+  </div>`;
+}
+
+/** Avatar and identity examples. */
+function identityPreview(recipe: string): string {
+  return `<div data-sc-component="avatar-group" data-sc-recipe="${recipe}">
+    <span data-sc-component="avatar" data-sc-color="primary" data-sc-variant="solid" data-sc-recipe="${recipe}" style="--sc-avatar-size: 32px;">SD</span>
+    <span data-sc-component="avatar" data-sc-color="secondary" data-sc-variant="soft" data-sc-recipe="${recipe}" style="--sc-avatar-size: 32px;">+3</span>
+  </div>`;
+}
+
+/** Empty-message examples. */
+function emptyPreview(recipe: string): string {
+  return `<div data-sc-component="empty-message" data-sc-fill="static" data-sc-recipe="${recipe}">
+    <div data-sc-component="empty-message-icon" data-sc-color="secondary" data-sc-size="md" data-sc-recipe="${recipe}">□</div>
+    <div data-sc-component="empty-message-title" data-sc-color="secondary" data-sc-recipe="${recipe}">No results</div>
+    <div data-sc-component="empty-message-description">Try another filter.</div>
+    <div data-sc-component="empty-message-actions"><button data-sc-component="button" data-sc-color="secondary" data-sc-variant="soft" data-sc-size="sm" data-sc-pill data-sc-recipe="${recipe}" type="button"><span data-sc-component="button-label">Reset</span></button></div>
+  </div>`;
+}
+
+/** Loading examples. */
+function loadingPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <div data-sc-component="loading-dots" data-sc-recipe="${recipe}"><span></span><span></span><span></span></div>
+    <span data-sc-component="loading-indicator" data-sc-recipe="${recipe}" style="--sc-indicator-size: 24px;"></span>
+    <span data-sc-component="circular-progress" data-sc-recipe="${recipe}" style="--sc-progress-size: 28px;"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="color-mix(in srgb, currentColor 18%, transparent)" stroke-width="2"></circle><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="62.8" stroke-dashoffset="18" stroke-linecap="round" transform="rotate(-90 12 12)"></circle></svg></span>
+    <div data-sc-component="skeleton" data-sc-recipe="${recipe}" style="width: 100%; height: 24px;"></div>
+  </div>`;
+}
+
+/** Layout primitive examples. */
+function layoutPreview(recipe: string): string {
+  return `<div data-sc-component="stack" data-sc-gap="sm" data-sc-recipe="${recipe}">
+    <div data-sc-component="surface" data-sc-variant="card" data-sc-recipe="${recipe}"><p data-sc-component="text" data-sc-recipe="${recipe}">Card surface</p></div>
+    <div data-sc-component="surface" data-sc-variant="inset" data-sc-recipe="${recipe}"><p data-sc-component="text" data-sc-recipe="${recipe}">Inset surface</p></div>
+    <div data-sc-component="inline" data-sc-gap="sm" data-sc-recipe="${recipe}"><span data-sc-component="badge" data-sc-recipe="${recipe}">Inline</span><span data-sc-component="badge" data-sc-recipe="${recipe}">Row</span></div>
+    <hr data-sc-component="divider" data-sc-recipe="${recipe}" />
+    <div data-sc-component="tabs" data-sc-recipe="${recipe}"><div data-sc-component="segmented-control" data-sc-size="sm" data-sc-recipe="${recipe}"><button data-sc-component="segmented-option" data-sc-selected type="button">One</button><button data-sc-component="segmented-option" type="button">Two</button></div></div>
+  </div>`;
+}
+
+/** Data display examples. */
+function dataPreview(recipe: string): string {
+  return `<div class="preview-row">
+    <dl data-sc-component="key-value" data-sc-recipe="${recipe}">
+      <div data-sc-component="key-value-row"><dt>Status</dt><dd>Ready</dd></div>
+      <div data-sc-component="key-value-row"><dt>Target</dt><dd>ChatGPT</dd></div>
+    </dl>
+    <table data-sc-component="table" data-sc-recipe="${recipe}"><tbody><tr><th>Name</th><td>Sidecar</td></tr><tr><th>Version</th><td>alpha</td></tr></tbody></table>
+    <progress data-sc-component="progress" data-sc-recipe="${recipe}" value="70" max="100"></progress>
+  </div>`;
+}
+
+/** Media examples. */
+function mediaPreview(recipe: string): string {
+  return `<svg data-sc-component="image" data-sc-recipe="${recipe}" viewBox="0 0 320 120" role="img" aria-label="Preview image">
+    <rect width="320" height="120" rx="12" fill="currentColor" opacity="0.08"></rect>
+    <circle cx="64" cy="60" r="28" fill="currentColor" opacity="0.18"></circle>
+    <rect x="112" y="42" width="150" height="12" rx="6" fill="currentColor" opacity="0.2"></rect>
+    <rect x="112" y="66" width="104" height="10" rx="5" fill="currentColor" opacity="0.14"></rect>
+  </svg>`;
+}
+
+/** Returns the components represented in a preview set. */
+function previewComponentNames(componentSet: ComponentPreviewSet): string[] {
+  if (componentSet === "representative") {
+    return [
+      "Button",
+      "Input",
+      "SelectControl",
+      "Checkbox",
+      "Switch",
+      "RadioGroup",
+      "SegmentedControl",
+      "Alert",
+      "Badge",
+      "Skeleton",
+    ];
+  }
+
+  return [
+    "Alert",
+    "Avatar",
+    "AvatarGroup",
+    "Badge",
+    "Button",
+    "ButtonLink",
+    "Checkbox",
+    "CircularProgress",
+    "Code",
+    "CopyButton",
+    "Divider",
+    "EmptyMessage",
+    "FieldDescription",
+    "FieldError",
+    "FieldLabel",
+    "FormField",
+    "Heading",
+    "Image",
+    "Inline",
+    "Input",
+    "KeyValue",
+    "LoadingDots",
+    "LoadingIndicator",
+    "Progress",
+    "RadioGroup",
+    "SegmentedControl",
+    "Select",
+    "SelectControl",
+    "ShimmerText",
+    "Skeleton",
+    "Slider",
+    "Stack",
+    "Surface",
+    "Switch",
+    "Table",
+    "Tabs",
+    "Text",
+    "Textarea",
+    "TextLink",
+  ];
+}
+
+/** Parses the component inventory selected for the preview command. */
+function readPreviewComponentSet(value: string | undefined): ComponentPreviewSet {
+  if (!value || value === "representative") {
+    return "representative";
+  }
+  if (value === "all") {
+    return value;
+  }
+  throw new Error(`Unsupported component preview set "${value}". Expected representative or all.`);
+}
+
+/** Parses the theme set selected for the preview command. */
+function readPreviewThemes(value: string | undefined): ComponentPreviewTheme[] {
+  if (!value || value === "light") {
+    return ["light"];
+  }
+  if (value === "dark") {
+    return ["dark"];
+  }
+  if (value === "both") {
+    return ["light", "dark"];
+  }
+
+  const themes = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (themes.every((theme): theme is ComponentPreviewTheme => theme === "light" || theme === "dark")) {
+    return themes;
+  }
+  throw new Error(`Unsupported component preview theme "${value}". Expected light, dark, both, or a comma-separated light,dark list.`);
 }
 
 /** Escapes user-controlled strings before inserting them into preview HTML. */
