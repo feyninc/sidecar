@@ -5,7 +5,7 @@ export default command({
   name: "review-summary",
   description: "Draft a short expense review summary from the current context.",
   argumentHint: "[report-id]",
-  allowedTools: ["review_expense_report"],
+  allowedTools: ["expenses.review"],
   prompt: `
 Draft a concise review summary for the expense report in the current context.
 

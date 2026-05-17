@@ -16,6 +16,16 @@ export type JsonObject = { [key: string]: JsonValue };
 /** Value that may be returned synchronously or asynchronously. */
 export type MaybePromise<T> = T | Promise<T>;
 
+/** Project-level metadata declared from `sidecar.config.ts`. */
+export type SidecarConfig = {
+  /** Human-readable app/server name used in generated manifests. */
+  name: string;
+  /** Semver-ish app version used in generated manifests and plugin output. */
+  version: string;
+  /** Short app description used by hosts and generated install docs. */
+  description: string;
+};
+
 /** MCP content block variants Sidecar currently normalizes. */
 export type McpContentBlock =
   | { type: "text"; text: string }
@@ -102,7 +112,7 @@ export type ChatGptWidgetOptions = {
   redirectDomains?: readonly string[];
 };
 
-/** Widget resource metadata declared from the sibling tool. */
+/** Widget resource metadata declared by `widget(...)` in a sibling widget file. */
 export type ToolWidgetOptions = {
   /** Host-facing summary of what the rendered widget shows. */
   description?: string;
@@ -290,9 +300,9 @@ export type ToolExecute<Params, Output, Auth = unknown, Services = unknown, Tool
 
 /** Author-facing definition accepted by `tool()`. */
 export type ToolDefinition<Params = unknown, Output = unknown, Auth = unknown, Services = unknown, Tools = unknown> = {
-  /** Human-readable name shown to users and models. Sidecar derives the MCP machine id from it by default. */
+  /** Human-readable name shown to users and models. */
   name: string;
-  /** Optional MCP machine id. If omitted, Sidecar snake-cases `name`. */
+  /** Optional MCP machine id. If omitted in a reserved tool file, Sidecar uses the folder name. */
   id?: string;
   /** Model-facing description. This should be specific enough for reliable tool selection. */
   description: string;
@@ -306,8 +316,6 @@ export type ToolDefinition<Params = unknown, Output = unknown, Auth = unknown, S
   visibility?: ToolVisibility;
   /** Optional host-specific compatibility metadata. */
   hosts?: ToolHostExtensions;
-  /** Optional metadata for the sibling widget resource. */
-  widget?: ToolWidgetOptions;
   /** Low-level descriptor metadata escape hatch. Prefer typed fields when available. */
   meta?: Record<string, unknown>;
   /** Optional authorization policy. Tools are public unless this is declared. */
@@ -345,6 +353,26 @@ export type SkillDefinition = {
 const toolBrand = Symbol.for("sidecar.tool");
 const toolResultBrand = Symbol.for("sidecar.toolResult");
 const skillBrand = Symbol.for("sidecar.skill");
+
+/**
+ * Declares app identity in `sidecar.config.ts`.
+ *
+ * The compiler reads the object statically, while the helper gives authors
+ * editor completions for every supported config field.
+ */
+export function defineConfig(config: SidecarConfig): SidecarConfig {
+  if (!config.name.trim()) {
+    throw new SidecarDefinitionError("Project name is required.");
+  }
+  if (!config.version.trim()) {
+    throw new SidecarDefinitionError(`Project "${config.name}" must include a version.`);
+  }
+  if (!config.description.trim()) {
+    throw new SidecarDefinitionError(`Project "${config.name}" must include a description.`);
+  }
+
+  return Object.freeze({ ...config });
+}
 
 /**
  * Declares a Sidecar MCP tool.

@@ -17,8 +17,10 @@ import {
   useContext,
   useMemo,
   useState,
+  type ComponentType,
   type ReactNode,
 } from "react";
+import type { ToolWidgetOptions } from "@sidecar/core";
 
 export {
   browserBridge,
@@ -32,9 +34,47 @@ export {
   type WidgetBridge,
   type WidgetToolResult,
 } from "@sidecar/client";
+export type {
+  ChatGptWidgetOptions,
+  ToolWidgetOptions as WidgetOptions,
+  WidgetCspOptions,
+} from "@sidecar/core";
+
+/** Props supplied to generated widget roots. Widgets read data through hooks. */
+export type WidgetProps = Record<string, never>;
+
+/** React component returned by `widget(...)` with static Sidecar metadata. */
+export type SidecarWidget = ComponentType<WidgetProps> & {
+  readonly kind: "sidecar.widget";
+  readonly options: ToolWidgetOptions;
+};
 
 const WidgetBridgeContext = createContext<WidgetBridge | null>(null);
 const HostContextContext = createContext<SidecarHostContext | null>(null);
+
+/**
+ * Declares a React widget and its MCP Apps resource metadata.
+ *
+ * The compiler reads the options statically from `widget.tsx`; at runtime this
+ * returns the component itself so React rendering stays ordinary.
+ */
+export function widget(
+  options: ToolWidgetOptions,
+  Component: ComponentType<WidgetProps>,
+): SidecarWidget {
+  Object.defineProperties(Component, {
+    kind: {
+      enumerable: false,
+      value: "sidecar.widget",
+    },
+    options: {
+      enumerable: false,
+      value: Object.freeze({ ...options }),
+    },
+  });
+
+  return Component as SidecarWidget;
+}
 
 /** Provides a custom widget bridge for tests or non-browser embedding. */
 export function SidecarWidgetProvider(props: { bridge: WidgetBridge; children?: ReactNode }) {

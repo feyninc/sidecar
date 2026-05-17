@@ -7,10 +7,15 @@ export {
   type ClaudeCommandDefinition,
 } from "./command.js";
 export {
+  commandHook,
   hook,
   hooks,
+  httpHook,
   type ClaudeHookCommand,
+  type ClaudeHookDefinition,
   type ClaudeHookEvent,
+  type ClaudeHookHandler,
+  type ClaudeHookHttp,
   type ClaudeHookMatcher,
   type ClaudeHooksDefinition,
 } from "./hooks.js";

@@ -10,9 +10,9 @@ describe("analyzeProjectTools", () => {
     const rootDir = path.resolve(import.meta.dirname, "../../../examples/simple");
     const tools = await analyzeProjectTools(rootDir);
 
-    expect(tools.map((entry: SidecarToolManifestEntry) => entry.id).sort()).toEqual(["add_numbers", "expenses.review"]);
+    expect(tools.map((entry: SidecarToolManifestEntry) => entry.id).sort()).toEqual(["add-numbers", "expenses.review"]);
 
-    const add = tools.find((entry: SidecarToolManifestEntry) => entry.id === "add_numbers");
+    const add = tools.find((entry: SidecarToolManifestEntry) => entry.id === "add-numbers");
     expect(add?.inputSchema).toMatchObject({
       type: "object",
       properties: {
@@ -40,9 +40,9 @@ describe("analyzeProjectTools", () => {
     try {
       await cp(fixture, rootDir, { recursive: true });
       const manifest = await buildProject({ rootDir, outDir: "out/chatgpt", plugins: true, target: "chatgpt" });
-      const widgetTool = manifest.tools.find((entry: SidecarToolManifestEntry) => entry.id === "add_numbers");
+      const widgetTool = manifest.tools.find((entry: SidecarToolManifestEntry) => entry.id === "add-numbers");
 
-      expect(widgetTool?.widget?.resourceUri).toMatch(/^ui:\/\/add_numbers\/widget\.[a-f0-9]{12}\.html$/);
+      expect(widgetTool?.widget?.resourceUri).toMatch(/^ui:\/\/add-numbers\/widget\.[a-f0-9]{12}\.html$/);
       expect(widgetTool?.descriptor._meta).toMatchObject({
         ui: {
           resourceUri: widgetTool?.widget?.resourceUri,
@@ -71,9 +71,10 @@ describe("analyzeProjectTools", () => {
       await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".grid");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.claude-plugin/plugin.json"), "utf8")).resolves.toContain("available");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/skills/review-writer/SKILL.md"), "utf8")).resolves.toContain("expense review summary");
-      await expect(readFile(path.join(rootDir, "out/claude-plugin/commands/review-summary.md"), "utf8")).resolves.toContain("allowed-tools: review_expense_report");
+      await expect(readFile(path.join(rootDir, "out/claude-plugin/commands/review-summary.md"), "utf8")).resolves.toContain("allowed-tools: expenses.review");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/agents/review-writer.md"), "utf8")).resolves.toContain("disallowed-tools: Write");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/hooks/hooks.json"), "utf8")).resolves.toContain("SubagentStop");
+      await expect(readFile(path.join(rootDir, "out/claude-plugin/hooks/hooks.json"), "utf8")).resolves.toContain("PreToolUse");
     } finally {
       await rm(rootDir, { recursive: true, force: true });
     }
@@ -111,6 +112,26 @@ export default tool({
 }
 `,
       );
+      await writeFixture(
+        path.join(rootDir, "server", "plain-return", "tool.ts"),
+        `import { tool } from "@sidecar/core";
+
+export default tool({
+  name: "Plain Return",
+  description: "Use this when checking tool result diagnostics.",
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false
+  },
+  execute() {
+    return {
+      content: "plain"
+    };
+  }
+});
+`,
+      );
 
       const tools = await analyzeProjectTools(rootDir);
       const diagnostics = await collectProjectDiagnostics(rootDir, tools);
@@ -120,13 +141,109 @@ export default tool({
           "SIDECAR_METADATA_DESCRIPTION",
           "SIDECAR_TOOL_ANNOTATION",
           "SIDECAR_PARAM_DESCRIPTION",
-          "SIDECAR_OPENAI_RAW_BRIDGE"
+          "SIDECAR_OPENAI_RAW_BRIDGE",
+          "SIDECAR_TOOL_RESULT_REQUIRED"
         ])
       );
-      expect(diagnostics[0]).toMatchObject({
+      const rawOpenAiDiagnostic = diagnostics.find(
+        (diagnostic) => diagnostic.filePath === "server/raw-openai/tool.ts",
+      );
+      expect(rawOpenAiDiagnostic).toMatchObject({
         filePath: "server/raw-openai/tool.ts",
         line: expect.any(Number),
         column: expect.any(Number)
+      });
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts named default exports and reads widget-owned metadata", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-reserved-helpers-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "server", "folder-id", "tool.ts"),
+        `import { tool, toolResult } from "@sidecar/core";
+
+const declaredTool = tool({
+  name: "Folder Named Tool",
+  description: "Use this when checking reserved helper declarations.",
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false
+  },
+  execute() {
+    return toolResult({
+      structuredContent: { ok: true },
+      content: "ok"
+    });
+  }
+});
+
+export default declaredTool;
+`,
+      );
+      await writeFixture(
+        path.join(rootDir, "server", "folder-id", "widget.tsx"),
+        `import { widget } from "@sidecar/react";
+
+function Widget() {
+  return null;
+}
+
+const declaredWidget = widget(
+  {
+    description: "Widget-owned description.",
+    prefersBorder: true,
+    csp: {
+      connectDomains: ["https://api.example.com"],
+      resourceDomains: ["https://cdn.example.com"],
+      frameDomains: ["https://frame.example.com"]
+    },
+    hosts: {
+      chatgpt: {
+        domain: "https://widgets.example.com",
+        redirectDomains: ["https://example.com"]
+      }
+    }
+  },
+  Widget
+);
+
+export default declaredWidget;
+`,
+      );
+
+      const [entry] = await analyzeProjectTools(rootDir, { target: "chatgpt" });
+
+      expect(entry).toMatchObject({
+        id: "folder-id",
+        widget: {
+          options: {
+            description: "Widget-owned description.",
+            prefersBorder: true,
+          },
+        },
+      });
+      expect(entry?.descriptor._meta).toMatchObject({
+        ui: {
+          prefersBorder: true,
+          csp: {
+            connectDomains: ["https://api.example.com"],
+            resourceDomains: ["https://cdn.example.com"],
+            frameDomains: ["https://frame.example.com"],
+          },
+        },
+        "openai/widgetDescription": "Widget-owned description.",
+        "openai/widgetDomain": "https://widgets.example.com",
+        "openai/widgetCSP": {
+          connect_domains: ["https://api.example.com"],
+          resource_domains: ["https://cdn.example.com"],
+          frame_domains: ["https://frame.example.com"],
+          redirect_domains: ["https://example.com"],
+        },
       });
     } finally {
       await rm(rootDir, { recursive: true, force: true });

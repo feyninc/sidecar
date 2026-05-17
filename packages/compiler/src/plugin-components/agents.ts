@@ -8,7 +8,7 @@ import {
   stripUndefined,
 } from "../utils.js";
 
-/** Emits `agents/*.md` from `agents/*.agent.ts` files. */
+/** Emits `agents/*.md` from reserved agent directories. */
 export async function emitClaudeAgents(
   rootDir: string,
   destination: string,
@@ -19,23 +19,23 @@ export async function emitClaudeAgents(
   }
 
   const entries = await readdir(source, { withFileTypes: true });
-  const agentFiles = entries.filter(
-    (entry) => entry.isFile() && entry.name.endsWith(".agent.ts"),
+  const agentDirs = entries.filter(
+    (entry) => entry.isDirectory() && existsSyncSafe(path.join(source, entry.name, "agent.ts")),
   );
-  if (!agentFiles.length) {
+  if (!agentDirs.length) {
     return;
   }
 
   await mkdir(destination, { recursive: true });
-  for (const entry of agentFiles) {
-    const sourceText = await readFile(path.join(source, entry.name), "utf8");
+  for (const entry of agentDirs) {
+    const sourceText = await readFile(path.join(source, entry.name, "agent.ts"), "utf8");
     const markdown = parseClaudeAgent(
       sourceText,
-      entry.name.replace(/\.agent\.ts$/, ""),
+      entry.name,
     );
     const agentName =
       readObjectString(sourceText, "name") ??
-      entry.name.replace(/\.agent\.ts$/, "");
+      entry.name;
     await writeFile(path.join(destination, `${agentName}.md`), markdown);
   }
 }

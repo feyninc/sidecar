@@ -7,7 +7,8 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
-    "@sidecar/client": "0.0.0-dev"
+    "@sidecar/client": "0.0.0-dev",
+    "@sidecar/core": "0.0.0-dev"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"

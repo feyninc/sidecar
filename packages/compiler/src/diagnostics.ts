@@ -94,6 +94,17 @@ function diagnoseToolSource(
     });
   }
 
+  if (!returnsToolResult(source) && !isIgnored(source, "SIDECAR_TOOL_RESULT_REQUIRED")) {
+    diagnostics.push({
+      severity: "warning",
+      code: "SIDECAR_TOOL_RESULT_REQUIRED",
+      message: `Tool "${entry.id}" should return toolResult(...) from execute.`,
+      filePath: entry.sourceFile,
+      ...locate(source, "execute"),
+      hint: "The runtime rejects plain objects so content, structuredContent, and meta always map cleanly to MCP result channels.",
+    });
+  }
+
   if (/["']openai\//.test(source) && !/@sidecar\/openai/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_MAGIC_META")) {
     diagnostics.push({
       severity: "warning",
@@ -198,6 +209,11 @@ function diagnoseWidgetSource(
   }
 
   return diagnostics.filter((diagnostic) => !isIgnored(source, diagnostic.code));
+}
+
+/** Returns true when the source visibly returns the standardized result helper. */
+function returnsToolResult(source: string): boolean {
+  return /\breturn\s+toolResult(?:\.\w+)?\s*\(/.test(source);
 }
 
 /** Finds required parameters without model-facing descriptions. */

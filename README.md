@@ -6,7 +6,7 @@ The current implementation is the first vertical slice:
 
 - `@sidecar/core`: public `tool({ execute })` API, `toolResult(...)`, and MCP descriptor helpers.
 - `@sidecar/client`: framework-agnostic widget bridge for tool calls, tool results, model messages, and model context.
-- `@sidecar/react`: optional React hooks around `@sidecar/client`.
+- `@sidecar/react`: React widget declaration helper and hooks around `@sidecar/client`.
 - `@sidecar/auth`: provider-agnostic MCP auth helpers, typed scopes, and `AuthSession`.
 - `@sidecar/anthropic`: Claude plugin helpers plus reconstructed Claude-styled components.
 - `@sidecar/compiler`: reserved `server/**/tool.ts` discovery and TypeScript/JSDoc schema extraction.
@@ -43,14 +43,6 @@ export default tool({
     destructiveHint: false,
     openWorldHint: false
   },
-  widget: {
-    description: "Shows policy issues and approval readiness.",
-    csp: {
-      connectDomains: [],
-      resourceDomains: [],
-      frameDomains: []
-    }
-  },
   async execute(params: Params, ctx: ToolContext) {
     const review: Result = await ctx.services.expenses.review(params.reportId);
 
@@ -66,6 +58,8 @@ export default tool({
 ```
 
 `execute` may be sync or async. Every tool must return `toolResult(...)`; Sidecar uses that single envelope to keep model-visible `content`, typed `structuredContent`, and optional widget-only `meta` explicit.
+
+Inside reserved `server/<tool-id>/tool.ts` files, the MCP machine id defaults to the folder name. Add `id` only when you need an explicit override such as `expenses.review`.
 
 ## Local Commands
 
@@ -102,11 +96,35 @@ server/
 
 Sidecar bundles the widget into a content-hashed `ui://...` resource and adds standard MCP Apps metadata:
 
+```tsx
+import { widget, useToolResult } from "@sidecar/react";
+
+type Result = {
+  sum: number;
+};
+
+function AddNumbersWidget() {
+  const { structured } = useToolResult<Result>();
+  return <output>{structured?.sum ?? "--"}</output>;
+}
+
+export default widget(
+  {
+    description: "Shows the computed sum from the Add Numbers tool.",
+    csp: {
+      connectDomains: [],
+      resourceDomains: []
+    }
+  },
+  AddNumbersWidget
+);
+```
+
 ```json
 {
   "_meta": {
     "ui": {
-      "resourceUri": "ui://add_numbers/widget.<hash>.html",
+      "resourceUri": "ui://add-numbers/widget.<hash>.html",
       "csp": {
         "connectDomains": [],
         "resourceDomains": [],
@@ -119,7 +137,9 @@ Sidecar bundles the widget into a content-hashed `ui://...` resource and adds st
 
 Build with `--target chatgpt` to add ChatGPT compatibility metadata such as `openai/outputTemplate` and `openai/widgetCSP`. Shared MCP and Claude targets keep the standard `ui` metadata primary.
 
-Widget code is React. Use `@sidecar/react` for hooks around tool results, tool calls, model messages, and model context updates.
+Widget code is React. Use `@sidecar/react` for the `widget(...)` declaration helper plus hooks around tool results, tool calls, model messages, and model context updates. A plain default-exported React component still works; `widget(...)` is preferred because it gives typed metadata completions.
+
+Root `style.css` is automatically imported into every widget after Sidecar's native component styles. The scaffolded file keeps the iframe transparent, uses system fonts, declares `color-scheme: light dark`, and can serve as a Tailwind entrypoint.
 
 Platform file variants let one tool keep a shared baseline while specializing only where needed:
 
@@ -271,7 +291,13 @@ auth: {
 
 ## Claude Plugin Agents
 
-Claude plugin pieces can be authored as TypeScript and generated into plugin files. Agents are generated into markdown:
+Claude plugin pieces can be authored as TypeScript and generated into plugin files. Agents live under reserved agent directories and are generated into markdown:
+
+```text
+agents/
+  review-writer/
+    agent.ts
+```
 
 ```ts
 import { agent } from "@sidecar/anthropic/plugin";
@@ -285,7 +311,27 @@ export default agent({
 });
 ```
 
-`hooks.json` at the project root is copied into the generated Claude plugin as `hooks/hooks.json`. Sidecar keeps hook generation conservative for now because hook semantics are host-specific and can block or mutate tool flows.
+Hooks live under reserved hook directories. Sidecar merges every `hooks/<name>/hook.ts` file into the generated Claude plugin's `hooks/hooks.json`:
+
+```text
+hooks/
+  protect-writes/
+    hook.ts
+  review-writer/
+    hook.ts
+```
+
+```ts
+import { commandHook, hook } from "@sidecar/anthropic/hooks";
+
+export default hook({
+  event: "PreToolUse",
+  matcher: "Write",
+  run: [
+    commandHook("echo checking write permissions")
+  ]
+});
+```
 
 Slash commands can be static markdown under `commands/` or dynamic `command.ts` files:
 
@@ -296,7 +342,7 @@ export default command({
   name: "review-summary",
   description: "Draft a short expense review summary.",
   argumentHint: "[report-id]",
-  allowedTools: ["review_expense_report"],
+  allowedTools: ["expenses.review"],
   prompt: "Draft a concise review summary for the current expense report."
 });
 ```

@@ -21,13 +21,6 @@ export default tool({
     destructiveHint: false,
     openWorldHint: false
   },
-  widget: {
-    description: "Shows the computed sum from the Add Numbers tool.",
-    csp: {
-      connectDomains: [],
-      resourceDomains: []
-    }
-  },
   execute(params: Params) {
     const sum = params.a + params.b;
     const structuredContent: Result = { sum };

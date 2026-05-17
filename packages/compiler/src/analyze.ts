@@ -3,11 +3,9 @@ import {
   createToolDescriptor,
   toMachineName,
   type ChatGptToolOptions,
-  type ChatGptWidgetOptions,
   type ToolHostExtensions,
   type ToolAnnotations,
   type ToolVisibility,
-  type ToolWidgetOptions,
 } from "@sidecar/core";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
@@ -19,17 +17,17 @@ import {
   ScriptTarget,
   SyntaxKind,
   type ArrowFunction,
-  type CallExpression,
   type FunctionExpression,
   type MethodDeclaration,
   type ObjectLiteralExpression,
   type SourceFile,
 } from "ts-morph";
+import { resolveDefaultExportCall, unwrapExpression } from "./ast.js";
 import { CompilerError } from "./errors.js";
 import { getOutputSchema, getParamsSchema } from "./schema.js";
 import type { SidecarToolManifestEntry } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
-import { findWidget, mergeWidgetMeta, widgetMeta } from "./widgets.js";
+import { findWidget, mergeWidgetMeta, readWidgetOptions, widgetMeta } from "./widgets.js";
 import type { SidecarSourceVariant, SidecarTarget } from "./types.js";
 
 /** Finds all Sidecar tool files under `server/` and returns manifest entries. */
@@ -61,8 +59,10 @@ export function analyzeToolFile(
   const target = options.target ?? "mcp";
   const variant = options.variant ?? "shared";
   const definition = findToolDefinition(sourceFile);
+  const absoluteFile = sourceFile.getFilePath();
+  const directory = path.basename(path.dirname(absoluteFile));
   const name = getRequiredStringProperty(definition, "name", sourceFile);
-  const id = getOptionalStringProperty(definition, "id") ?? toMachineName(name);
+  const id = getOptionalStringProperty(definition, "id") ?? toMachineName(directory);
   const description = getRequiredStringProperty(
     definition,
     "description",
@@ -71,7 +71,6 @@ export function analyzeToolFile(
   const annotations = readAnnotations(definition);
   const visibility = readVisibility(definition);
   const hosts = readHosts(definition);
-  const widgetOptions = readWidgetOptions(definition);
   const execute = getExecuteFunction(definition, sourceFile);
 
   const inputSchema = getParamsSchema(definition, execute);
@@ -89,10 +88,16 @@ export function analyzeToolFile(
     meta: undefined,
   });
 
-  const absoluteFile = sourceFile.getFilePath();
-  const directory = path.basename(path.dirname(absoluteFile));
-  const widget = findWidget(rootDir, absoluteFile, id, widgetOptions, target);
+  const widget = findWidget(rootDir, absoluteFile, id, target);
   if (widget) {
+    const widgetFile = path.join(rootDir, widget.sourceFile);
+    const project = sourceFile.getProject();
+    const widgetSourceFile =
+      project.getSourceFile(widgetFile) ?? project.addSourceFileAtPath(widgetFile);
+    widget.options = {
+      description,
+      ...readWidgetOptions(widgetSourceFile),
+    };
     descriptor._meta = mergeWidgetMeta(descriptor._meta, widgetMeta(widget.resourceUri, widget.options, target));
   }
 
@@ -186,28 +191,15 @@ function selectToolFile(directory: string, target: SidecarTarget): ToolFileCandi
 
 /** Locates the default-exported `tool({ ... })` object literal. */
 function findToolDefinition(sourceFile: SourceFile): ObjectLiteralExpression {
-  const exportAssignment = sourceFile.getExportAssignment(
-    (assignment) => !assignment.isExportEquals(),
-  );
-  const expression = exportAssignment?.getExpression();
-
-  if (!expression || !Node.isCallExpression(expression)) {
+  const call = resolveDefaultExportCall(sourceFile, "tool");
+  if (!call) {
     throw new CompilerError(
       sourceFile,
-      "tool.ts must default-export tool({ ... }).",
+      "tool.ts must default-export tool({ ... }) or an identifier initialized with tool({ ... }).",
     );
   }
 
-  const call = expression as CallExpression;
-  const callee = call.getExpression().getText();
-  if (!callee.endsWith("tool")) {
-    throw new CompilerError(
-      sourceFile,
-      "Default export must call tool({ ... }).",
-    );
-  }
-
-  const [definition] = call.getArguments();
+  const definition = unwrapExpression(call.getArguments()[0]);
   if (!definition || !Node.isObjectLiteralExpression(definition)) {
     throw new CompilerError(
       sourceFile,
@@ -414,63 +406,6 @@ function readHosts(
   return Object.keys(options).length ? { chatgpt: options } : undefined;
 }
 
-/** Extracts widget resource metadata from the tool object. */
-function readWidgetOptions(
-  definition: ObjectLiteralExpression,
-): ToolWidgetOptions | undefined {
-  const initializer = readObjectProperty(definition, "widget");
-  if (!initializer) {
-    return undefined;
-  }
-
-  const options: ToolWidgetOptions = {};
-  const description = readStringProperty(initializer, "description");
-  const prefersBorder = readBooleanProperty(initializer, "prefersBorder");
-  const csp = readWidgetCsp(initializer);
-  const chatgpt = readChatGptWidgetOptions(initializer);
-
-  if (description) options.description = description;
-  if (prefersBorder !== undefined) options.prefersBorder = prefersBorder;
-  if (csp) options.csp = csp;
-  if (chatgpt) options.hosts = { chatgpt };
-
-  return Object.keys(options).length ? options : undefined;
-}
-
-/** Reads standard widget CSP options. */
-function readWidgetCsp(
-  definition: ObjectLiteralExpression,
-): ToolWidgetOptions["csp"] | undefined {
-  const initializer = readObjectProperty(definition, "csp");
-  if (!initializer) {
-    return undefined;
-  }
-
-  const csp = {
-    connectDomains: readStringArrayProperty(initializer, "connectDomains"),
-    resourceDomains: readStringArrayProperty(initializer, "resourceDomains"),
-    frameDomains: readStringArrayProperty(initializer, "frameDomains"),
-  };
-  return stripUndefined(csp);
-}
-
-/** Reads ChatGPT-only widget compatibility options. */
-function readChatGptWidgetOptions(
-  definition: ObjectLiteralExpression,
-): ChatGptWidgetOptions | undefined {
-  const hosts = readObjectProperty(definition, "hosts");
-  const chatgpt = hosts ? readObjectProperty(hosts, "chatgpt") : undefined;
-  if (!chatgpt) {
-    return undefined;
-  }
-
-  const options = {
-    domain: readStringProperty(chatgpt, "domain"),
-    redirectDomains: readStringArrayProperty(chatgpt, "redirectDomains"),
-  };
-  return stripUndefined(options);
-}
-
 /** Reads a nested object literal property, unwrapping `satisfies` expressions. */
 function readObjectProperty(
   definition: ObjectLiteralExpression,
@@ -546,19 +481,6 @@ function readStringArrayProperty(
     .getElements()
     .filter(Node.isStringLiteral)
     .map((element) => element.getLiteralText());
-}
-
-/** Removes TypeScript-only wrappers such as `satisfies` from initializers. */
-function unwrapExpression(expression: Node | undefined): Node | undefined {
-  if (!expression) {
-    return undefined;
-  }
-
-  if (Node.isSatisfiesExpression(expression) || Node.isAsExpression(expression)) {
-    return expression.getExpression();
-  }
-
-  return expression;
 }
 
 /** Drops undefined properties from small parsed option objects. */

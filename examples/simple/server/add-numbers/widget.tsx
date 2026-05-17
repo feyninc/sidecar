@@ -1,5 +1,5 @@
 /** Example React widget rendered for the sibling Add Numbers tool. */
-import { useToolResult } from "@sidecar/react";
+import { useToolResult, widget } from "@sidecar/react";
 import { Button } from "@sidecar/native/components";
 
 type Result = {
@@ -7,7 +7,7 @@ type Result = {
 };
 
 /** Renders the structured result from the Add Numbers tool. */
-export default function AddNumbersWidget() {
+function AddNumbersWidget() {
   const { structured } = useToolResult<Result>();
 
   return (
@@ -22,3 +22,14 @@ export default function AddNumbersWidget() {
     </main>
   );
 }
+
+export default widget(
+  {
+    description: "Shows the computed sum from the Add Numbers tool.",
+    csp: {
+      connectDomains: [],
+      resourceDomains: []
+    }
+  },
+  AddNumbersWidget
+);

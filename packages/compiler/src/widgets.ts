@@ -5,7 +5,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build as esbuild } from "esbuild";
 import postcss from "postcss";
-import type { ToolWidgetOptions } from "@sidecar/core";
+import {
+  Node,
+  SyntaxKind,
+  type ObjectLiteralExpression,
+  type SourceFile,
+} from "ts-morph";
+import type { ChatGptWidgetOptions, ToolWidgetOptions } from "@sidecar/core";
+import { resolveDefaultExportCall, unwrapExpression } from "./ast.js";
+import { CompilerError } from "./errors.js";
 import type { SidecarSourceVariant, SidecarTarget, SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
 import { escapeHtml, safePathSegment, toImportSpecifier } from "./utils.js";
 
@@ -137,7 +145,6 @@ export function findWidget(
   rootDir: string,
   toolFile: string,
   id: string,
-  options?: ToolWidgetOptions,
   target: SidecarTarget = "mcp",
 ): SidecarWidgetManifestEntry | undefined {
   const selected = selectWidgetFile(path.dirname(toolFile), target);
@@ -150,8 +157,30 @@ export function findWidget(
     sourceFile: path.relative(rootDir, selected.filePath),
     variant: selected.variant,
     resourceUri: `ui://${safeId}/widget.html`,
-    options,
   };
+}
+
+/** Extracts `widget({ ... }, Component)` metadata from a widget source file. */
+export function readWidgetOptions(
+  sourceFile: SourceFile,
+): ToolWidgetOptions | undefined {
+  const definition = findWidgetDefinition(sourceFile);
+  if (!definition) {
+    return undefined;
+  }
+
+  const options: ToolWidgetOptions = {};
+  const description = readStringProperty(definition, "description");
+  const prefersBorder = readBooleanProperty(definition, "prefersBorder");
+  const csp = readWidgetCsp(definition);
+  const chatgpt = readChatGptWidgetOptions(definition);
+
+  if (description) options.description = description;
+  if (prefersBorder !== undefined) options.prefersBorder = prefersBorder;
+  if (csp) options.csp = csp;
+  if (chatgpt) options.hosts = { chatgpt };
+
+  return Object.keys(options).length ? options : undefined;
 }
 
 /** Builds standard and ChatGPT-compatible widget metadata for a descriptor. */
@@ -193,6 +222,137 @@ export function widgetMeta(
     "openai/widgetDomain": options.hosts?.chatgpt?.domain,
     "openai/widgetCSP": stripUndefined(chatgptCsp),
   };
+}
+
+/** Locates the default-exported widget helper call when a widget uses one. */
+function findWidgetDefinition(
+  sourceFile: SourceFile,
+): ObjectLiteralExpression | undefined {
+  const call = resolveDefaultExportCall(sourceFile, "widget");
+  if (!call) {
+    return undefined;
+  }
+
+  const definition = unwrapExpression(call.getArguments()[0]);
+  if (!definition || !Node.isObjectLiteralExpression(definition)) {
+    throw new CompilerError(
+      sourceFile,
+      "widget(...) must receive its metadata object as the first argument.",
+    );
+  }
+
+  return definition;
+}
+
+/** Reads standard widget CSP options. */
+function readWidgetCsp(
+  definition: ObjectLiteralExpression,
+): ToolWidgetOptions["csp"] | undefined {
+  const initializer = readObjectProperty(definition, "csp");
+  if (!initializer) {
+    return undefined;
+  }
+
+  const csp = {
+    connectDomains: readStringArrayProperty(initializer, "connectDomains"),
+    resourceDomains: readStringArrayProperty(initializer, "resourceDomains"),
+    frameDomains: readStringArrayProperty(initializer, "frameDomains"),
+  };
+  return stripUndefined(csp);
+}
+
+/** Reads ChatGPT-only widget compatibility options. */
+function readChatGptWidgetOptions(
+  definition: ObjectLiteralExpression,
+): ChatGptWidgetOptions | undefined {
+  const hosts = readObjectProperty(definition, "hosts");
+  const chatgpt = hosts ? readObjectProperty(hosts, "chatgpt") : undefined;
+  if (!chatgpt) {
+    return undefined;
+  }
+
+  const options = {
+    domain: readStringProperty(chatgpt, "domain"),
+    redirectDomains: readStringArrayProperty(chatgpt, "redirectDomains"),
+  };
+  return stripUndefined(options);
+}
+
+/** Reads a nested object literal property, unwrapping TS-only expressions. */
+function readObjectProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): ObjectLiteralExpression | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  return initializer && Node.isObjectLiteralExpression(initializer)
+    ? initializer
+    : undefined;
+}
+
+/** Reads a string literal property from an object literal. */
+function readStringProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): string | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  return initializer && Node.isStringLiteral(initializer)
+    ? initializer.getLiteralText()
+    : undefined;
+}
+
+/** Reads a boolean literal property from an object literal. */
+function readBooleanProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): boolean | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  if (!initializer) {
+    return undefined;
+  }
+
+  if (initializer.getKind() === SyntaxKind.TrueKeyword) {
+    return true;
+  }
+  if (initializer.getKind() === SyntaxKind.FalseKeyword) {
+    return false;
+  }
+  return undefined;
+}
+
+/** Reads a string literal array property from an object literal. */
+function readStringArrayProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): string[] | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  if (!initializer || !Node.isArrayLiteralExpression(initializer)) {
+    return undefined;
+  }
+
+  return initializer
+    .getElements()
+    .filter(Node.isStringLiteral)
+    .map((element) => element.getLiteralText());
 }
 
 /** Selects the widget source for a target, preferring platform overrides. */
