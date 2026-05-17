@@ -1,75 +1,168 @@
 # Sidecar
 
-Sidecar is an opinionated TypeScript framework for building interactive MCP Apps and UI-capable plugin packages.
+Sidecar is an opinionated TypeScript framework for building interactive MCP apps once and targeting ChatGPT and Claude.
 
-The current implementation is the first vertical slice:
+It gives you a Next.js-style project structure for MCP:
 
-- `@sidecar/core`: public `tool(...)`, `resource(...)`, `prompt(...)`, result envelopes, and MCP descriptor helpers.
-- `@sidecar/client`: framework-agnostic widget bridge built on the official MCP Apps postMessage protocol.
-- `@sidecar/react`: React widget declaration helper and hooks around `@sidecar/client`.
-- `@sidecar/auth`: provider-agnostic MCP auth helpers, typed scopes, and `AuthSession`.
-- `@sidecar/anthropic`: Claude plugin helpers plus reconstructed Claude-styled components.
-- `@sidecar/compiler`: reserved `server/**/tool.ts`, `resources/**/resource.ts`, and `prompts/**/prompt.ts` discovery.
-- `@sidecar/server`: Streamable HTTP MCP runtime for tools, resources, prompts, widgets, auth, and cursor-paginated list methods.
-- `@sidecar/cli`: `sidecar inspect`, `sidecar build`, and `sidecar dev`.
-- `@sidecar/native`: early runtime host feature facade and portable components.
-- `@sidecar/openai`: typed ChatGPT compatibility helpers and official OpenAI Apps SDK UI component re-exports.
-- `create-sidecar-app`: starter scaffold for `npm create sidecar-app` / `npx create-sidecar-app`.
+- write tools as normal TypeScript functions
+- write widgets as React components
+- use typed helpers instead of raw JSON-RPC and metadata strings
+- generate MCP apps and Claude plugin packages from the same source tree
+- keep platform-specific features in `@sidecar/openai` and `@sidecar/anthropic`
 
-## Tool Authoring
+Sidecar is currently alpha. The core API is usable, but public docs, deployment polish, and larger examples are still evolving.
+
+## Create An App
+
+```sh
+npm create sidecar-app my-app
+cd my-app
+npm install
+npm run dev
+```
+
+For an HTTPS MCP URL that can be added to ChatGPT or Claude:
+
+```sh
+npm run dev:https
+```
+
+`sidecar dev --tunnel` starts Sidecar on Streamable HTTP and opens a temporary HTTPS tunnel. Sidecar tries `cloudflared` first. If it is missing, the CLI asks whether to install `cloudflared` or continue with `npx wrangler`.
+
+## Project Structure
+
+```txt
+my-app/
+  sidecar.config.ts
+  style.css
+  auth.ts                # optional
+  proxy.ts               # optional
+  server/
+    add-numbers/
+      tool.ts
+      widget.tsx         # optional React UI for the tool
+  resources/
+    company-handbook/
+      resource.ts
+  prompts/
+    review-expense/
+      prompt.ts
+```
+
+Folder names become stable machine ids by default:
+
+- `server/add-numbers/tool.ts` becomes tool id `add-numbers`
+- `resources/company-handbook/resource.ts` becomes URI `sidecar://resources/company-handbook`
+- `prompts/review-expense/prompt.ts` becomes prompt name `review-expense`
+
+You can override ids and URIs when you need to.
+
+## App Config
 
 ```ts
-import { tool, toolResult, type ToolContext } from "@sidecar/core";
+import { defineConfig } from "@sidecar/core";
+
+export default defineConfig({
+  name: "Expense Review",
+  version: "0.1.0",
+  description: "Review expense reports with MCP tools and widgets.",
+  pagination: {
+    pageSize: 10
+  }
+});
+```
+
+Sidecar uses `sidecar.config.ts` for app identity, generated manifests, plugin metadata, and MCP capability settings.
+
+## Tools
+
+Tools live in `server/<tool-id>/tool.ts`.
+
+```ts
+import { tool, toolResult } from "@sidecar/core";
 
 type Params = {
-  /** Expense report id, for example exp_123. */
-  reportId: string;
+  /** First number to add. */
+  a: number;
+  /** Second number to add. */
+  b: number;
 };
 
 type Result = {
-  /** Approval readiness. */
-  status: "ready" | "needs_changes";
-  /** Policy issues found in the report. */
-  issues: string[];
+  /** Sum of the two input numbers. */
+  sum: number;
 };
 
 export default tool({
-  name: "Review Expense Report",
-  id: "expenses.review",
-  description:
-    "Use this when the user wants policy issues for one expense report. Do not use this to approve or reject a report.",
+  name: "Add Numbers",
+  description: "Use this when the user wants to add two numbers.",
   annotations: {
     readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false
   },
-  async execute(params: Params, ctx: ToolContext) {
-    const review: Result = await ctx.services.expenses.review(params.reportId);
+  execute(params: Params) {
+    const structuredContent: Result = {
+      sum: params.a + params.b
+    };
 
     return toolResult({
-      structuredContent: review,
-      content:
-        review.issues.length === 0
-          ? "The expense report is ready and has no policy issues."
-          : `The expense report needs changes: ${review.issues.join(", ")}.`
+      structuredContent,
+      content: `The sum is ${structuredContent.sum}.`
     });
   }
 });
 ```
 
-`execute` may be sync or async. Every tool must return `toolResult(...)`; Sidecar uses that single envelope to keep model-visible `content`, typed `structuredContent`, and optional widget-only `meta` explicit.
+Every tool returns `toolResult(...)`. Sidecar keeps the MCP result channels explicit:
 
-Inside reserved `server/<tool-id>/tool.ts` files, the MCP machine id defaults to the folder name. Add `id` only when you need an explicit override such as `expenses.review`.
+- `structuredContent`: typed data for widgets and clients
+- `content`: model-visible content
+- `meta`: optional host/widget-only metadata
 
-## Resources And Prompts
+`execute` can be sync or async.
 
-Resources are MCP-readable context. The URI defaults to the folder name and can be overridden when you need a stable external URI:
+## Widgets
 
-```text
-resources/
-  company-handbook/
-    resource.ts
+Place `widget.tsx` next to a tool to give it UI.
+
+```tsx
+import { widget, useToolResult } from "@sidecar/react";
+
+type Result = {
+  sum: number;
+};
+
+function AddNumbersWidget() {
+  const { structuredContent } = useToolResult<Result>();
+
+  return (
+    <main style={{ padding: 16 }}>
+      <h1>Sum</h1>
+      <output>{structuredContent?.sum ?? "--"}</output>
+    </main>
+  );
+}
+
+export default widget(
+  {
+    description: "Shows the computed sum from the Add Numbers tool.",
+    csp: {
+      connectDomains: [],
+      resourceDomains: []
+    }
+  },
+  AddNumbersWidget
+);
 ```
+
+Sidecar bundles widgets into content-hashed `ui://...` resources and emits the MCP Apps metadata needed for hosts to render them. Cache-busting widget URIs are generated automatically when UI output changes.
+
+Widget code is React. The iframe still supports normal CSS, Tailwind, and any React component library you choose.
+
+## Resources
+
+Resources expose readable MCP context.
 
 ```ts
 import { resource, resourceResult } from "@sidecar/core";
@@ -91,15 +184,11 @@ export default resource({
 });
 ```
 
-`resourceResult(...)` is required for authored resources, mirroring `toolResult(...)`. Sidecar lowers it to MCP `contents` with the generated or overridden URI.
+`resourceResult(...)` mirrors `toolResult(...)`: it is the required Sidecar envelope that lowers to MCP `resources/read`.
 
-Prompts are named MCP prompt templates. The prompt machine name defaults to the folder name:
+## Prompts
 
-```text
-prompts/
-  review-expense/
-    prompt.ts
-```
+Prompts expose reusable MCP prompt templates.
 
 ```ts
 import { prompt } from "@sidecar/core";
@@ -122,11 +211,19 @@ export default prompt({
 
 Returning a string creates one MCP user text message. Advanced prompts can return MCP prompt messages directly.
 
-Cursor pagination is configured once. Sidecar applies it only to the four MCP list methods that support pagination: `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list`.
+## Pagination
+
+Sidecar paginates the MCP list operations that support cursors:
+
+- `tools/list`
+- `resources/list`
+- `resources/templates/list`
+- `prompts/list`
+
+The default page size is `10`. Override globally or per operation:
 
 ```ts
 import { defineConfig, offsetPagination } from "@sidecar/core";
-import { paginateTools } from "./lib/pagination.js";
 
 export default defineConfig({
   name: "Acme",
@@ -138,196 +235,85 @@ export default defineConfig({
       default({ items, cursor, pageSize }) {
         return offsetPagination({ items, cursor, pageSize });
       },
-      toolsList: paginateTools
-    }
-  }
-});
-```
-
-Clients must treat cursors as opaque. `pageSize` is only the server's default choice.
-
-## Local Commands
-
-```sh
-npm install
-npm run typecheck
-npm test
-npm run build
-node dist/cli/index.js inspect --cwd examples/simple
-node dist/cli/index.js build --cwd examples/simple
-node dist/cli/index.js build --cwd examples/simple --target chatgpt
-node dist/cli/index.js build --cwd examples/simple --target claude
-node dist/cli/index.js build --cwd examples/simple --plugins
-node dist/cli/index.js check --cwd examples/simple
-node dist/cli/index.js dev --cwd examples/simple --port 3101
-node dist/cli/index.js dev --cwd examples/simple --port 3101 --tunnel
-node dist/create-sidecar-app/index.js /tmp/my-sidecar-app
-```
-
-`sidecar dev --tunnel` starts the local MCP server on Streamable HTTP and opens an HTTPS tunnel. Sidecar tries `cloudflared` first. If it is missing, the CLI asks whether to install `cloudflared` with Homebrew or continue with `npx wrangler tunnel quick-start`. The printed HTTPS `/mcp` URL is the one to add to ChatGPT, Claude, or the generated Claude plugin package.
-
-`sidecar check` emits diagnostics in `file:line:column` form so terminals and future editor integrations can show squiggly-line-style warnings. Build and dev print the same warnings. Use `// sidecar-ignore DIAGNOSTIC_CODE` when an intentional exception is clearer than changing the code.
-
-## Widgets
-
-Place `widget.tsx` next to `tool.ts`.
-
-```text
-server/
-  add-numbers/
-    tool.ts
-    widget.tsx
-```
-
-Sidecar bundles the widget into a content-hashed `ui://...` resource and adds standard MCP Apps metadata:
-
-```tsx
-import { widget, useToolResult } from "@sidecar/react";
-
-type Result = {
-  sum: number;
-};
-
-function AddNumbersWidget() {
-  const { structuredContent } = useToolResult<Result>();
-  return <output>{structuredContent?.sum ?? "--"}</output>;
-}
-
-export default widget(
-  {
-    description: "Shows the computed sum from the Add Numbers tool.",
-    csp: {
-      connectDomains: [],
-      resourceDomains: []
-    }
-  },
-  AddNumbersWidget
-);
-```
-
-`tools/list` gets only the tool-to-widget pointer:
-
-```json
-{
-  "_meta": {
-    "ui": {
-      "resourceUri": "ui://add-numbers/widget.<hash>.html"
-    }
-  }
-}
-```
-
-`resources/read` serves the HTML with `text/html;profile=mcp-app` and resource-level UI metadata:
-
-```json
-{
-  "contents": [
-    {
-      "uri": "ui://add-numbers/widget.<hash>.html",
-      "mimeType": "text/html;profile=mcp-app",
-      "_meta": {
-        "ui": {
-          "csp": {
-            "connectDomains": [],
-            "resourceDomains": []
-          }
-        }
+      toolsList({ items, cursor, pageSize, auth }) {
+        return offsetPagination({
+          items: items.filter((tool) => canUseTool(auth, tool)),
+          cursor,
+          pageSize
+        });
       }
     }
-  ]
-}
-```
-
-Build with `--target chatgpt` to add ChatGPT compatibility metadata such as `openai/outputTemplate` and `openai/widgetCSP`. Shared MCP and Claude targets keep the standard `ui` metadata primary.
-
-Widget code is React. Use `@sidecar/react` for the `widget(...)` declaration helper plus hooks around tool results, tool calls, model messages, and model context updates. A plain default-exported React component still works; `widget(...)` is preferred because it gives typed metadata completions.
-
-Root `style.css` is automatically imported into every widget after Sidecar's native component styles. The scaffolded file keeps the iframe transparent, uses system fonts, declares `color-scheme: light dark`, and can serve as a Tailwind entrypoint.
-
-Platform file variants let one tool keep a shared baseline while specializing only where needed:
-
-```text
-server/
-  report/
-    tool.ts              # shared MCP/ChatGPT/Claude tool
-    widget.tsx           # shared widget
-    widget.openai.tsx    # ChatGPT override
-    widget.anthropic.tsx # Claude override
-```
-
-`tool.openai.ts` and `tool.anthropic.ts` override the shared tool only for the matching target. `widget.openai.tsx` and `widget.anthropic.tsx` override only the UI for that target; other targets still expose the shared tool and fall back to the tool's `content` when no widget is available.
-
-Runtime host features should go through `@sidecar/native`, which feature-detects the current host and returns `{ ok: false, reason: "unsupported" }` when a capability is absent:
-
-```ts
-import { display, files, links } from "@sidecar/native";
-
-await display.request("fullscreen");
-await files.download(JSON.stringify(data), {
-  filename: "report.json",
-  mimeType: "application/json"
-});
-await links.openExternal("https://example.com");
-```
-
-OpenAI-specific host globals are intentionally not used by `@sidecar/client` or `@sidecar/native`. If a widget is intentionally ChatGPT-only, import the explicit runtime helpers from `@sidecar/openai`:
-
-```ts
-import { chatgpt } from "@sidecar/openai";
-
-await chatgpt.runtime.requestDisplayMode("fullscreen");
-await chatgpt.runtime.sendFollowUpMessage("Show more detail about this row.");
-```
-
-Use `@sidecar/native/components` for portable controls that auto-style at runtime. Use `@sidecar/openai/components` when a widget is intentionally ChatGPT-only and needs the official OpenAI Apps SDK UI components. Use `@sidecar/anthropic/components` when a widget is intentionally Claude-only and should use Sidecar's reconstructed Claude component recipes.
-
-Optional ChatGPT descriptor metadata is typed through `hosts.chatgpt`:
-
-```ts
-import { tool, toolResult } from "@sidecar/core";
-import type { ChatGptToolOptions } from "@sidecar/openai";
-
-export default tool({
-  name: "Review Expense Report",
-  description: "Use this when the user wants policy issues for one expense report.",
-  hosts: {
-    chatgpt: {
-      invoking: "Reviewing expense report",
-      invoked: "Expense report reviewed"
-    } satisfies ChatGptToolOptions
-  },
-  execute(params: { reportId: string }) {
-    return toolResult({
-      structuredContent: { status: "ready" },
-      content: `Expense report ${params.reportId} is ready.`
-    });
   }
 });
 ```
 
-## Proxy And Auth
+Clients treat cursors as opaque. The server decides page size.
 
-`auth.ts` should own MCP/OAuth semantics. `proxy.ts` should own HTTP middleware such as origins, request ids, and rate limits.
+## Styling And Native Components
 
-```ts
-import { origin, proxy, rateLimit, requestId } from "@sidecar/server/proxy";
+Sidecar imports `@sidecar/native/styles.css` before your root `style.css`.
 
-export default proxy({
-  before: [
-    requestId(),
-    origin({
-      allow: ["https://chatgpt.com", "https://claude.ai"],
-      dev: ["http://localhost:*"]
-    }),
-    rateLimit({ windowMs: 60_000, max: 120 })
-  ]
-});
+Use `style.css` for:
+
+- Tailwind entrypoints
+- app-wide layout classes
+- product tokens
+- intentional native token overrides
+
+Use portable native components when you want controls that adapt to the current host:
+
+```tsx
+import { Button, Text, Surface } from "@sidecar/native/components";
+
+export function ReviewPanel() {
+  return (
+    <Surface>
+      <Text>Ready for review.</Text>
+      <Button color="primary">Approve</Button>
+    </Surface>
+  );
+}
 ```
 
-Auth is provider-agnostic at the Sidecar layer. Sidecar owns the MCP resource-server contract; your auth system owns token verification.
+Use platform packages when you intentionally want host-specific APIs or components:
+
+- `@sidecar/openai`
+- `@sidecar/openai/components`
+- `@sidecar/anthropic`
+- `@sidecar/anthropic/components`
+
+Sidecar warns when shared widgets import platform-specific features without an obvious platform boundary.
+
+## Platform Files
+
+Use platform-specific files when a tool or widget should differ by host:
+
+```txt
+server/
+  report/
+    tool.ts
+    widget.tsx
+    tool.openai.ts
+    widget.openai.tsx
+    tool.anthropic.ts
+    widget.anthropic.tsx
+```
+
+Build targets select the matching files:
+
+```sh
+sidecar build --target mcp
+sidecar build --target chatgpt
+sidecar build --target claude --plugins
+```
+
+`mcp` uses only standard MCP behavior. `chatgpt` and `claude` add platform-specific output where supported.
+
+## Auth And Proxy
+
+`auth.ts` owns MCP/OAuth resource-server behavior. Your auth provider still validates tokens.
 
 ```ts
-// auth.ts
 import { auth, scope, type AuthSession } from "@sidecar/auth";
 
 type Session = AuthSession<
@@ -360,7 +346,7 @@ export const { scopes } = appAuth;
 export default appAuth;
 ```
 
-Tool-level policy belongs in `tool.ts`:
+Tool policy lives with the tool:
 
 ```ts
 import { tool, toolResult } from "@sidecar/core";
@@ -385,27 +371,30 @@ export default tool({
 });
 ```
 
-Tools have no additional tool-level policy by default. If the project has no `auth.ts`, they are unauthenticated. If `auth.ts` exists, the MCP endpoint still requires a valid bearer token and the default tool policy means "no extra scopes." Use a policy when the tool needs specific auth beyond the endpoint session:
+`proxy.ts` is for HTTP middleware such as origins, request ids, and rate limits:
 
 ```ts
-auth: {
-  authenticated: true
-}
+import { origin, proxy, rateLimit, requestId } from "@sidecar/server/proxy";
+
+export default proxy({
+  before: [
+    requestId(),
+    origin({
+      allow: ["https://chatgpt.com", "https://claude.ai"],
+      dev: ["http://localhost:*"]
+    }),
+    rateLimit({ windowMs: 60_000, max: 120 })
+  ]
+});
 ```
 
-Explicit public policy is available when you want the source to make "no extra scopes" obvious:
+## Claude Plugin Pieces
 
-```ts
-auth: {
-  public: true
-}
-```
+Claude plugin-specific pieces can be authored as TypeScript and generated into plugin files.
 
-## Claude Plugin Agents
+Agents:
 
-Claude plugin pieces can be authored as TypeScript and generated into plugin files. Agents live under reserved agent directories and are generated into markdown:
-
-```text
+```txt
 agents/
   review-writer/
     agent.ts
@@ -423,13 +412,11 @@ export default agent({
 });
 ```
 
-Hooks live under reserved hook directories. Sidecar merges every `hooks/<name>/hook.ts` file into the generated Claude plugin's `hooks/hooks.json`:
+Hooks:
 
-```text
+```txt
 hooks/
   protect-writes/
-    hook.ts
-  review-writer/
     hook.ts
 ```
 
@@ -439,13 +426,11 @@ import { commandHook, hook } from "@sidecar/anthropic/hooks";
 export default hook({
   event: "PreToolUse",
   matcher: "Write",
-  run: [
-    commandHook("echo checking write permissions")
-  ]
+  run: [commandHook("echo checking write permissions")]
 });
 ```
 
-Slash commands can be static markdown under `commands/` or dynamic `command.ts` files:
+Slash commands:
 
 ```ts
 import { command } from "@sidecar/anthropic/plugin";
@@ -457,4 +442,79 @@ export default command({
   allowedTools: ["expenses.review"],
   prompt: "Draft a concise review summary for the current expense report."
 });
+```
+
+## Commands
+
+Inside a Sidecar app:
+
+```sh
+npm run dev          # local Streamable HTTP MCP server
+npm run dev:https    # local server plus HTTPS tunnel
+npm run check        # diagnostics
+npm run inspect      # list detected tools
+npm run build        # build MCP and plugin artifacts
+```
+
+Direct CLI usage:
+
+```sh
+sidecar dev --port 3101
+sidecar dev --tunnel
+sidecar check --strict
+sidecar build --target mcp
+sidecar build --target chatgpt
+sidecar build --target claude --plugins
+```
+
+`sidecar check` prints diagnostics as `file:line:column` messages. Build and dev print the same diagnostics. Use `// sidecar-ignore DIAGNOSTIC_CODE` when an exception is intentional.
+
+## Build Output
+
+```txt
+out/
+  mcp/
+    manifest.sidecar.json
+    public/widgets/...
+  chatgpt/
+    manifest.sidecar.json
+    public/widgets/...
+  claude/
+    manifest.sidecar.json
+  claude-plugin/
+    .claude-plugin/plugin.json
+    .mcp.json
+    skills/
+    commands/
+    hooks/
+    agents/
+```
+
+The MCP server itself still needs to be hosted somewhere. Claude plugin packages reference the hosted MCP URL instead of bundling the server.
+
+## Developing Sidecar Itself
+
+This repository is a monorepo:
+
+```txt
+packages/
+  core/
+  cli/
+  compiler/
+  server/
+  native/
+  openai/
+  anthropic/
+examples/
+  simple/
+```
+
+Contributor commands:
+
+```sh
+npm install
+npm run typecheck
+npm test
+npm run build
+node dist/cli/index.js build --cwd examples/simple --target chatgpt
 ```
