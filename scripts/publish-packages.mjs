@@ -39,7 +39,7 @@ for (const packageDir of packageDirs) {
     continue;
   }
 
-  if (packageIsPublished(packageJson.name, packageJson.version)) {
+  if (!options.dryRun && packageIsPublished(packageJson.name, packageJson.version)) {
     console.log(`Skipping ${packageJson.name}@${packageJson.version}; it is already published.`);
     continue;
   }
