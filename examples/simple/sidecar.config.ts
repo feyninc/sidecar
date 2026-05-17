@@ -3,7 +3,7 @@ import { defineConfig } from "sidecar-ai";
 
 export default defineConfig({
   name: "Simple Sidecar Example",
-  version: "0.1.0-alpha.0",
+  version: "0.1.0-alpha.1",
   description: "A small Sidecar project used to exercise tool discovery.",
   resources: {
     listChanged: false,

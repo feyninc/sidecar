@@ -1,7 +1,6 @@
 /** Static diagnostics for Sidecar projects. */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import type { JsonSchema } from "@sidecar-ai/core";
 import type {
@@ -41,7 +40,6 @@ export async function collectProjectDiagnostics(
   const prompts = Array.isArray(input) ? [] : input.prompts ?? [];
   const config = Array.isArray(input) ? undefined : input.config;
   const hasAuthConfig = existsSync(path.join(rootDir, "auth.ts"));
-  const hasOpenAiAppsSdkUi = canResolveOpenAiAppsSdkUi(rootDir);
 
   for (const entry of tools) {
     const toolPath = path.join(rootDir, entry.sourceFile);
@@ -51,7 +49,7 @@ export async function collectProjectDiagnostics(
     if (entry.widget) {
       const widgetPath = path.join(rootDir, entry.widget.sourceFile);
       const widgetSource = await readFile(widgetPath, "utf8");
-      diagnostics.push(...diagnoseWidgetSource(rootDir, entry, widgetSource, hasOpenAiAppsSdkUi));
+      diagnostics.push(...diagnoseWidgetSource(rootDir, entry, widgetSource));
     }
   }
 
@@ -178,7 +176,6 @@ function diagnoseWidgetSource(
   _rootDir: string,
   entry: SidecarToolManifestEntry,
   source: string,
-  hasOpenAiAppsSdkUi: boolean,
 ): SidecarDiagnostic[] {
   const diagnostics: SidecarDiagnostic[] = [];
   const widgetFile = entry.widget?.sourceFile;
@@ -216,17 +213,6 @@ function diagnoseWidgetSource(
       filePath: widgetFile,
       ...locate(source, "@sidecar-ai/openai/components"),
       hint: "Use @sidecar-ai/native for portable primitives. Keep @sidecar-ai/openai/components for widgets intentionally targeted to ChatGPT.",
-    });
-  }
-
-  if (/@sidecar-ai\/openai\/components/.test(source) && !hasOpenAiAppsSdkUi && !isIgnored(source, "SIDECAR_OPENAI_UI_SDK_MISSING")) {
-    diagnostics.push({
-      severity: "error",
-      code: "SIDECAR_OPENAI_UI_SDK_MISSING",
-      message: `Widget for "${entry.id}" imports @sidecar-ai/openai/components but @openai/apps-sdk-ui is not installed.`,
-      filePath: widgetFile,
-      ...locate(source, "@sidecar-ai/openai/components"),
-      hint: "Install it with: npm install @openai/apps-sdk-ui",
     });
   }
 
@@ -347,16 +333,6 @@ function hasCompanyKnowledgeShape(schema: JsonSchema): boolean {
   const url = properties.url;
   const id = properties.id;
   return query?.type === "string" || url?.type === "string" || id?.type === "string";
-}
-
-/** Returns true when the official OpenAI Apps UI SDK is resolvable from the app root. */
-function canResolveOpenAiAppsSdkUi(rootDir: string): boolean {
-  try {
-    createRequire(path.join(rootDir, "package.json")).resolve("@openai/apps-sdk-ui/css");
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Locates text within a source file using 1-based editor coordinates. */

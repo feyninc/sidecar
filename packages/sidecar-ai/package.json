@@ -1,6 +1,6 @@
 {
   "name": "sidecar-ai",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.1",
   "type": "module",
   "files": [
     "dist"
@@ -17,7 +17,7 @@
   "types": "./dist/index.d.ts",
   "dependencies": {
     "@sidecar-ai/auth": "0.1.0-alpha.0",
-    "@sidecar-ai/cli": "0.1.0-alpha.0",
+    "@sidecar-ai/cli": "0.1.0-alpha.1",
     "@sidecar-ai/client": "0.1.0-alpha.0",
     "@sidecar-ai/core": "0.1.0-alpha.0",
     "@sidecar-ai/native": "0.1.0-alpha.0",

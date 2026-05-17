@@ -33,18 +33,14 @@ describe("package metadata", () => {
     }
   });
 
-  it("keeps official OpenAI UI SDK as a peer of the OpenAI package", async () => {
+  it("installs the official OpenAI UI SDK with the OpenAI package", async () => {
     const manifest = await readPackageJson("openai");
 
-    expect(manifest.dependencies).not.toHaveProperty("@openai/apps-sdk-ui");
-    expect(manifest.peerDependencies).toMatchObject({
+    expect(manifest.dependencies).toMatchObject({
       "@openai/apps-sdk-ui": "^0.2.2"
     });
-    expect(manifest.peerDependenciesMeta).toMatchObject({
-      "@openai/apps-sdk-ui": {
-        optional: true
-      }
-    });
+    expect(manifest.peerDependencies ?? {}).not.toHaveProperty("@openai/apps-sdk-ui");
+    expect(manifest.peerDependenciesMeta ?? {}).not.toHaveProperty("@openai/apps-sdk-ui");
   });
 });
 

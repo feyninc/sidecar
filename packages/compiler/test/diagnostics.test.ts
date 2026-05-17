@@ -104,40 +104,6 @@ export default function Widget() {
     }
   });
 
-  it("errors with an install command when OpenAI components are used without the official SDK", async () => {
-    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-openai-sdk-missing-"));
-
-    try {
-      await writeFixture(
-        path.join(rootDir, "server", "openai-component-test", "tool.openai.ts"),
-        toolSource({
-          name: "OpenAI Component Test",
-          description: "Use this when checking OpenAI SDK diagnostics.",
-        }),
-      );
-      await writeFixture(
-        path.join(rootDir, "server", "openai-component-test", "widget.openai.tsx"),
-        `import { Button } from "@sidecar-ai/openai/components";
-
-export default function Widget() {
-  return <Button>ChatGPT only</Button>;
-}
-`,
-      );
-
-      const tools = await analyzeProjectTools(rootDir, { target: "chatgpt" });
-      const diagnostics = await collectProjectDiagnostics(rootDir, tools);
-      const missingSdk = diagnostics.find((diagnostic) => diagnostic.code === "SIDECAR_OPENAI_UI_SDK_MISSING");
-
-      expect(missingSdk).toMatchObject({
-        severity: "error",
-        hint: "Install it with: npm install @openai/apps-sdk-ui",
-      });
-    } finally {
-      await rm(rootDir, { recursive: true, force: true });
-    }
-  });
-
   it("allows diagnostics to be suppressed with visible source comments", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-ignore-diagnostics-"));
 
