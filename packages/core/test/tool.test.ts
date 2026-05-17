@@ -1,20 +1,24 @@
 /** Tests for core tool declaration and result normalization. */
 import { describe, expect, it } from "vitest";
-import { createToolDescriptor, executeTool, result, tool, type ToolContext } from "../src/index.js";
+import { createToolDescriptor, executeTool, tool, toolResult, type ToolContext } from "../src/index.js";
 
 describe("tool", () => {
-  it("normalizes a sync execute result into an MCP tool result", async () => {
+  it("normalizes a sync execute toolResult into an MCP tool result", async () => {
     const add = tool({
       name: "Add Numbers",
       description: "Use this when adding two numbers.",
       execute(params: { a: number; b: number }) {
-        return { sum: params.a + params.b };
+        const sum = params.a + params.b;
+        return toolResult({
+          structuredContent: { sum },
+          content: `The sum is ${sum}.`
+        });
       }
     });
 
     await expect(executeTool(add, { a: 2, b: 3 }, testContext())).resolves.toMatchObject({
       structuredContent: { sum: 5 },
-      content: [{ type: "text", text: "{\"sum\":5}" }]
+      content: [{ type: "text", text: "The sum is 5." }]
     });
   });
 
@@ -23,13 +27,11 @@ describe("tool", () => {
       name: "Review Expense",
       description: "Use this when reviewing one expense report.",
       async execute() {
-        return result(
-          { status: "ready" },
-          {
-            content: "The report is ready.",
-            meta: { "com.example/trace": "abc" }
-          }
-        );
+        return toolResult({
+          structuredContent: { status: "ready" },
+          content: "The report is ready.",
+          meta: { "com.example/trace": "abc" }
+        });
       }
     });
 
@@ -37,6 +39,20 @@ describe("tool", () => {
       structuredContent: { status: "ready" },
       content: [{ type: "text", text: "The report is ready." }],
       _meta: { "com.example/trace": "abc" }
+    });
+  });
+
+  it("rejects execute results not created by toolResult", async () => {
+    const unsafe = tool({
+      name: "Unsafe Result",
+      description: "Use this when checking invalid runtime returns.",
+      execute() {
+        return { structuredContent: { ok: true }, content: [{ type: "text", text: "ok" }] };
+      }
+    } as never);
+
+    await expect(executeTool(unsafe, {}, testContext())).rejects.toMatchObject({
+      code: "invalid_tool_result"
     });
   });
 
@@ -69,7 +85,6 @@ function testContext(): ToolContext {
     },
     services: {},
     tools: {},
-    result,
     log: {
       debug() {},
       info() {},

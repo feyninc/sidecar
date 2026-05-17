@@ -39,7 +39,7 @@ describe("analyzeProjectTools", () => {
 
     try {
       await cp(fixture, rootDir, { recursive: true });
-      const manifest = await buildProject({ rootDir, outDir: "out/mcp", plugins: true });
+      const manifest = await buildProject({ rootDir, outDir: "out/chatgpt", plugins: true, target: "chatgpt" });
       const widgetTool = manifest.tools.find((entry: SidecarToolManifestEntry) => entry.id === "add_numbers");
 
       expect(widgetTool?.widget?.resourceUri).toMatch(/^ui:\/\/add_numbers\/widget\.[a-f0-9]{12}\.html$/);
@@ -65,11 +65,10 @@ describe("analyzeProjectTools", () => {
       });
 
       await expect(readFile(path.join(rootDir, ".sidecar/generated/tools.ts"), "utf8")).resolves.toContain("createToolClient");
-      await expect(readFile(path.join(rootDir, "out/mcp", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("SidecarWidgetRoot");
-      await expect(readFile(path.join(rootDir, "out/mcp", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("data-sc-component");
-      await expect(readFile(path.join(rootDir, "out/mcp", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".sidecar-example-output");
-      await expect(readFile(path.join(rootDir, "out/mcp", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".grid");
-      await expect(readFile(path.join(rootDir, "out/codex-plugin/.codex-plugin/plugin.json"), "utf8")).resolves.toContain("simple-sidecar-example");
+      await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("SidecarWidgetRoot");
+      await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain("data-sc-component");
+      await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".sidecar-example-output");
+      await expect(readFile(path.join(rootDir, "out/chatgpt", widgetTool?.widget?.outputFile ?? ""), "utf8")).resolves.toContain(".grid");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.claude-plugin/plugin.json"), "utf8")).resolves.toContain("available");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/skills/review-writer/SKILL.md"), "utf8")).resolves.toContain("expense review summary");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/commands/review-summary.md"), "utf8")).resolves.toContain("allowed-tools: review_expense_report");
@@ -86,7 +85,7 @@ describe("analyzeProjectTools", () => {
     try {
       await writeFixture(
         path.join(rootDir, "server", "raw-openai", "tool.ts"),
-        `import { tool } from "@sidecar/core";
+        `import { tool, toolResult } from "@sidecar/core";
 
 type Params = {
   q: string;
@@ -96,7 +95,10 @@ export default tool({
   name: "Raw OpenAI",
   description: "Does a thing.",
   execute(params: Params) {
-    return { q: params.q };
+    return toolResult({
+      structuredContent: { q: params.q },
+      content: params.q
+    });
   }
 });
 `,
@@ -137,13 +139,16 @@ export default tool({
     try {
       await writeFixture(
         path.join(rootDir, "server", "component-test", "tool.ts"),
-        `import { tool } from "@sidecar/core";
+        `import { tool, toolResult } from "@sidecar/core";
 
 export default tool({
   name: "Component Test",
   description: "Use this when checking component imports.",
   execute() {
-    return { ok: true };
+    return toolResult({
+      structuredContent: { ok: true },
+      content: "ok"
+    });
   }
 });
 `,
@@ -162,6 +167,92 @@ export default function Widget() {
       const diagnostics = await collectProjectDiagnostics(rootDir, tools);
 
       expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        "SIDECAR_OPENAI_COMPONENT_CROSS_HOST",
+      );
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("selects platform-specific tool and widget files by build target", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-targets-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "server", "demo", "tool.ts"),
+        `import { tool, toolResult } from "@sidecar/core";
+
+export default tool({
+  name: "Demo Tool",
+  description: "Use this when running the shared demo tool.",
+  execute() {
+    return toolResult({
+      structuredContent: { target: "shared" },
+      content: "shared"
+    });
+  }
+});
+`,
+      );
+      await writeFixture(
+        path.join(rootDir, "server", "demo", "tool.openai.ts"),
+        `import { tool, toolResult } from "@sidecar/core";
+
+export default tool({
+  name: "Demo Tool",
+  description: "Use this when running the ChatGPT demo tool.",
+  execute() {
+    return toolResult({
+      structuredContent: { target: "openai" },
+      content: "openai"
+    });
+  }
+});
+`,
+      );
+      await writeFixture(
+        path.join(rootDir, "server", "demo", "widget.tsx"),
+        `export default function Widget() {
+  return <div>shared</div>;
+}
+`,
+      );
+      await writeFixture(
+        path.join(rootDir, "server", "demo", "widget.openai.tsx"),
+        `import { Button } from "@sidecar/openai/components";
+
+export default function Widget() {
+  return <Button>openai</Button>;
+}
+`,
+      );
+
+      const mcpTools = await analyzeProjectTools(rootDir, { target: "mcp" });
+      expect(mcpTools[0]).toMatchObject({
+        sourceFile: path.join("server", "demo", "tool.ts"),
+        variant: "shared",
+        target: "mcp",
+        widget: {
+          sourceFile: path.join("server", "demo", "widget.tsx"),
+          variant: "shared",
+        },
+      });
+      expect(mcpTools[0]?.descriptor._meta).not.toHaveProperty("openai/outputTemplate");
+
+      const chatgptTools = await analyzeProjectTools(rootDir, { target: "chatgpt" });
+      expect(chatgptTools[0]).toMatchObject({
+        sourceFile: path.join("server", "demo", "tool.openai.ts"),
+        variant: "openai",
+        target: "chatgpt",
+        widget: {
+          sourceFile: path.join("server", "demo", "widget.openai.tsx"),
+          variant: "openai",
+        },
+      });
+      expect(chatgptTools[0]?.descriptor._meta).toHaveProperty("openai/outputTemplate");
+
+      const diagnostics = await collectProjectDiagnostics(rootDir, chatgptTools);
+      expect(diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(
         "SIDECAR_OPENAI_COMPONENT_CROSS_HOST",
       );
     } finally {

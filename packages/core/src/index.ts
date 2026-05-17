@@ -81,6 +81,9 @@ export type ChatGptToolOptions = {
   fileParams?: readonly string[];
 };
 
+/** Descriptor target used when filtering host-specific metadata. */
+export type ToolDescriptorTarget = "mcp" | "chatgpt" | "claude";
+
 /** Widget CSP allowlists emitted on the MCP Apps resource metadata. */
 export type WidgetCspOptions = {
   /** Domains the widget may contact with fetch/XHR. */
@@ -150,20 +153,60 @@ export type ToolAuthPolicy<Auth = unknown> =
       authenticated?: true;
     };
 
-/** Options for wrapping a tool return value in MCP content and metadata. */
-export type ResultOptions = {
-  content?: string | McpContentBlock | McpContentBlock[];
-  meta?: Record<string, unknown>;
+declare const toolResultTypeBrand: unique symbol;
+
+/** User-friendly content accepted by `toolResult()`. */
+export type ToolResultContent = string | McpContentBlock | McpContentBlock[];
+
+/** Options for a tool result that only needs model-visible content. */
+export type TextToolResultInput<
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  /** Required model-visible content. Sidecar normalizes strings to MCP text blocks. */
+  content: ToolResultContent;
+  /** Optional host/widget-only data emitted as MCP `_meta`. */
+  meta?: Meta;
+  /** Marks the tool result as an error while preserving normal MCP result channels. */
+  isError?: boolean;
+  /** Omitted for content-only results. */
+  structuredContent?: undefined;
+};
+
+/** Options for a tool result with typed structured content. */
+export type StructuredToolResultInput<
+  Structured,
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  /** Typed machine-readable output validated against the tool output schema when present. */
+  structuredContent: Structured;
+  /** Required model-visible content. Sidecar normalizes strings to MCP text blocks. */
+  content: ToolResultContent;
+  /** Optional host/widget-only data emitted as MCP `_meta`. */
+  meta?: Meta;
+  /** Marks the tool result as an error while preserving normal MCP result channels. */
   isError?: boolean;
 };
 
-/** Sidecar's ergonomic tool result shape before MCP wire normalization. */
-export type ToolResult<Structured = unknown> = {
-  structuredContent?: Structured;
-  content?: McpContentBlock[];
-  _meta?: Record<string, unknown>;
+/** Options accepted by `toolResult()`. */
+export type ToolResultInput<
+  Structured = undefined,
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+> = [Structured] extends [undefined]
+  ? TextToolResultInput<Meta>
+  : StructuredToolResultInput<Structured, Meta>;
+
+/** Branded Sidecar result returned by every tool execution. */
+export type ToolResult<
+  Structured = undefined,
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  readonly [toolResultTypeBrand]: true;
+  content: McpContentBlock[];
+  _meta?: Meta;
   isError?: boolean;
-};
+} & ([Structured] extends [undefined]
+  ? { structuredContent?: Structured }
+  : { structuredContent: Structured });
 
 /** Normalized MCP tool result returned by the runtime. */
 export type McpToolResult = {
@@ -173,11 +216,22 @@ export type McpToolResult = {
   isError?: boolean;
 };
 
-/** Helper used by tools to return structured content with optional UI/model content. */
-export type ResultFactory = {
-  <Structured>(structured: Structured, options?: ResultOptions): ToolResult<Structured>;
+/** Helper used by tools to return MCP-compliant result envelopes. */
+export type ToolResultFactory = {
+  <Meta extends Record<string, unknown> = Record<string, unknown>>(
+    input: TextToolResultInput<Meta>
+  ): ToolResult<undefined, Meta>;
+  <Structured, Meta extends Record<string, unknown> = Record<string, unknown>>(
+    input: StructuredToolResultInput<Structured, Meta>
+  ): ToolResult<Structured, Meta>;
   text(text: string): McpContentBlock;
-  error(message: string, options?: Omit<ResultOptions, "content" | "isError">): ToolResult;
+  error<
+    Structured = undefined,
+    Meta extends Record<string, unknown> = Record<string, unknown>,
+  >(
+    message: string,
+    options?: Omit<ToolResultInput<Structured, Meta>, "content" | "isError">
+  ): ToolResult<Structured, Meta>;
 };
 
 /** Logger surface exposed in `ToolContext`. */
@@ -204,7 +258,7 @@ export type ScopedStorage = {
 export type ToolRequestContext = {
   id: string;
   signal: AbortSignal;
-  host: "chatgpt" | "claude" | "codex-plugin" | "claude-plugin" | "unknown";
+  host: "chatgpt" | "claude" | "unknown";
   transport: "streamable-http" | "stdio";
 };
 
@@ -214,7 +268,6 @@ export type ToolContext<Auth = unknown, Services = unknown, Tools = unknown> = {
   request: ToolRequestContext;
   services: Services;
   tools: Tools;
-  result: ResultFactory;
   log: Logger;
   trace: Trace;
   storage: ScopedStorage;
@@ -233,7 +286,7 @@ export type InferParams<T> = T extends ZodLikeSchema<infer Output> ? Output : T;
 export type ToolExecute<Params, Output, Auth = unknown, Services = unknown, Tools = unknown> = (
   params: Params,
   ctx: ToolContext<Auth, Services, Tools>
-) => MaybePromise<Output | ToolResult<Output>>;
+) => MaybePromise<ToolResult<Output>>;
 
 /** Author-facing definition accepted by `tool()`. */
 export type ToolDefinition<Params = unknown, Output = unknown, Auth = unknown, Services = unknown, Tools = unknown> = {
@@ -260,7 +313,7 @@ export type ToolDefinition<Params = unknown, Output = unknown, Auth = unknown, S
   /** Optional authorization policy. Tools are public unless this is declared. */
   auth?: ToolAuthPolicy<Auth>;
   /** Tool implementation. It may be synchronous or asynchronous. */
-  execute: ToolExecute<Params, Output, Auth, Services, Tools> | ((params: Params) => MaybePromise<Output | ToolResult<Output>>);
+  execute: ToolExecute<Params, Output, Auth, Services, Tools>;
 };
 
 /** Branded Sidecar tool returned by `tool()`. */
@@ -290,7 +343,7 @@ export type SkillDefinition = {
 };
 
 const toolBrand = Symbol.for("sidecar.tool");
-const resultBrand = Symbol.for("sidecar.result");
+const toolResultBrand = Symbol.for("sidecar.toolResult");
 const skillBrand = Symbol.for("sidecar.skill");
 
 /**
@@ -336,68 +389,76 @@ export function skill(definition: SkillDefinition): SkillDefinition {
   });
 }
 
-/** Factory for structured tool results and common content blocks. */
-export const result: ResultFactory = Object.assign(
-  <Structured>(structured: Structured, options: ResultOptions = {}): ToolResult<Structured> => {
-    const toolResult: ToolResult<Structured> = {
-      structuredContent: structured,
-      content: normalizeContent(options.content),
-      _meta: options.meta,
-      isError: options.isError
-    };
-
-    Object.defineProperty(toolResult, resultBrand, {
-      enumerable: false,
-      value: true
-    });
-
-    return toolResult;
-  },
+/** Factory for standardized tool results and common content blocks. */
+export const toolResult = Object.assign(
+  createToolResult,
   {
     text(text: string): McpContentBlock {
       return { type: "text", text };
     },
-    error(message: string, options: Omit<ResultOptions, "content" | "isError"> = {}): ToolResult {
-      return result(undefined, {
+    error<
+      Structured = undefined,
+      Meta extends Record<string, unknown> = Record<string, unknown>,
+    >(
+      message: string,
+      options: Omit<ToolResultInput<Structured, Meta>, "content" | "isError"> = {} as Omit<
+        ToolResultInput<Structured, Meta>,
+        "content" | "isError"
+      >,
+    ): ToolResult<Structured, Meta> {
+      return createToolResult({
         ...options,
+        structuredContent: (options as { structuredContent?: Structured }).structuredContent,
         content: message,
         isError: true
-      });
+      } as ToolResultInput<Structured, Meta>);
     }
   }
-);
+) as ToolResultFactory;
 
-/** Returns true when a value already has Sidecar/MCP tool-result semantics. */
+/** Creates and brands one standardized Sidecar tool result. */
+function createToolResult<
+  Structured,
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+>(input: ToolResultInput<Structured, Meta>): ToolResult<Structured, Meta> {
+  const resultEnvelope = stripUndefined({
+    structuredContent: input.structuredContent,
+    content: normalizeRequiredContent(input.content),
+    _meta: input.meta,
+    isError: input.isError
+  }) as unknown as ToolResult<Structured, Meta>;
+
+  Object.defineProperty(resultEnvelope, toolResultBrand, {
+    enumerable: false,
+    value: true
+  });
+
+  return resultEnvelope;
+}
+
+/** Returns true when a value was produced by `toolResult()`. */
 export function isToolResult(value: unknown): value is ToolResult {
   return Boolean(
     value &&
       typeof value === "object" &&
-      (resultBrand in value ||
-        "structuredContent" in value ||
-        "content" in value ||
-        "_meta" in value ||
-        "isError" in value)
+      (value as Record<symbol, unknown>)[toolResultBrand] === true
   );
 }
 
-/** Converts arbitrary tool output into an MCP-compliant tool result. */
+/** Converts a branded Sidecar tool result into an MCP-compliant tool result. */
 export function normalizeToolResult(value: unknown): McpToolResult {
-  if (isToolResult(value)) {
-    const content = value.content?.length
-      ? value.content
-      : createStructuredFallback(value.structuredContent);
-
-    return stripUndefined({
-      structuredContent: value.structuredContent,
-      content,
-      _meta: value._meta,
-      isError: value.isError
-    });
+  if (!isToolResult(value)) {
+    throw new SidecarRuntimeError(
+      "Tool execute() must return toolResult({ structuredContent, content, meta }).",
+      "invalid_tool_result",
+    );
   }
 
   return stripUndefined({
-    structuredContent: value,
-    content: createStructuredFallback(value)
+    structuredContent: value.structuredContent,
+    content: value.content ?? [],
+    _meta: value._meta,
+    isError: value.isError
   });
 }
 
@@ -417,6 +478,7 @@ export function createToolDescriptor(definition: {
   name: string;
   id?: string;
   description: string;
+  target?: ToolDescriptorTarget;
   inputSchema?: JsonSchema;
   outputSchema?: JsonSchema;
   annotations?: ToolAnnotations;
@@ -427,6 +489,7 @@ export function createToolDescriptor(definition: {
   const machineName = definition.id ?? toMachineName(definition.name);
 
   validateToolId(machineName);
+  const target = definition.target ?? "mcp";
 
   return stripUndefined({
     name: machineName,
@@ -437,7 +500,7 @@ export function createToolDescriptor(definition: {
     annotations: withAnnotationDefaults(definition.annotations),
     _meta: mergeMeta(
       visibilityMeta(definition.visibility),
-      chatGptToolMeta(definition.hosts?.chatgpt),
+      target === "chatgpt" ? chatGptToolMeta(definition.hosts?.chatgpt) : undefined,
       definition.meta
     )
   });
@@ -588,29 +651,20 @@ function validateParams<Params>(sidecarTool: SidecarTool<Params>, params: unknow
   throw new SidecarRuntimeError(`Invalid parameters for tool "${sidecarTool.name}".`, "invalid_tool_params");
 }
 
-/** Normalizes user-friendly result content into MCP content blocks. */
-function normalizeContent(content: ResultOptions["content"]): McpContentBlock[] | undefined {
-  if (content === undefined) {
-    return undefined;
-  }
+/** Normalizes required user-friendly result content into MCP content blocks. */
+function normalizeRequiredContent(content: ToolResultContent): McpContentBlock[] {
   if (typeof content === "string") {
-    return [result.text(content)];
+    return [toolResult.text(content)];
   }
-  if (Array.isArray(content)) {
-    return content;
+  const blocks = Array.isArray(content) ? content : [content];
+  if (blocks.length > 0) {
+    return blocks;
   }
-  return [content];
-}
 
-/** Produces text content for clients that do not consume structured content. */
-function createStructuredFallback(value: unknown): McpContentBlock[] {
-  if (value === undefined) {
-    return [];
-  }
-  if (typeof value === "string") {
-    return [result.text(value)];
-  }
-  return [result.text(JSON.stringify(value))];
+  throw new SidecarRuntimeError(
+    "toolResult({ content }) must include at least one MCP content block.",
+    "invalid_tool_result",
+  );
 }
 
 /** Removes `undefined` keys so JSON serialization matches MCP expectations. */

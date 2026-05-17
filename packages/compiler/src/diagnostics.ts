@@ -149,11 +149,11 @@ function diagnoseWidgetSource(
       message: `Widget for "${entry.id}" reads window.openai directly.`,
       filePath: widgetFile,
       ...locate(source, "openai"),
-      hint: "Use @sidecar/native or @sidecar/client so ChatGPT-only capabilities degrade cleanly in Claude/Codex hosts.",
+      hint: "Use @sidecar/native or @sidecar/client so ChatGPT-only capabilities degrade cleanly in Claude hosts.",
     });
   }
 
-  if (/@sidecar\/openai/.test(source) && !/@sidecar\/native/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_FALLBACK")) {
+  if (entry.widget?.variant !== "openai" && /@sidecar\/openai/.test(source) && !/@sidecar\/native/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_FALLBACK")) {
     diagnostics.push({
       severity: "warning",
       code: "SIDECAR_OPENAI_FALLBACK",
@@ -164,7 +164,7 @@ function diagnoseWidgetSource(
     });
   }
 
-  if (/@sidecar\/openai\/components/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_COMPONENT_CROSS_HOST")) {
+  if (entry.widget?.variant !== "openai" && /@sidecar\/openai\/components/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_COMPONENT_CROSS_HOST")) {
     diagnostics.push({
       severity: "warning",
       code: "SIDECAR_OPENAI_COMPONENT_CROSS_HOST",
@@ -175,7 +175,7 @@ function diagnoseWidgetSource(
     });
   }
 
-  if (/@sidecar\/anthropic\/components/.test(source) && !isIgnored(source, "SIDECAR_ANTHROPIC_COMPONENT_CROSS_HOST")) {
+  if (entry.widget?.variant !== "anthropic" && /@sidecar\/anthropic\/components/.test(source) && !isIgnored(source, "SIDECAR_ANTHROPIC_COMPONENT_CROSS_HOST")) {
     diagnostics.push({
       severity: "warning",
       code: "SIDECAR_ANTHROPIC_COMPONENT_CROSS_HOST",

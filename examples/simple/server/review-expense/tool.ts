@@ -1,5 +1,5 @@
 /** Example protected tool with a typed auth scope requirement. */
-import { tool } from "@sidecar/core";
+import { tool, toolResult } from "@sidecar/core";
 import type { ChatGptToolOptions } from "@sidecar/openai";
 import { scopes } from "../../auth.js";
 
@@ -34,14 +34,20 @@ export default tool({
       invoked: "Expense report reviewed"
     } satisfies ChatGptToolOptions
   },
-  execute(params: Params, ctx): Promise<Result> {
+  async execute(params: Params, ctx) {
     ctx.log.info("reviewing expense report", {
       reportId: params.reportId,
       orgId: ctx.auth.orgId
     });
-    return Promise.resolve({
+
+    const review = {
       status: "ready",
       issues: []
+    } satisfies Result;
+
+    return toolResult({
+      structuredContent: review,
+      content: "The expense report is ready and has no policy issues."
     });
   }
 });

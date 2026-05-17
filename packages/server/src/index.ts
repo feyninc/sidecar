@@ -12,7 +12,6 @@ import type { SidecarAuth } from "@sidecar/auth";
 import {
   createToolDescriptor,
   executeTool,
-  result,
   type JsonObject,
   type McpToolDescriptor,
   type McpToolResult,
@@ -414,7 +413,6 @@ function createDefaultContext(request: JsonRpcRequest): ToolContext {
     },
     services: {},
     tools: {},
-    result,
     log: consoleLogger,
     trace: {
       async span(_name, run) {

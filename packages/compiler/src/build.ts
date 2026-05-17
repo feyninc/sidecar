@@ -13,13 +13,15 @@ export async function buildProject(
   options: BuildProjectOptions,
 ): Promise<SidecarManifest> {
   const rootDir = path.resolve(options.rootDir);
-  const tools = await analyzeProjectTools(rootDir);
+  const target = options.target ?? "mcp";
+  const tools = await analyzeProjectTools(rootDir, { target });
   const diagnostics = await collectProjectDiagnostics(rootDir, tools);
   const outDir = path.resolve(rootDir, options.outDir ?? "out/mcp");
   await buildWidgets(rootDir, outDir, tools);
 
   const manifest: SidecarManifest = {
     version: 1,
+    target,
     rootDir,
     generatedAt: new Date().toISOString(),
     tools,
@@ -56,6 +58,6 @@ ${tools || "No tools detected."}
 
 ## Local HTTPS Testing
 
-Run \`sidecar dev --tunnel\` from the project root to start the local MCP server on Streamable HTTP and print an HTTPS MCP URL that can be added to ChatGPT, Claude, or a desktop plugin install.
+Run \`sidecar dev --tunnel\` from the project root to start the local MCP server on Streamable HTTP and print an HTTPS MCP URL that can be added to ChatGPT, Claude, or a Claude plugin install.
 `;
 }

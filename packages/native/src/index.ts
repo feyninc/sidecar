@@ -5,39 +5,87 @@
  * typed unsupported/denied/failed result instead of assuming ChatGPT support.
  */
 export {
+  Alert,
+  Avatar,
   Badge,
   Button,
+  Callout,
   Checkbox,
+  Code,
+  Divider,
+  EmptyState,
   Heading,
+  Image,
+  Inline,
+  KeyValue,
+  Progress,
+  RadioGroup,
+  SegmentedControl,
   Skeleton,
+  Slider,
+  Spinner,
   Stack,
   Surface,
+  Switch,
+  Table,
+  Tabs,
   Text,
+  Textarea,
   TextField,
   createPrimitiveComponents,
-} from "@sidecar/native/components";
+} from "./components/index.js";
 export type {
+  AlertProps,
+  AvatarProps,
   BadgeProps,
   ButtonProps,
+  CalloutProps,
   CheckboxProps,
+  CodeProps,
   ComponentRecipe,
   ControlIntent,
+  DividerProps,
+  EmptyStateProps,
   HeadingProps,
+  ImageProps,
+  InlineProps,
+  KeyValueItem,
+  KeyValueProps,
   PrimitiveProps,
+  ProgressProps,
+  RadioGroupProps,
+  SegmentedControlProps,
   SkeletonProps,
+  SliderProps,
+  SpinnerProps,
   StackProps,
   SurfaceProps,
+  SwitchProps,
+  TableProps,
+  TabsProps,
   TextFieldProps,
+  TextareaProps,
   TextProps,
-} from "@sidecar/native/components";
+} from "./components/index.js";
 
 /** Host detected from runtime globals. */
-export type HostName = "chatgpt" | "claude" | "codex-plugin" | "claude-plugin" | "unknown";
+export type HostName = "chatgpt" | "claude" | "unknown";
 
 /** Standard result shape for host capabilities. */
 export type HostFeatureResult<T = void> =
   | { ok: true; value: T }
   | { ok: false; reason: "unsupported" | "denied" | "cancelled" | "failed"; message?: string };
+
+/** Static availability classification for host capabilities. */
+export type CapabilityState = "supported" | "browser-fallback" | "unsupported";
+
+/** Capabilities Sidecar can detect without making a host call. */
+export type HostCapability =
+  | "display.fullscreen"
+  | "display.pip"
+  | "files.select"
+  | "files.download"
+  | "links.openExternal";
 
 /** Display modes hosts may support for widgets. */
 export type DisplayMode = "inline" | "fullscreen" | "pip";
@@ -55,8 +103,58 @@ export const host = {
       return "chatgpt";
     }
 
+    if (typeof document !== "undefined") {
+      const styles = getComputedStyle(document.documentElement);
+      if (
+        styles.getPropertyValue("--claude-background-color") ||
+        styles.getPropertyValue("--claude-text-color")
+      ) {
+        return "claude";
+      }
+    }
+
     return "unknown";
   }
+};
+
+/** Host capability detection that does not perform the capability action. */
+export const capabilities = {
+  /** Returns one stable support state for a known capability. */
+  get(capability: HostCapability): CapabilityState {
+    const openai = readOpenAI();
+    switch (capability) {
+      case "display.fullscreen":
+      case "display.pip":
+        return openai?.requestDisplayMode ? "supported" : "unsupported";
+      case "files.select":
+        return openai?.selectFiles
+          ? "supported"
+          : typeof document === "undefined"
+            ? "unsupported"
+            : "browser-fallback";
+      case "files.download":
+        return typeof document === "undefined" || typeof URL === "undefined"
+          ? "unsupported"
+          : "browser-fallback";
+      case "links.openExternal":
+        return openai?.openExternal
+          ? "supported"
+          : typeof window === "undefined"
+            ? "unsupported"
+            : "browser-fallback";
+    }
+  },
+
+  /** Returns every known capability state as a plain object. */
+  all(): Record<HostCapability, CapabilityState> {
+    return {
+      "display.fullscreen": this.get("display.fullscreen"),
+      "display.pip": this.get("display.pip"),
+      "files.select": this.get("files.select"),
+      "files.download": this.get("files.download"),
+      "links.openExternal": this.get("links.openExternal"),
+    };
+  },
 };
 
 /** Display-mode host capability helpers. */

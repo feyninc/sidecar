@@ -1,5 +1,5 @@
 /** Example public tool that relies on the default public auth policy. */
-import { tool } from "@sidecar/core";
+import { tool, toolResult } from "@sidecar/core";
 
 type Params = {
   /** First number to add. */
@@ -28,7 +28,13 @@ export default tool({
       resourceDomains: []
     }
   },
-  execute(params: Params): Result {
-    return { sum: params.a + params.b };
+  execute(params: Params) {
+    const sum = params.a + params.b;
+    const structuredContent: Result = { sum };
+
+    return toolResult({
+      structuredContent,
+      content: `The sum is ${sum}.`
+    });
   }
 });

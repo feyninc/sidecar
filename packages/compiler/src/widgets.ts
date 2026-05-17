@@ -6,7 +6,7 @@ import path from "node:path";
 import { build as esbuild } from "esbuild";
 import postcss from "postcss";
 import type { ToolWidgetOptions } from "@sidecar/core";
-import type { SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
+import type { SidecarSourceVariant, SidecarTarget, SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
 import { escapeHtml, safePathSegment, toImportSpecifier } from "./utils.js";
 
 /** Bundles every discovered `widget.tsx` into a content-hashed HTML resource. */
@@ -84,7 +84,7 @@ createRoot(document.getElementById("root")!).render(
 
     entry.widget.resourceUri = resourceUri;
     entry.widget.outputFile = path.relative(outDir, outputFile);
-    entry.descriptor._meta = mergeWidgetMeta(entry.descriptor._meta, widgetMeta(resourceUri, entry.widget.options));
+    entry.descriptor._meta = mergeWidgetMeta(entry.descriptor._meta, widgetMeta(resourceUri, entry.widget.options, entry.target));
   }
 }
 
@@ -138,22 +138,28 @@ export function findWidget(
   toolFile: string,
   id: string,
   options?: ToolWidgetOptions,
+  target: SidecarTarget = "mcp",
 ): SidecarWidgetManifestEntry | undefined {
-  const widgetFile = path.join(path.dirname(toolFile), "widget.tsx");
-  if (!existsSync(widgetFile)) {
+  const selected = selectWidgetFile(path.dirname(toolFile), target);
+  if (!selected) {
     return undefined;
   }
 
   const safeId = safePathSegment(id);
   return {
-    sourceFile: path.relative(rootDir, widgetFile),
+    sourceFile: path.relative(rootDir, selected.filePath),
+    variant: selected.variant,
     resourceUri: `ui://${safeId}/widget.html`,
     options,
   };
 }
 
 /** Builds standard and ChatGPT-compatible widget metadata for a descriptor. */
-export function widgetMeta(resourceUri: string, options: ToolWidgetOptions = {}): Record<string, unknown> {
+export function widgetMeta(
+  resourceUri: string,
+  options: ToolWidgetOptions = {},
+  target: SidecarTarget = "mcp",
+): Record<string, unknown> {
   const csp = {
     connectDomains: options.csp?.connectDomains ? [...options.csp.connectDomains] : [],
     resourceDomains: options.csp?.resourceDomains ? [...options.csp.resourceDomains] : [],
@@ -168,17 +174,53 @@ export function widgetMeta(resourceUri: string, options: ToolWidgetOptions = {})
       : undefined,
   };
 
-  return {
+  const standard = {
     ui: {
       resourceUri,
       prefersBorder: options.prefersBorder,
       csp: stripUndefined(csp),
     },
+  };
+
+  if (target !== "chatgpt") {
+    return standard;
+  }
+
+  return {
+    ...standard,
     "openai/outputTemplate": resourceUri,
     "openai/widgetDescription": options.description,
     "openai/widgetDomain": options.hosts?.chatgpt?.domain,
     "openai/widgetCSP": stripUndefined(chatgptCsp),
   };
+}
+
+/** Selects the widget source for a target, preferring platform overrides. */
+function selectWidgetFile(
+  directory: string,
+  target: SidecarTarget,
+): { filePath: string; variant: SidecarSourceVariant } | undefined {
+  const candidates =
+    target === "chatgpt"
+      ? [
+          { name: "widget.openai.tsx", variant: "openai" as const },
+          { name: "widget.tsx", variant: "shared" as const },
+        ]
+      : target === "claude"
+        ? [
+            { name: "widget.anthropic.tsx", variant: "anthropic" as const },
+            { name: "widget.tsx", variant: "shared" as const },
+          ]
+        : [{ name: "widget.tsx", variant: "shared" as const }];
+
+  for (const candidate of candidates) {
+    const filePath = path.join(directory, candidate.name);
+    if (existsSync(filePath)) {
+      return { filePath, variant: candidate.variant };
+    }
+  }
+
+  return undefined;
 }
 
 /** Merges widget metadata into existing descriptor metadata without losing `ui`. */

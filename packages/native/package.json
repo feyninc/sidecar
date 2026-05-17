@@ -4,7 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./components": "./src/components/index.ts",
+    "./components": "./src/components/index.tsx",
     "./styles.css": "./src/styles.css"
   },
   "types": "./src/index.ts",

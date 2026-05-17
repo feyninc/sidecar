@@ -48,7 +48,7 @@ export function getOutputSchema(
     return undefined;
   }
 
-  const returnType = unwrapPromiseType(execute.getReturnType());
+  const returnType = unwrapToolResultType(unwrapPromiseType(execute.getReturnType()));
   if (returnType.isVoid() || returnType.isUndefined()) {
     return undefined;
   }
@@ -271,6 +271,23 @@ function unwrapPromiseType(type: Type): Type {
   }
   const args = type.getTypeArguments();
   return args[0] ?? type;
+}
+
+/** Extracts the structured content type from Sidecar's required `ToolResult<T>`. */
+function unwrapToolResultType(type: Type): Type {
+  const aliasName = type.getAliasSymbol()?.getName();
+  if (aliasName === "ToolResult") {
+    const [structured] = type.getAliasTypeArguments();
+    return structured ?? type;
+  }
+
+  const structured = type.getProperty("structuredContent");
+  const declaration = structured?.getValueDeclaration() ?? structured?.getDeclarations()[0];
+  if (!structured || !declaration) {
+    return type;
+  }
+
+  return removeUndefined(structured.getTypeAtLocation(declaration));
 }
 
 /** Removes `undefined` from simple union types. */

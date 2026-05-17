@@ -4,22 +4,22 @@ Sidecar is an opinionated TypeScript framework for building interactive MCP Apps
 
 The current implementation is the first vertical slice:
 
-- `@sidecar/core`: public `tool({ execute })` API, MCP descriptor helpers, result normalization.
+- `@sidecar/core`: public `tool({ execute })` API, `toolResult(...)`, and MCP descriptor helpers.
 - `@sidecar/client`: framework-agnostic widget bridge for tool calls, tool results, model messages, and model context.
 - `@sidecar/react`: optional React hooks around `@sidecar/client`.
 - `@sidecar/auth`: provider-agnostic MCP auth helpers, typed scopes, and `AuthSession`.
-- `@sidecar/anthropic`: Claude plugin authoring helpers for skills, slash commands, hooks, MCP servers, agents, and plugin metadata.
+- `@sidecar/anthropic`: Claude plugin helpers plus reconstructed Claude-styled components.
 - `@sidecar/compiler`: reserved `server/**/tool.ts` discovery and TypeScript/JSDoc schema extraction.
 - `@sidecar/server`: minimal MCP JSON-RPC runtime for `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
 - `@sidecar/cli`: `sidecar inspect`, `sidecar build`, and `sidecar dev`.
 - `@sidecar/native`: early runtime host feature facade and portable components.
-- `@sidecar/openai`: typed ChatGPT compatibility helpers for optional OpenAI metadata.
+- `@sidecar/openai`: typed ChatGPT compatibility helpers and official OpenAI Apps SDK UI component re-exports.
 - `create-sidecar-app`: starter scaffold for `npm create sidecar-app` / `npx create-sidecar-app`.
 
 ## Tool Authoring
 
 ```ts
-import { tool, type ToolContext } from "@sidecar/core";
+import { tool, toolResult, type ToolContext } from "@sidecar/core";
 
 type Params = {
   /** Expense report id, for example exp_123. */
@@ -51,13 +51,21 @@ export default tool({
       frameDomains: []
     }
   },
-  execute(params: Params, ctx: ToolContext): Promise<Result> {
-    return ctx.services.expenses.review(params.reportId);
+  async execute(params: Params, ctx: ToolContext) {
+    const review: Result = await ctx.services.expenses.review(params.reportId);
+
+    return toolResult({
+      structuredContent: review,
+      content:
+        review.issues.length === 0
+          ? "The expense report is ready and has no policy issues."
+          : `The expense report needs changes: ${review.issues.join(", ")}.`
+    });
   }
 });
 ```
 
-`execute` may be sync or async. MCP clients only see the eventual JSON-RPC response; Sidecar normalizes both `Result` and `Promise<Result>`.
+`execute` may be sync or async. Every tool must return `toolResult(...)`; Sidecar uses that single envelope to keep model-visible `content`, typed `structuredContent`, and optional widget-only `meta` explicit.
 
 ## Local Commands
 
@@ -68,6 +76,8 @@ npm test
 npm run build
 node dist/cli/index.js inspect --cwd examples/simple
 node dist/cli/index.js build --cwd examples/simple
+node dist/cli/index.js build --cwd examples/simple --target chatgpt
+node dist/cli/index.js build --cwd examples/simple --target claude
 node dist/cli/index.js build --cwd examples/simple --plugins
 node dist/cli/index.js check --cwd examples/simple
 node dist/cli/index.js dev --cwd examples/simple --port 3101
@@ -75,7 +85,7 @@ node dist/cli/index.js dev --cwd examples/simple --port 3101 --tunnel
 node dist/create-sidecar-app/index.js /tmp/my-sidecar-app
 ```
 
-`sidecar dev --tunnel` starts the local MCP server on Streamable HTTP and opens an HTTPS tunnel. Sidecar tries `cloudflared` first. If it is missing, the CLI asks whether to install `cloudflared` with Homebrew or continue with `npx wrangler tunnel quick-start`. The printed HTTPS `/mcp` URL is the one to add to ChatGPT, Claude, or the generated desktop plugin package.
+`sidecar dev --tunnel` starts the local MCP server on Streamable HTTP and opens an HTTPS tunnel. Sidecar tries `cloudflared` first. If it is missing, the CLI asks whether to install `cloudflared` with Homebrew or continue with `npx wrangler tunnel quick-start`. The printed HTTPS `/mcp` URL is the one to add to ChatGPT, Claude, or the generated Claude plugin package.
 
 `sidecar check` emits diagnostics in `file:line:column` form so terminals and future editor integrations can show squiggly-line-style warnings. Build and dev print the same warnings. Use `// sidecar-ignore DIAGNOSTIC_CODE` when an intentional exception is clearer than changing the code.
 
@@ -103,17 +113,26 @@ Sidecar bundles the widget into a content-hashed `ui://...` resource and adds st
         "frameDomains": []
       }
     },
-    "openai/outputTemplate": "ui://add_numbers/widget.<hash>.html",
-    "openai/widgetCSP": {
-      "connect_domains": [],
-      "resource_domains": [],
-      "frame_domains": []
-    }
   }
 }
 ```
 
-Widget code can be any iframe-friendly frontend. Use `@sidecar/client` for framework-agnostic bridge calls. Use `@sidecar/react` only when a React widget wants hooks for tool results, tool calls, model messages, or model context updates.
+Build with `--target chatgpt` to add ChatGPT compatibility metadata such as `openai/outputTemplate` and `openai/widgetCSP`. Shared MCP and Claude targets keep the standard `ui` metadata primary.
+
+Widget code is React. Use `@sidecar/react` for hooks around tool results, tool calls, model messages, and model context updates.
+
+Platform file variants let one tool keep a shared baseline while specializing only where needed:
+
+```text
+server/
+  report/
+    tool.ts              # shared MCP/ChatGPT/Claude tool
+    widget.tsx           # shared widget
+    widget.openai.tsx    # ChatGPT override
+    widget.anthropic.tsx # Claude override
+```
+
+`tool.openai.ts` and `tool.anthropic.ts` override the shared tool only for the matching target. `widget.openai.tsx` and `widget.anthropic.tsx` override only the UI for that target; other targets still expose the shared tool and fall back to the tool's `content` when no widget is available.
 
 Runtime host features should go through `@sidecar/native`, which feature-detects the current host and returns `{ ok: false, reason: "unsupported" }` when a capability is absent:
 
@@ -128,9 +147,12 @@ await files.download(JSON.stringify(data), {
 await links.openExternal("https://example.com");
 ```
 
+Use `@sidecar/native/components` for portable controls that auto-style at runtime. Use `@sidecar/openai/components` when a widget is intentionally ChatGPT-only and needs the official OpenAI Apps SDK UI components. Use `@sidecar/anthropic/components` when a widget is intentionally Claude-only and should use Sidecar's reconstructed Claude component recipes.
+
 Optional ChatGPT descriptor metadata is typed through `hosts.chatgpt`:
 
 ```ts
+import { tool, toolResult } from "@sidecar/core";
 import type { ChatGptToolOptions } from "@sidecar/openai";
 
 export default tool({
@@ -143,7 +165,10 @@ export default tool({
     } satisfies ChatGptToolOptions
   },
   execute(params: { reportId: string }) {
-    return { status: "ready" };
+    return toolResult({
+      structuredContent: { status: "ready" },
+      content: `Expense report ${params.reportId} is ready.`
+    });
   }
 });
 ```
@@ -206,7 +231,7 @@ export default appAuth;
 Tool-level policy belongs in `tool.ts`:
 
 ```ts
-import { tool } from "@sidecar/core";
+import { tool, toolResult } from "@sidecar/core";
 import { scopes } from "../../auth.js";
 
 export default tool({
@@ -215,9 +240,14 @@ export default tool({
   auth: {
     scopes: [scopes.expensesRead]
   },
-  execute(params: { reportId: string }, ctx) {
-    return ctx.services.expenses.review(params.reportId, {
+  async execute(params: { reportId: string }, ctx) {
+    const review = await ctx.services.expenses.review(params.reportId, {
       orgId: ctx.auth.orgId
+    });
+
+    return toolResult({
+      structuredContent: review,
+      content: `Reviewed expense report ${params.reportId}.`
     });
   }
 });
@@ -255,7 +285,7 @@ export default agent({
 });
 ```
 
-`hooks.json` at the project root is copied into both plugin outputs as `hooks/hooks.json`. Sidecar keeps hook generation conservative for now because hook semantics are host-specific and can block or mutate tool flows.
+`hooks.json` at the project root is copied into the generated Claude plugin as `hooks/hooks.json`. Sidecar keeps hook generation conservative for now because hook semantics are host-specific and can block or mutate tool flows.
 
 Slash commands can be static markdown under `commands/` or dynamic `command.ts` files:
 

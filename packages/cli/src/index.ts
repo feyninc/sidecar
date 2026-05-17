@@ -21,6 +21,7 @@ import {
   formatDiagnostic,
   type SidecarDiagnostic,
   type SidecarManifest,
+  type SidecarTarget,
 } from "@sidecar/compiler";
 import { isSidecarTool } from "@sidecar/core";
 import { createSidecarHttpServer, type LoadedResource, type LoadedTool } from "@sidecar/server";
@@ -35,23 +36,25 @@ async function main(argv: string[]): Promise<void> {
 
   switch (command) {
     case "build": {
-      const outDir = readOption(argv, "--out") ?? "out/mcp";
+      const target = readTarget(argv);
+      const outDir = readOption(argv, "--out") ?? `out/${target}`;
       const plugins = argv.includes("--plugins");
       const strict = argv.includes("--strict");
-      const manifest = await buildProject({ rootDir, outDir, plugins, strict });
+      const manifest = await buildProject({ rootDir, outDir, plugins, strict, target });
       printDiagnostics(manifest.diagnostics ?? []);
       if (strict && manifest.diagnostics?.length) {
         exit(1);
       }
-      console.log(`Built ${manifest.tools.length} tool${manifest.tools.length === 1 ? "" : "s"} to ${outDir}.`);
+      console.log(`Built ${manifest.tools.length} ${target} tool${manifest.tools.length === 1 ? "" : "s"} to ${outDir}.`);
       if (plugins) {
-        console.log("Built codex-plugin and claude-plugin packages.");
+        console.log("Built claude-plugin package.");
       }
       return;
     }
 
     case "check": {
-      const tools = await analyzeProjectTools(rootDir);
+      const target = readTarget(argv);
+      const tools = await analyzeProjectTools(rootDir, { target });
       const diagnostics = await collectProjectDiagnostics(rootDir, tools);
       printDiagnostics(diagnostics);
       if (diagnostics.some((diagnostic) => diagnostic.severity === "error") || (argv.includes("--strict") && diagnostics.length > 0)) {
@@ -65,9 +68,10 @@ async function main(argv: string[]): Promise<void> {
 
     case "dev": {
       const port = Number(readOption(argv, "--port") ?? "3001");
+      const target = readTarget(argv);
       const tunnelProvider = readTunnelProvider(argv);
-      const outDir = ".sidecar/dev/mcp";
-      const manifest = await buildProject({ rootDir, outDir });
+      const outDir = `.sidecar/dev/${target}`;
+      const manifest = await buildProject({ rootDir, outDir, target });
       printDiagnostics(manifest.diagnostics ?? []);
       const tools = await loadRuntimeTools(rootDir, manifest);
       let tunnel: TunnelSession | undefined;
@@ -89,11 +93,11 @@ async function main(argv: string[]): Promise<void> {
       });
 
       server.listen(port, () => {
-        console.log(`MCP running on Streamable HTTP at http://127.0.0.1:${port}/mcp`);
+        console.log(`MCP running on Streamable HTTP (${target}) at http://127.0.0.1:${port}/mcp`);
         console.log(`Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"} and ${resources.length} resource${resources.length === 1 ? "" : "s"}.`);
         if (tunnel) {
           console.log(`HTTPS tunnel (${tunnel.provider}) ready: ${tunnel.mcpUrl}`);
-          console.log("Use this HTTPS MCP URL in ChatGPT, Claude, or a desktop plugin install.");
+          console.log("Use this HTTPS MCP URL in ChatGPT, Claude, or a Claude plugin install.");
         }
       });
 
@@ -107,14 +111,15 @@ async function main(argv: string[]): Promise<void> {
     }
 
     case "inspect": {
-      const tools = await analyzeProjectTools(rootDir);
+      const target = readTarget(argv);
+      const tools = await analyzeProjectTools(rootDir, { target });
       if (!tools.length) {
         console.log("No Sidecar tools found.");
         return;
       }
 
       for (const tool of tools) {
-        console.log(`${tool.id} — ${tool.name}`);
+        console.log(`${tool.id} — ${tool.name} (${tool.variant}, ${tool.target})`);
         console.log(`  ${tool.description}`);
         console.log(`  source: ${tool.sourceFile}`);
       }
@@ -141,13 +146,22 @@ async function main(argv: string[]): Promise<void> {
       console.log(`Sidecar
 
 Usage:
-  sidecar build [--cwd <dir>] [--out <dir>] [--plugins] [--strict]
-  sidecar check [--cwd <dir>] [--strict]
-  sidecar dev [--cwd <dir>] [--port <port>] [--tunnel [cloudflared|wrangler]]
-  sidecar inspect [--cwd <dir>]
+  sidecar build [--cwd <dir>] [--target mcp|chatgpt|claude] [--out <dir>] [--plugins] [--strict]
+  sidecar check [--cwd <dir>] [--target mcp|chatgpt|claude] [--strict]
+  sidecar dev [--cwd <dir>] [--target mcp|chatgpt|claude] [--port <port>] [--tunnel [cloudflared|wrangler]]
+  sidecar inspect [--cwd <dir>] [--target mcp|chatgpt|claude]
   sidecar preview components [--cwd <dir>] [--host chatgpt|claude|generic] [--compare native,openai] [--port <port>] [--no-approve]
 `);
   }
+}
+
+/** Reads and validates the build target profile. */
+function readTarget(argv: string[]): SidecarTarget {
+  const target = readOption(argv, "--target") ?? "mcp";
+  if (target === "mcp" || target === "chatgpt" || target === "claude") {
+    return target;
+  }
+  throw new Error(`Unsupported Sidecar target "${target}". Expected mcp, chatgpt, or claude.`);
 }
 
 /** Options for the component parity preview command. */

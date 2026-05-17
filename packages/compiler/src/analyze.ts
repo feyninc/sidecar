@@ -30,19 +30,25 @@ import { getOutputSchema, getParamsSchema } from "./schema.js";
 import type { SidecarToolManifestEntry } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
 import { findWidget, mergeWidgetMeta, widgetMeta } from "./widgets.js";
+import type { SidecarSourceVariant, SidecarTarget } from "./types.js";
 
 /** Finds all Sidecar tool files under `server/` and returns manifest entries. */
 export async function analyzeProjectTools(
   rootDir: string,
+  options: { target?: SidecarTarget } = {},
 ): Promise<SidecarToolManifestEntry[]> {
-  const toolFiles = await findToolFiles(path.join(rootDir, "server"));
+  const target = options.target ?? "mcp";
+  const toolFiles = await findToolFiles(path.join(rootDir, "server"), target);
   if (toolFiles.length === 0) {
     return [];
   }
 
   const project = createProject(rootDir);
-  return toolFiles.map((filePath) =>
-    analyzeToolFile(project.addSourceFileAtPath(filePath), rootDir),
+  return toolFiles.map((candidate) =>
+    analyzeToolFile(project.addSourceFileAtPath(candidate.filePath), rootDir, {
+      target,
+      variant: candidate.variant,
+    }),
   );
 }
 
@@ -50,7 +56,10 @@ export async function analyzeProjectTools(
 export function analyzeToolFile(
   sourceFile: SourceFile,
   rootDir: string,
+  options: { target?: SidecarTarget; variant?: SidecarSourceVariant } = {},
 ): SidecarToolManifestEntry {
+  const target = options.target ?? "mcp";
+  const variant = options.variant ?? "shared";
   const definition = findToolDefinition(sourceFile);
   const name = getRequiredStringProperty(definition, "name", sourceFile);
   const id = getOptionalStringProperty(definition, "id") ?? toMachineName(name);
@@ -71,6 +80,7 @@ export function analyzeToolFile(
     name,
     id,
     description,
+    target,
     inputSchema,
     outputSchema,
     annotations,
@@ -81,13 +91,15 @@ export function analyzeToolFile(
 
   const absoluteFile = sourceFile.getFilePath();
   const directory = path.basename(path.dirname(absoluteFile));
-  const widget = findWidget(rootDir, absoluteFile, id, widgetOptions);
+  const widget = findWidget(rootDir, absoluteFile, id, widgetOptions, target);
   if (widget) {
-    descriptor._meta = mergeWidgetMeta(descriptor._meta, widgetMeta(widget.resourceUri, widget.options));
+    descriptor._meta = mergeWidgetMeta(descriptor._meta, widgetMeta(widget.resourceUri, widget.options, target));
   }
 
   return {
     sourceFile: path.relative(rootDir, absoluteFile),
+    variant,
+    target,
     directory,
     id,
     name,
@@ -121,25 +133,55 @@ function createProject(rootDir: string): Project {
 }
 
 /** Finds immediate server child tool files in deterministic order. */
-async function findToolFiles(serverDir: string): Promise<string[]> {
+type ToolFileCandidate = {
+  filePath: string;
+  variant: SidecarSourceVariant;
+};
+
+async function findToolFiles(serverDir: string, target: SidecarTarget): Promise<ToolFileCandidate[]> {
   if (!existsSyncSafe(serverDir)) {
     return [];
   }
 
   const entries = await readdir(serverDir, { withFileTypes: true });
-  const files: string[] = [];
+  const files: ToolFileCandidate[] = [];
 
   for (const entry of entries) {
     const entryPath = path.join(serverDir, entry.name);
     if (entry.isDirectory()) {
-      const candidate = path.join(entryPath, "tool.ts");
-      if (existsSyncSafe(candidate)) {
+      const candidate = selectToolFile(entryPath, target);
+      if (candidate) {
         files.push(candidate);
       }
     }
   }
 
-  return files.sort();
+  return files.sort((left, right) => left.filePath.localeCompare(right.filePath));
+}
+
+/** Picks the platform-specific tool file for a target, falling back to shared code. */
+function selectToolFile(directory: string, target: SidecarTarget): ToolFileCandidate | undefined {
+  const candidates =
+    target === "chatgpt"
+      ? [
+          { name: "tool.openai.ts", variant: "openai" as const },
+          { name: "tool.ts", variant: "shared" as const },
+        ]
+      : target === "claude"
+        ? [
+            { name: "tool.anthropic.ts", variant: "anthropic" as const },
+            { name: "tool.ts", variant: "shared" as const },
+          ]
+        : [{ name: "tool.ts", variant: "shared" as const }];
+
+  for (const candidate of candidates) {
+    const filePath = path.join(directory, candidate.name);
+    if (existsSyncSafe(filePath)) {
+      return { filePath, variant: candidate.variant };
+    }
+  }
+
+  return undefined;
 }
 
 /** Locates the default-exported `tool({ ... })` object literal. */

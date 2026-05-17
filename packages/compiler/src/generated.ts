@@ -38,11 +38,12 @@ export async function writeGeneratedTypes(
  */
 ${imports}
 import { createToolClient } from "@sidecar/client";
+import type { ToolResult } from "@sidecar/core";
 
 type ExecuteOf<T> = T extends { execute: infer Execute } ? Execute : never;
 type ToolParams<T> = ExecuteOf<T> extends (params: infer Params, ...args: any[]) => unknown ? Params : never;
 type RawToolOutput<T> = Awaited<ReturnType<Extract<ExecuteOf<T>, (...args: any[]) => unknown>>>;
-type ToolOutput<T> = RawToolOutput<T> extends { structuredContent?: infer Structured } ? Structured : RawToolOutput<T>;
+type ToolOutput<T> = RawToolOutput<T> extends ToolResult<infer Structured, any> ? Structured : never;
 
 /** Machine names keyed by widget-friendly method names. */
 export const toolIds = {

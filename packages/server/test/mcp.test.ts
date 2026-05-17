@@ -1,6 +1,6 @@
 /** Tests for MCP JSON-RPC dispatch and auth enforcement. */
 import { describe, expect, it } from "vitest";
-import { result, tool, type ToolContext } from "@sidecar/core";
+import { tool, toolResult, type ToolContext } from "@sidecar/core";
 import { auth, scope, type AuthSession } from "@sidecar/auth";
 import { createSidecarHttpServer, createSidecarMcpServer } from "../src/index.js";
 
@@ -10,7 +10,11 @@ describe("SidecarMcpServer", () => {
       name: "Add Numbers",
       description: "Use this when adding two numbers.",
       execute(params: { a: number; b: number }) {
-        return { sum: params.a + params.b };
+        const sum = params.a + params.b;
+        return toolResult({
+          structuredContent: { sum },
+          content: `The sum is ${sum}.`
+        });
       }
     });
 
@@ -69,14 +73,20 @@ describe("SidecarMcpServer", () => {
         scopes: [appAuth.scopes.expensesRead]
       },
       execute(_params: {}, ctx) {
-        return { orgId: ctx.auth.orgId };
+        return toolResult({
+          structuredContent: { orgId: ctx.auth.orgId },
+          content: `Using organization ${ctx.auth.orgId}.`
+        });
       }
     });
     const publicSummary = tool({
       name: "Public Summary",
       description: "Use this when returning public summary information.",
       execute() {
-        return { public: true };
+        return toolResult({
+          structuredContent: { public: true },
+          content: "Public summary is available."
+        });
       }
     });
     const account = tool({
@@ -86,7 +96,10 @@ describe("SidecarMcpServer", () => {
         authenticated: true
       },
       execute(_params: {}, ctx: ToolContext<DemoSession>) {
-        return { orgId: ctx.auth.orgId };
+        return toolResult({
+          structuredContent: { orgId: ctx.auth.orgId },
+          content: `Using organization ${ctx.auth.orgId}.`
+        });
       }
     });
 
@@ -182,7 +195,10 @@ describe("SidecarMcpServer", () => {
         scopes: [appAuth.scopes.expensesRead]
       },
       execute() {
-        return { ok: true };
+        return toolResult({
+          structuredContent: { ok: true },
+          content: "Review complete."
+        });
       }
     });
     const http = createSidecarHttpServer({
@@ -228,7 +244,6 @@ function testContext(): ToolContext {
     },
     services: {},
     tools: {},
-    result,
     log: {
       debug() {},
       info() {},

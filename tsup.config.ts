@@ -1,5 +1,37 @@
 import { defineConfig } from "tsup";
 
+const openAiComponentExternals = [
+  "Alert",
+  "AppsSDKUIProvider",
+  "Avatar",
+  "Badge",
+  "Button",
+  "Checkbox",
+  "CodeBlock",
+  "DatePicker",
+  "DateRangePicker",
+  "EmptyMessage",
+  "Icon",
+  "Image",
+  "Indicator",
+  "Input",
+  "Markdown",
+  "Menu",
+  "Popover",
+  "RadioGroup",
+  "SegmentedControl",
+  "Select",
+  "SelectControl",
+  "ShimmerText",
+  "Slider",
+  "Switch",
+  "TagInput",
+  "Textarea",
+  "TextLink",
+  "Tooltip",
+  "Transition",
+].map((name) => `@openai/apps-sdk-ui/components/${name}`);
+
 export default defineConfig({
   entry: {
     "core/index": "packages/core/src/index.ts",
@@ -8,7 +40,6 @@ export default defineConfig({
     "anthropic/index": "packages/anthropic/src/index.ts",
     "anthropic/agent": "packages/anthropic/src/agent.ts",
     "anthropic/command": "packages/anthropic/src/command.ts",
-    "anthropic/components": "packages/anthropic/src/components.tsx",
     "anthropic/hooks": "packages/anthropic/src/hooks.ts",
     "anthropic/mcp": "packages/anthropic/src/mcp.ts",
     "anthropic/plugin": "packages/anthropic/src/plugin.ts",
@@ -42,9 +73,8 @@ export default defineConfig({
     "@tailwindcss/oxide",
     "@sidecar/native",
     "@sidecar/native/components",
-    "@openai/apps-sdk-ui/components/Button",
-    "@openai/apps-sdk-ui/components/Badge",
-    "@openai/apps-sdk-ui/components/Checkbox"
+    "@openai/apps-sdk-ui/css",
+    ...openAiComponentExternals
   ],
   format: ["esm"],
   minify: false,

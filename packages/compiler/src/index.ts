@@ -8,6 +8,8 @@ export type {
   BuildProjectOptions,
   ProjectIdentity,
   SidecarManifest,
+  SidecarSourceVariant,
+  SidecarTarget,
   SidecarToolManifestEntry,
   SidecarWidgetManifestEntry,
 } from "./types.js";
