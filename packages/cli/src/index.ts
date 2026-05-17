@@ -30,7 +30,7 @@ import { startTunnel, type TunnelProvider, type TunnelSession } from "./tunnel.j
 type Command = "build" | "check" | "dev" | "inspect" | "preview" | "help";
 
 /** Dispatches the requested CLI command. */
-async function main(argv: string[]): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const command = (argv[2] ?? "help") as Command;
   const rootDir = readOption(argv, "--cwd") ?? cwd();
 
@@ -263,7 +263,7 @@ async function askYesNo(question: string): Promise<boolean> {
 }
 
 /** Renders the static preview matrix used for human parity checks. */
-function renderComponentPreviewHtml(
+export function renderComponentPreviewHtml(
   host: string,
   compare: string,
   css: string,
@@ -300,7 +300,7 @@ function renderComponentPreviewHtml(
 }
 
 /** Renders one isolated theme frame so root host/theme selectors work normally. */
-function renderComponentPreviewFrame(
+export function renderComponentPreviewFrame(
   host: string,
   compare: string,
   css: string,
@@ -546,7 +546,7 @@ function mediaPreview(recipe: string): string {
 }
 
 /** Returns the components represented in a preview set. */
-function previewComponentNames(componentSet: ComponentPreviewSet): string[] {
+export function previewComponentNames(componentSet: ComponentPreviewSet): string[] {
   if (componentSet === "representative") {
     return [
       "Button",
@@ -606,7 +606,7 @@ function previewComponentNames(componentSet: ComponentPreviewSet): string[] {
 }
 
 /** Parses the component inventory selected for the preview command. */
-function readPreviewComponentSet(value: string | undefined): ComponentPreviewSet {
+export function readPreviewComponentSet(value: string | undefined): ComponentPreviewSet {
   if (!value || value === "representative") {
     return "representative";
   }
@@ -617,7 +617,7 @@ function readPreviewComponentSet(value: string | undefined): ComponentPreviewSet
 }
 
 /** Parses the theme set selected for the preview command. */
-function readPreviewThemes(value: string | undefined): ComponentPreviewTheme[] {
+export function readPreviewThemes(value: string | undefined): ComponentPreviewTheme[] {
   if (!value || value === "light") {
     return ["light"];
   }
@@ -752,7 +752,15 @@ function readOption(argv: string[], name: string): string | undefined {
   return argv[index + 1];
 }
 
-main(process.argv).catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  exit(1);
-});
+/** Returns true when this module is being executed as the CLI entrypoint. */
+function isDirectRun(): boolean {
+  const entry = process.argv[1];
+  return Boolean(entry && import.meta.url === pathToFileURL(entry).href);
+}
+
+if (isDirectRun()) {
+  main(process.argv).catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    exit(1);
+  });
+}

@@ -88,7 +88,9 @@ export function analyzeToolFile(
     meta: undefined,
   });
 
-  const widget = findWidget(rootDir, absoluteFile, id, target);
+  validateWidgetHierarchy(sourceFile, absoluteFile, target, variant);
+
+  const widget = findWidget(rootDir, absoluteFile, id, target, variant);
   if (widget) {
     const widgetFile = path.join(rootDir, widget.sourceFile);
     const project = sourceFile.getProject();
@@ -115,6 +117,35 @@ export function analyzeToolFile(
     widget,
     descriptor,
   };
+}
+
+/** Enforces Sidecar's hierarchical reserved-file platform rule. */
+function validateWidgetHierarchy(
+  sourceFile: SourceFile,
+  toolFile: string,
+  target: SidecarTarget,
+  variant: SidecarSourceVariant,
+): void {
+  const directory = path.dirname(toolFile);
+  const platformWidget =
+    target === "chatgpt"
+      ? "widget.openai.tsx"
+      : target === "claude"
+        ? "widget.anthropic.tsx"
+        : undefined;
+
+  if (!platformWidget || variant !== "shared") {
+    return;
+  }
+
+  if (existsSyncSafe(path.join(directory, platformWidget))) {
+    const expectedTool =
+      target === "chatgpt" ? "tool.openai.ts" : "tool.anthropic.ts";
+    throw new CompilerError(
+      sourceFile,
+      `${platformWidget} requires a sibling ${expectedTool}; platform-specific widgets cannot attach to a shared tool.ts.`,
+    );
+  }
 }
 
 /** Creates a ts-morph project using the app tsconfig when available. */

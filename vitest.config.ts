@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@sidecar/core": "/Users/shreyash/Code/sidecar/packages/core/src/index.ts",
+      "@sidecar/auth": "/Users/shreyash/Code/sidecar/packages/auth/src/index.ts",
       "@sidecar/compiler": "/Users/shreyash/Code/sidecar/packages/compiler/src/index.ts",
       "@sidecar/server": "/Users/shreyash/Code/sidecar/packages/server/src/index.ts"
     }

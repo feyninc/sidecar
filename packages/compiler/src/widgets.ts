@@ -146,8 +146,9 @@ export function findWidget(
   toolFile: string,
   id: string,
   target: SidecarTarget = "mcp",
+  toolVariant: SidecarSourceVariant = "shared",
 ): SidecarWidgetManifestEntry | undefined {
-  const selected = selectWidgetFile(path.dirname(toolFile), target);
+  const selected = selectWidgetFile(path.dirname(toolFile), target, toolVariant);
   if (!selected) {
     return undefined;
   }
@@ -359,19 +360,22 @@ function readStringArrayProperty(
 function selectWidgetFile(
   directory: string,
   target: SidecarTarget,
+  toolVariant: SidecarSourceVariant,
 ): { filePath: string; variant: SidecarSourceVariant } | undefined {
+  if (toolVariant === "openai") {
+    const filePath = path.join(directory, "widget.openai.tsx");
+    return existsSync(filePath) ? { filePath, variant: "openai" } : undefined;
+  }
+
+  if (toolVariant === "anthropic") {
+    const filePath = path.join(directory, "widget.anthropic.tsx");
+    return existsSync(filePath) ? { filePath, variant: "anthropic" } : undefined;
+  }
+
   const candidates =
-    target === "chatgpt"
-      ? [
-          { name: "widget.openai.tsx", variant: "openai" as const },
-          { name: "widget.tsx", variant: "shared" as const },
-        ]
-      : target === "claude"
-        ? [
-            { name: "widget.anthropic.tsx", variant: "anthropic" as const },
-            { name: "widget.tsx", variant: "shared" as const },
-          ]
-        : [{ name: "widget.tsx", variant: "shared" as const }];
+    target === "chatgpt" || target === "claude" || target === "mcp"
+      ? [{ name: "widget.tsx", variant: "shared" as const }]
+      : [];
 
   for (const candidate of candidates) {
     const filePath = path.join(directory, candidate.name);
