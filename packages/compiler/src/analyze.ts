@@ -11,11 +11,8 @@ import {
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import {
-  ModuleKind,
-  ModuleResolutionKind,
   Node,
-  Project,
-  ScriptTarget,
+  type Project,
   SyntaxKind,
   type ArrowFunction,
   type CallExpression,
@@ -26,10 +23,11 @@ import {
 } from "ts-morph";
 import { resolveDefaultExportCall, unwrapExpression } from "./ast.js";
 import { CompilerError } from "./errors.js";
+import { createProject } from "./project.js";
 import { getOutputSchema, getParamsSchema } from "./schema.js";
 import type { SidecarToolManifestEntry } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
-import { findWidget, mergeWidgetMeta, readWidgetOptions, widgetMeta } from "./widgets.js";
+import { findWidget, mergeWidgetMeta, readWidgetOptions, widgetMeta, widgetResourceMeta } from "./widgets.js";
 import type { SidecarSourceVariant, SidecarTarget } from "./types.js";
 
 type AuthScopeCatalog = Record<string, { id: string; description: string }>;
@@ -108,6 +106,7 @@ export function analyzeToolFile(
       description,
       ...readWidgetOptions(widgetSourceFile),
     };
+    widget.resourceMeta = widgetResourceMeta(widget.options, target);
     descriptor._meta = mergeWidgetMeta(descriptor._meta, widgetMeta(widget.resourceUri, widget.options, target));
   }
 
@@ -122,6 +121,7 @@ export function analyzeToolFile(
     inputSchema,
     outputSchema,
     annotations,
+    visibility,
     widget,
     descriptor,
   };
@@ -285,50 +285,6 @@ function validateWidgetHierarchy(
       `${platformWidget} requires a sibling ${expectedTool}; platform-specific widgets cannot attach to a shared tool.ts.`,
     );
   }
-}
-
-/** Creates a ts-morph project using the app tsconfig when available. */
-function createProject(rootDir: string): Project {
-  const tsconfig = path.join(rootDir, "tsconfig.json");
-
-  return new Project({
-    tsConfigFilePath: existsSyncSafe(tsconfig) ? tsconfig : undefined,
-    compilerOptions: existsSyncSafe(tsconfig)
-      ? undefined
-      : {
-          allowJs: false,
-          baseUrl: process.cwd(),
-          esModuleInterop: true,
-          module: ModuleKind.NodeNext,
-          moduleResolution: ModuleResolutionKind.NodeNext,
-          paths: devSidecarTypePaths(),
-          strict: true,
-          target: ScriptTarget.ES2022,
-        },
-    skipAddingFilesFromTsConfig: true,
-  });
-}
-
-/** Provides source aliases for repo-local examples before package dist exists. */
-function devSidecarTypePaths(): Record<string, string[]> | undefined {
-  const repoRoot = process.cwd();
-  const corePath = path.join(repoRoot, "packages", "core", "src", "index.ts");
-  if (!existsSyncSafe(corePath)) {
-    return undefined;
-  }
-
-  return {
-    "@sidecar/core": ["packages/core/src/index.ts"],
-    "@sidecar/client": ["packages/client/src/index.ts"],
-    "@sidecar/react": ["packages/react/src/index.ts"],
-    "@sidecar/native": ["packages/native/src/index.ts"],
-    "@sidecar/native/components": ["packages/native/src/components/index.tsx"],
-    "@sidecar/openai": ["packages/openai/src/index.ts"],
-    "@sidecar/openai/components": ["packages/openai/src/components.tsx"],
-    "@sidecar/anthropic": ["packages/anthropic/src/index.ts"],
-    "@sidecar/anthropic/plugin": ["packages/anthropic/src/plugin.ts"],
-    "@sidecar/anthropic/hooks": ["packages/anthropic/src/hooks.ts"],
-  };
 }
 
 /** Finds immediate server child tool files in deterministic order. */

@@ -1,9 +1,11 @@
 /**
  * Portable host capability facade.
  *
- * APIs in this package feature-detect host globals at runtime and return a
- * typed unsupported/denied/failed result instead of assuming ChatGPT support.
+ * APIs in this package use the standard MCP Apps host bridge at runtime and
+ * return typed unsupported/denied/failed results when a capability is absent.
  */
+import { browserBridge, detectHostContext as detectSidecarHostContext } from "@sidecar/client";
+
 export {
   Alert,
   Avatar,
@@ -145,23 +147,12 @@ export type DisplayMode = "inline" | "fullscreen" | "pip";
 export const host = {
   /** Detects the current host from browser globals. */
   current(): HostName {
-    if (typeof window === "undefined") {
-      return "unknown";
-    }
-
-    const openai = (window as unknown as { openai?: unknown }).openai;
-    if (openai) {
+    const context = detectSidecarHostContext();
+    if (context.name === "chatgpt") {
       return "chatgpt";
     }
-
-    if (typeof document !== "undefined") {
-      const styles = getComputedStyle(document.documentElement);
-      if (
-        styles.getPropertyValue("--claude-background-color") ||
-        styles.getPropertyValue("--claude-text-color")
-      ) {
-        return "claude";
-      }
+    if (context.name === "claude") {
+      return "claude";
     }
 
     return "unknown";
@@ -172,23 +163,29 @@ export const host = {
 export const capabilities = {
   /** Returns one stable support state for a known capability. */
   get(capability: HostCapability): CapabilityState {
-    const openai = readOpenAI();
+    const standard = browserBridge.getHostCapabilities();
+    const context = detectSidecarHostContext().raw as { availableDisplayModes?: DisplayMode[] } | undefined;
     switch (capability) {
       case "display.fullscreen":
-      case "display.pip":
-        return openai?.requestDisplayMode ? "supported" : "unsupported";
-      case "files.select":
-        return openai?.selectFiles
+        return context?.availableDisplayModes?.includes("fullscreen")
           ? "supported"
-          : typeof document === "undefined"
+          : "unsupported";
+      case "display.pip":
+        return context?.availableDisplayModes?.includes("pip")
+          ? "supported"
+          : "unsupported";
+      case "files.select":
+        return typeof document === "undefined"
             ? "unsupported"
             : "browser-fallback";
       case "files.download":
-        return typeof document === "undefined" || typeof URL === "undefined"
+        return standard?.downloadFile
+          ? "supported"
+          : typeof document === "undefined" || typeof URL === "undefined"
           ? "unsupported"
           : "browser-fallback";
       case "links.openExternal":
-        return openai?.openExternal
+        return standard?.openLinks
           ? "supported"
           : typeof window === "undefined"
             ? "unsupported"
@@ -212,14 +209,9 @@ export const capabilities = {
 export const display = {
   /** Requests a widget display mode when the host supports it. */
   async request(mode: DisplayMode): Promise<HostFeatureResult> {
-    const openai = readOpenAI();
-    if (!openai?.requestDisplayMode) {
-      return { ok: false, reason: "unsupported" };
-    }
-
     try {
-      await openai.requestDisplayMode({ mode });
-      return { ok: true, value: undefined };
+      const result = await browserBridge.requestDisplayMode(mode);
+      return result.ok ? { ok: true, value: undefined } : result;
     } catch (error) {
       return normalizeHostError(error);
     }
@@ -242,16 +234,6 @@ export type FileDownloadOptions = {
 export const files = {
   /** Requests files from the host when supported. */
   async select(options: FileSelectOptions = {}): Promise<HostFeatureResult<File[]>> {
-    const openai = readOpenAI();
-    if (openai?.selectFiles) {
-      try {
-        const selected = await openai.selectFiles(options);
-        return { ok: true, value: selected };
-      } catch (error) {
-        return normalizeHostError<File[]>(error);
-      }
-    }
-
     return selectFilesWithBrowserInput(options);
   },
 
@@ -260,6 +242,11 @@ export const files = {
     data: BlobPart | Blob,
     options: FileDownloadOptions,
   ): Promise<HostFeatureResult> {
+    const hostResult = await downloadWithHost(data, options);
+    if (hostResult.ok || hostResult.reason !== "unsupported") {
+      return hostResult;
+    }
+
     if (typeof document === "undefined" || typeof URL === "undefined") {
       return { ok: false, reason: "unsupported" };
     }
@@ -290,28 +277,12 @@ export const files = {
 export const links = {
   /** Opens an external URL through the host bridge when possible. */
   async openExternal(url: string): Promise<HostFeatureResult> {
-    if (!isAllowedExternalUrl(url)) {
-      return { ok: false, reason: "denied", message: "Only http, https, and mailto URLs can be opened externally." };
+    const hostResult = await browserBridge.openLink(url);
+    if (hostResult.ok || hostResult.reason !== "unsupported") {
+      return hostResult;
     }
 
-    const openai = readOpenAI();
-    if (openai?.openExternal) {
-      try {
-        await openai.openExternal({ href: url });
-        return { ok: true, value: undefined };
-      } catch (error) {
-        return normalizeHostError(error);
-      }
-    }
-
-    if (typeof window === "undefined") {
-      return { ok: false, reason: "unsupported" };
-    }
-
-    const opened = window.open(url, "_blank", "noopener,noreferrer");
-    return opened
-      ? { ok: true, value: undefined }
-      : { ok: false, reason: "denied", message: "The host blocked the popup." };
+    return openWithBrowserFallback(url);
   },
 };
 
@@ -325,11 +296,53 @@ function isAllowedExternalUrl(value: string): boolean {
   }
 }
 
-type OpenAIBridge = {
-  requestDisplayMode?: (request: { mode: DisplayMode }) => Promise<void>;
-  selectFiles?: (options: FileSelectOptions) => Promise<File[]>;
-  openExternal?: (request: { href: string }) => Promise<void>;
-};
+/** Attempts the standard MCP Apps file download bridge before browser fallback. */
+async function downloadWithHost(
+  data: BlobPart | Blob,
+  options: FileDownloadOptions,
+): Promise<HostFeatureResult> {
+  try {
+    const contents = typeof data === "string"
+      ? [{
+          type: "resource",
+          resource: {
+            uri: fileUri(options.filename),
+            mimeType: options.mimeType ?? "text/plain",
+            text: data,
+          },
+        }]
+      : [{
+          type: "resource",
+          resource: {
+            uri: fileUri(options.filename),
+            mimeType: options.mimeType ?? (data instanceof Blob ? data.type : undefined) ?? "application/octet-stream",
+            blob: await blobPartToBase64(data, options.mimeType),
+          },
+        }];
+
+    return browserBridge.downloadFile(contents);
+  } catch (error) {
+    return normalizeHostError(error);
+  }
+}
+
+/** Builds a conservative file URI for MCP embedded download resources. */
+function fileUri(filename: string): string {
+  return `file:///${encodeURIComponent(filename.replace(/^[/\\]+/, ""))}`;
+}
+
+/** Converts browser Blob data into the base64 payload MCP embedded resources expect. */
+async function blobPartToBase64(data: BlobPart | Blob, mimeType: string | undefined): Promise<string> {
+  const blob = data instanceof Blob
+    ? data
+    : new Blob([data], { type: mimeType ?? "application/octet-stream" });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
 
 /** Uses a hidden browser file input when the host has no native picker. */
 function selectFilesWithBrowserInput(options: FileSelectOptions): Promise<HostFeatureResult<File[]>> {
@@ -358,13 +371,24 @@ function selectFilesWithBrowserInput(options: FileSelectOptions): Promise<HostFe
   });
 }
 
-/** Reads ChatGPT's host bridge when present. */
-function readOpenAI(): OpenAIBridge | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
+/** Opens an external URL with normal browser behavior when no host bridge exists. */
+function openWithBrowserFallback(url: string): HostFeatureResult {
+  if (!isAllowedExternalUrl(url)) {
+    return {
+      ok: false,
+      reason: "denied",
+      message: "Only http, https, and mailto URLs can be opened externally.",
+    };
   }
 
-  return (window as unknown as { openai?: OpenAIBridge }).openai;
+  if (typeof window === "undefined") {
+    return { ok: false, reason: "unsupported" };
+  }
+
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  return opened
+    ? { ok: true, value: undefined }
+    : { ok: false, reason: "denied", message: "The host blocked the popup." };
 }
 
 /** Converts host exceptions into stable capability results. */

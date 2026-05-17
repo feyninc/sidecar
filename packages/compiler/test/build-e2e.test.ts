@@ -20,6 +20,9 @@ describe("buildProject E2E artifacts", () => {
       expect(mcp.tools.map((tool) => tool.id).sort()).toEqual(["add-numbers", "expenses.review"]);
       expect(chatgpt.tools.map((tool) => tool.id).sort()).toEqual(["add-numbers", "expenses.review"]);
       expect(claude.tools.map((tool) => tool.id).sort()).toEqual(["add-numbers", "expenses.review"]);
+      expect(mcp.resources.map((resource) => resource.uri)).toEqual(["sidecar://resources/company-handbook"]);
+      expect(mcp.prompts.map((prompt) => prompt.name)).toEqual(["review-expense"]);
+      expect(mcp.config.pagination.pageSize).toBe(10);
 
       const mcpManifest = await readJson<SidecarManifest>(path.join(rootDir, "out/mcp/manifest.sidecar.json"));
       const chatgptManifest = await readJson<SidecarManifest>(path.join(rootDir, "out/chatgpt/manifest.sidecar.json"));
@@ -27,6 +30,14 @@ describe("buildProject E2E artifacts", () => {
       expect(mcpManifest.target).toBe("mcp");
       expect(chatgptManifest.target).toBe("chatgpt");
       expect(claudeManifest.target).toBe("claude");
+      expect(mcpManifest.resources[0]?.descriptor).toMatchObject({
+        uri: "sidecar://resources/company-handbook",
+        mimeType: "text/markdown",
+      });
+      expect(mcpManifest.prompts[0]?.descriptor).toMatchObject({
+        name: "review-expense",
+        title: "Review Expense",
+      });
 
       const mcpWidget = mcpManifest.tools.find((tool) => tool.id === "add-numbers")?.widget;
       const chatgptWidget = chatgptManifest.tools.find((tool) => tool.id === "add-numbers")?.widget;

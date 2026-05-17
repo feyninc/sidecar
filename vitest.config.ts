@@ -11,6 +11,7 @@ export default defineConfig({
       { find: "@sidecar/native/styles.css", replacement: "/Users/shreyash/Code/sidecar/packages/native/src/styles.css" },
       { find: "@sidecar/anthropic/plugin", replacement: "/Users/shreyash/Code/sidecar/packages/anthropic/src/plugin.ts" },
       { find: "@sidecar/anthropic/hooks", replacement: "/Users/shreyash/Code/sidecar/packages/anthropic/src/hooks.ts" },
+      { find: "@sidecar/client", replacement: "/Users/shreyash/Code/sidecar/packages/client/src/index.ts" },
       { find: "@sidecar/core", replacement: "/Users/shreyash/Code/sidecar/packages/core/src/index.ts" },
       { find: "@sidecar/auth", replacement: "/Users/shreyash/Code/sidecar/packages/auth/src/index.ts" },
       { find: "@sidecar/compiler", replacement: "/Users/shreyash/Code/sidecar/packages/compiler/src/index.ts" },

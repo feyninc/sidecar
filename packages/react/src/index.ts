@@ -27,10 +27,26 @@ export {
   createBrowserBridge,
   createToolClient,
   getToolResult,
+  log,
   model,
+  sampling,
+  server,
+  view,
   type HostFeatureResult,
+  type HostLogLevel,
+  type HostLogMessage,
+  type SamplingMessageRequest,
+  type SamplingMessageResult,
+  type ServerResource,
+  type ServerResourceContent,
+  type ServerResourceListResult,
+  type ServerResourceReadResult,
   type SidecarHostContext,
   type ModelMessage,
+  type SizeChangedMessage,
+  type ToolCancelledListener,
+  type ToolInput,
+  type ToolInputListener,
   type WidgetBridge,
   type WidgetToolResult,
 } from "@sidecar/client";
@@ -124,7 +140,20 @@ export function useWidgetBridge(): WidgetBridge {
 
 /** React hook for reading the current tool result. */
 export function useToolResult<Structured, Meta = Record<string, unknown>>(): WidgetToolResult<Structured, Meta> {
-  return useWidgetBridge().getToolResult<Structured, Meta>();
+  const bridge = useWidgetBridge();
+  const [result, setResult] = useState<WidgetToolResult<Structured, Meta>>(() =>
+    bridge.getToolResult<Structured, Meta>(),
+  );
+
+  useEffect(
+    () =>
+      bridge.subscribeToolResult((next) =>
+        setResult(next as WidgetToolResult<Structured, Meta>),
+      ),
+    [bridge],
+  );
+
+  return result;
 }
 
 /** React hook for the active host/theme context. */

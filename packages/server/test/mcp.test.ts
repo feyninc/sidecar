@@ -1,6 +1,17 @@
 /** Tests for MCP JSON-RPC dispatch and auth enforcement. */
 import { describe, expect, it } from "vitest";
-import { createToolDescriptor, tool, toolResult, type ToolContext } from "@sidecar/core";
+import {
+  createPromptDescriptor,
+  createResourceDescriptor,
+  createToolDescriptor,
+  MCP_APP_RESOURCE_MIME_TYPE,
+  prompt,
+  resource,
+  resourceResult,
+  tool,
+  toolResult,
+  type ToolContext,
+} from "@sidecar/core";
 import { auth, scope, type AuthSession } from "@sidecar/auth";
 import { createSidecarHttpServer, createSidecarMcpServer } from "../src/index.js";
 
@@ -41,6 +52,403 @@ describe("SidecarMcpServer", () => {
     ).resolves.toMatchObject({
       result: {
         structuredContent: { sum: 9 }
+      }
+    });
+  });
+
+  it("advertises only configured MCP capabilities", async () => {
+    const server = createSidecarMcpServer({
+      tools: [],
+      capabilities: {
+        resources: {
+          subscribe: true,
+          listChanged: true,
+        },
+        prompts: {
+          listChanged: true,
+        },
+      },
+    });
+
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 1, method: "initialize" })
+    ).resolves.toMatchObject({
+      result: {
+        capabilities: {
+          tools: {},
+          resources: {
+            subscribe: true,
+            listChanged: true,
+          },
+          prompts: {
+            listChanged: true,
+          },
+        },
+      },
+    });
+  });
+
+  it("serves MCP Apps resources with standard MIME and resource metadata", async () => {
+    const server = createSidecarMcpServer({
+      tools: [],
+      resources: [{
+        uri: "ui://demo/widget.html",
+        name: "Demo Widget",
+        description: "Interactive demo widget.",
+        mimeType: MCP_APP_RESOURCE_MIME_TYPE,
+        text: "<!doctype html><html></html>",
+        _meta: {
+          ui: {
+            prefersBorder: true,
+            csp: {
+              connectDomains: [],
+              resourceDomains: [],
+            },
+          },
+        },
+      }],
+    });
+
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 1, method: "resources/list" })
+    ).resolves.toMatchObject({
+      result: {
+        resources: [{
+          uri: "ui://demo/widget.html",
+          mimeType: MCP_APP_RESOURCE_MIME_TYPE,
+          _meta: {
+            ui: {
+              prefersBorder: true,
+            },
+          },
+        }],
+      },
+    });
+
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "resources/read",
+        params: { uri: "ui://demo/widget.html" },
+      })
+    ).resolves.toMatchObject({
+      result: {
+        contents: [{
+          uri: "ui://demo/widget.html",
+          mimeType: MCP_APP_RESOURCE_MIME_TYPE,
+          _meta: {
+            ui: {
+              csp: {
+                connectDomains: [],
+                resourceDomains: [],
+              },
+            },
+          },
+        }],
+      },
+    });
+  });
+
+  it("serves authored resources and prompts", async () => {
+    const handbook = resource({
+      name: "Company Handbook",
+      mimeType: "text/markdown",
+      read() {
+        return resourceResult({
+          content: "# Handbook",
+          mimeType: "text/markdown"
+        });
+      }
+    });
+    const reviewPrompt = prompt({
+      title: "Review Expense",
+      description: "Creates an expense review request.",
+      args: {
+        reportId: "Expense report id."
+      },
+      run({ reportId }: { reportId: string }) {
+        return `Review ${reportId}.`;
+      }
+    });
+    const server = createSidecarMcpServer({
+      tools: [],
+      resources: [{
+        uri: "sidecar://resources/company-handbook",
+        descriptor: createResourceDescriptor({
+          uri: "sidecar://resources/company-handbook",
+          name: "Company Handbook",
+          mimeType: "text/markdown"
+        }),
+        resource: handbook
+      }],
+      prompts: [{
+        prompt: reviewPrompt,
+        descriptor: createPromptDescriptor({
+          name: "review-expense",
+          title: "Review Expense",
+          description: "Creates an expense review request.",
+          args: {
+            reportId: "Expense report id."
+          }
+        })
+      }],
+      createContext: () => testContext()
+    });
+
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 1, method: "resources/list" })
+    ).resolves.toMatchObject({
+      result: {
+        resources: [{
+          uri: "sidecar://resources/company-handbook",
+          name: "Company Handbook",
+        }],
+      },
+    });
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "resources/read",
+        params: { uri: "sidecar://resources/company-handbook" },
+      })
+    ).resolves.toMatchObject({
+      result: {
+        contents: [{
+          uri: "sidecar://resources/company-handbook",
+          text: "# Handbook",
+        }],
+      },
+    });
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 3, method: "prompts/list" })
+    ).resolves.toMatchObject({
+      result: {
+        prompts: [{
+          name: "review-expense",
+          title: "Review Expense",
+        }],
+      },
+    });
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "prompts/get",
+        params: { name: "review-expense", arguments: { reportId: "exp_123" } },
+      })
+    ).resolves.toMatchObject({
+      result: {
+        messages: [{
+          role: "user",
+          content: {
+            type: "text",
+            text: "Review exp_123.",
+          },
+        }],
+      },
+    });
+  });
+
+  it("gates resource subscriptions on the server-level capability", async () => {
+    const disabled = createSidecarMcpServer({
+      tools: [],
+      resources: [{
+        uri: "sidecar://resources/demo",
+        name: "Demo",
+        text: "demo",
+      }],
+    });
+    const enabled = createSidecarMcpServer({
+      tools: [],
+      resources: [{
+        uri: "sidecar://resources/demo",
+        name: "Demo",
+        text: "demo",
+      }],
+      capabilities: {
+        resources: {
+          subscribe: true,
+        },
+      },
+    });
+
+    await expect(
+      disabled.handle({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "resources/subscribe",
+        params: { uri: "sidecar://resources/demo" },
+      })
+    ).resolves.toMatchObject({
+      error: {
+        code: -32601,
+      },
+    });
+    await expect(
+      enabled.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "resources/subscribe",
+        params: { uri: "sidecar://resources/demo" },
+      })
+    ).resolves.toMatchObject({
+      result: {},
+    });
+  });
+
+
+  it("paginates the four MCP list operations with opaque cursors", async () => {
+    const tools = Array.from({ length: 3 }, (_value, index) =>
+      tool({
+        name: `Tool ${index + 1}`,
+        description: "Use this when testing pagination.",
+        execute() {
+          return toolResult({
+            structuredContent: { index },
+            content: String(index)
+          });
+        }
+      })
+    );
+    const resources = Array.from({ length: 3 }, (_value, index) => ({
+      uri: `sidecar://resources/item-${index + 1}`,
+      name: `Item ${index + 1}`,
+      mimeType: "text/plain",
+      text: `item ${index + 1}`
+    }));
+    const prompts = Array.from({ length: 3 }, (_value, index) => ({
+      prompt: prompt({
+        title: `Prompt ${index + 1}`,
+        run() {
+          return `Prompt ${index + 1}`;
+        }
+      }),
+      descriptor: createPromptDescriptor({
+        name: `prompt-${index + 1}`,
+        title: `Prompt ${index + 1}`
+      })
+    }));
+    const server = createSidecarMcpServer({
+      tools: tools.map((entry) => ({ tool: entry })),
+      resources,
+      resourceTemplates: [
+        { descriptor: { uriTemplate: "sidecar://resources/{id}", name: "Dynamic Resource" } },
+        { descriptor: { uriTemplate: "sidecar://reports/{id}", name: "Dynamic Report" } },
+        { descriptor: { uriTemplate: "sidecar://files/{id}", name: "Dynamic File" } },
+      ],
+      prompts,
+      pagination: {
+        pageSize: 2,
+      },
+    });
+
+    const toolsFirst = await server.handle({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(toolsFirst).toMatchObject({
+      result: {
+        tools: [{ name: "tool_1" }, { name: "tool_2" }],
+        nextCursor: expect.any(String),
+      },
+    });
+    const toolsCursor = (toolsFirst as { result: { nextCursor: string } }).result.nextCursor;
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+        params: { cursor: toolsCursor },
+      })
+    ).resolves.toMatchObject({
+      result: {
+        tools: [{ name: "tool_3" }],
+      },
+    });
+
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 3, method: "resources/list" })
+    ).resolves.toMatchObject({
+      result: {
+        resources: [
+          { uri: "sidecar://resources/item-1" },
+          { uri: "sidecar://resources/item-2" },
+        ],
+        nextCursor: expect.any(String),
+      },
+    });
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 4, method: "resources/templates/list" })
+    ).resolves.toMatchObject({
+      result: {
+        resourceTemplates: [
+          { uriTemplate: "sidecar://resources/{id}" },
+          { uriTemplate: "sidecar://reports/{id}" },
+        ],
+        nextCursor: expect.any(String),
+      },
+    });
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 5, method: "prompts/list" })
+    ).resolves.toMatchObject({
+      result: {
+        prompts: [
+          { name: "prompt-1" },
+          { name: "prompt-2" },
+        ],
+        nextCursor: expect.any(String),
+      },
+    });
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 6,
+        method: "tools/list",
+        params: { cursor: "not-a-valid-cursor" },
+      })
+    ).resolves.toMatchObject({
+      error: {
+        code: -32602,
+      },
+    });
+  });
+
+  it("supports global and operation-specific pagination overrides", async () => {
+    const server = createSidecarMcpServer({
+      tools: [
+        { tool: tool({ name: "Hidden", description: "Use this when hidden.", execute: () => toolResult({ structuredContent: {}, content: "hidden" }) }) },
+        { tool: tool({ name: "Visible", description: "Use this when visible.", execute: () => toolResult({ structuredContent: {}, content: "visible" }) }) },
+      ],
+      prompts: [
+        {
+          prompt: prompt({ title: "Only Prompt", run: () => "Only prompt." }),
+          descriptor: { name: "only-prompt", title: "Only Prompt" }
+        }
+      ],
+      pagination: {
+        pageSize: 10,
+        override: {
+          default({ items }) {
+            return { items: items.slice(0, 1) };
+          },
+          toolsList({ items }) {
+            return { items: items.slice(1) };
+          }
+        }
+      }
+    });
+
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+    ).resolves.toMatchObject({
+      result: {
+        tools: [{ name: "visible" }],
+      }
+    });
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 2, method: "prompts/list" })
+    ).resolves.toMatchObject({
+      result: {
+        prompts: [{ name: "only-prompt" }],
       }
     });
   });

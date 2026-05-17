@@ -11,18 +11,19 @@ export async function writeGeneratedTypes(
 ): Promise<void> {
   const generatedDir = path.join(rootDir, ".sidecar", "generated");
   await mkdir(generatedDir, { recursive: true });
-  const methodNames = uniqueMethodNames(tools.map((entry) => toIdentifier(entry.id)));
+  const appCallableTools = tools.filter(isAppCallable);
+  const methodNames = uniqueMethodNames(appCallableTools.map((entry) => toIdentifier(entry.id)));
 
-  const imports = tools
+  const imports = appCallableTools
     .map(
       (entry, index) =>
         `import type tool${index} from ${JSON.stringify(toImportSpecifier(generatedDir, path.join(rootDir, entry.sourceFile), { extension: "js" }))};`,
     )
     .join("\n");
-  const ids = tools
+  const ids = appCallableTools
     .map((entry, index) => `  ${methodNames[index]}: ${JSON.stringify(entry.id)}`)
     .join(",\n");
-  const toolTypes = tools
+  const toolTypes = appCallableTools
     .map(
       (entry, index) =>
         `  ${methodNames[index]}(params: ToolParams<typeof tool${index}>): Promise<ToolOutput<typeof tool${index}>>;`,
@@ -60,6 +61,17 @@ ${toolTypes}
 export const tools = createToolClient<WidgetTools>(toolIds);
 `,
   );
+}
+
+/** Returns true when MCP Apps metadata allows widgets to call the tool. */
+function isAppCallable(entry: SidecarToolManifestEntry): boolean {
+  const ui = entry.descriptor._meta?.ui;
+  if (!ui || typeof ui !== "object" || Array.isArray(ui)) {
+    return true;
+  }
+
+  const visibility = (ui as { visibility?: unknown }).visibility;
+  return !Array.isArray(visibility) || visibility.includes("app");
 }
 
 /** Ensures generated widget method names cannot silently collide. */

@@ -9,21 +9,41 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID } from "node:crypto";
 import { runProxy, type SidecarProxy } from "./proxy.js";
 import type { SidecarAuth } from "@sidecar/auth";
+import { JSONRPC_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
 import {
   createToolDescriptor,
+  executePrompt,
+  executeResource,
   executeTool,
-  type JsonSchema,
+  SidecarRuntimeError,
   type JsonObject,
+  type JsonSchema,
+  type McpListOperation,
+  type McpPromptDescriptor,
+  type McpPromptResult,
+  type McpResourceDescriptor,
+  type McpResourceReadResult,
+  type McpResourceTemplateDescriptor,
   type McpToolDescriptor,
   type McpToolResult,
+  type PaginationConfig,
+  type PaginationOverride,
+  type PaginationResult,
+  type PromptContext,
+  type ResourceCapabilityConfig,
+  type ResourceContext,
+  type SidecarPrompt,
+  type SidecarResource,
   type SidecarTool,
+  type ToolCapabilityConfig,
   type ToolContext
 } from "@sidecar/core";
 
 /** JSON-RPC request shape accepted by the MCP runtime. */
 export type JsonRpcRequest = {
-  jsonrpc: "2.0";
-  id?: string | number | null;
+  jsonrpc: typeof JSONRPC_VERSION;
+  id?: RequestId | null;
   method: string;
   params?: unknown;
 };
@@ -31,13 +51,13 @@ export type JsonRpcRequest = {
 /** JSON-RPC response shape returned by the MCP runtime. */
 export type JsonRpcResponse =
   | {
-      jsonrpc: "2.0";
-      id: string | number | null;
+      jsonrpc: typeof JSONRPC_VERSION;
+      id: RequestId | null;
       result: unknown;
     }
   | {
-      jsonrpc: "2.0";
-      id: string | number | null;
+      jsonrpc: typeof JSONRPC_VERSION;
+      id: RequestId | null;
       error: {
         code: number;
         message: string;
@@ -46,6 +66,9 @@ export type JsonRpcResponse =
     };
 
 type JsonRpcErrorPayload = Extract<JsonRpcResponse, { error: unknown }>["error"];
+
+/** MCP protocol version Sidecar currently speaks over Streamable HTTP. */
+export const SIDECAR_MCP_PROTOCOL_VERSION = "2025-11-25";
 
 /** Runtime tool plus an optional precomputed descriptor from the compiler. */
 export type LoadedTool = {
@@ -58,12 +81,35 @@ type RegisteredTool = LoadedTool & {
   descriptorProvided: boolean;
 };
 
+type RegisteredResource = LoadedResource & {
+  descriptor: McpResourceDescriptor;
+};
+
+type RegisteredPrompt = LoadedPrompt & {
+  descriptor: McpPromptDescriptor;
+};
+
 /** HTML/text resource served to MCP Apps clients. */
 export type LoadedResource = {
   uri: string;
   name?: string;
-  mimeType: string;
-  text: string;
+  description?: string;
+  mimeType?: string;
+  text?: string;
+  _meta?: Record<string, unknown>;
+  resource?: SidecarResource;
+  descriptor?: McpResourceDescriptor;
+};
+
+/** Runtime prompt plus an optional precomputed descriptor from the compiler. */
+export type LoadedPrompt = {
+  prompt: SidecarPrompt<any, any, any>;
+  descriptor?: McpPromptDescriptor;
+};
+
+/** Optional resource template descriptor exposed by `resources/templates/list`. */
+export type LoadedResourceTemplate = {
+  descriptor: McpResourceTemplateDescriptor;
 };
 
 /** Options for the in-memory MCP request dispatcher. */
@@ -72,12 +118,20 @@ export type SidecarMcpServerOptions = {
   version?: string;
   tools: LoadedTool[];
   resources?: LoadedResource[];
+  resourceTemplates?: LoadedResourceTemplate[];
+  prompts?: LoadedPrompt[];
   auth?: SidecarAuth;
   createContext?: (request: JsonRpcRequest) => ToolContext | Promise<ToolContext>;
   maxBodyBytes?: number;
   toolTimeoutMs?: number;
   allowedOrigins?: string[];
   publicUrl?: string;
+  capabilities?: {
+    tools?: ToolCapabilityConfig;
+    resources?: ResourceCapabilityConfig;
+    prompts?: { listChanged?: boolean };
+  };
+  pagination?: PaginationConfig;
 };
 
 /** Additional request context supplied by HTTP adapters. */
@@ -89,7 +143,9 @@ export type SidecarHandleContext = {
 /** JSON-RPC MCP dispatcher for Sidecar tools and resources. */
 export class SidecarMcpServer {
   private readonly tools = new Map<string, RegisteredTool>();
-  private readonly resources = new Map<string, LoadedResource>();
+  private readonly resources = new Map<string, RegisteredResource>();
+  private readonly prompts = new Map<string, RegisteredPrompt>();
+  private readonly resourceTemplates: LoadedResourceTemplate[];
 
   constructor(private readonly options: SidecarMcpServerOptions) {
     for (const loaded of options.tools) {
@@ -105,13 +161,44 @@ export class SidecarMcpServer {
       if (this.resources.has(resource.uri)) {
         throw new Error(`Duplicate Sidecar resource uri "${resource.uri}".`);
       }
-      this.resources.set(resource.uri, resource);
+      const descriptor = resource.descriptor ?? {
+        uri: resource.uri,
+        name: resource.name ?? resource.uri,
+        description: resource.description,
+        mimeType: resource.mimeType,
+        _meta: resource._meta,
+      };
+      this.resources.set(resource.uri, { ...resource, descriptor });
     }
+
+    for (const loaded of options.prompts ?? []) {
+      const descriptor = loaded.descriptor ?? {
+        name: loaded.prompt.name ?? loaded.prompt.title,
+        title: loaded.prompt.title,
+        description: loaded.prompt.description,
+      };
+      if (this.prompts.has(descriptor.name)) {
+        throw new Error(`Duplicate Sidecar prompt name "${descriptor.name}".`);
+      }
+      this.prompts.set(descriptor.name, { ...loaded, descriptor });
+    }
+
+    this.resourceTemplates = options.resourceTemplates ?? [];
   }
 
   /** Returns all tool descriptors exposed through `tools/list`. */
   descriptors(): McpToolDescriptor[] {
     return [...this.tools.values()].map((loaded) => loaded.descriptor);
+  }
+
+  /** Returns all resource descriptors exposed through `resources/list`. */
+  resourceDescriptors(): McpResourceDescriptor[] {
+    return [...this.resources.values()].map((loaded) => loaded.descriptor);
+  }
+
+  /** Returns all prompt descriptors exposed through `prompts/list`. */
+  promptDescriptors(): McpPromptDescriptor[] {
+    return [...this.prompts.values()].map((loaded) => loaded.descriptor);
   }
 
   /** Handles a JSON-RPC request or notification. */
@@ -130,13 +217,13 @@ export class SidecarMcpServer {
       const authorizedContext = { ...context, authSession };
       const result = await this.dispatch(request, authorizedContext);
       return {
-        jsonrpc: "2.0",
+        jsonrpc: JSONRPC_VERSION,
         id: request.id,
         result
       };
     } catch (error) {
       return {
-        jsonrpc: "2.0",
+        jsonrpc: JSONRPC_VERSION,
         id: request.id,
         error: normalizeError(error)
       };
@@ -151,15 +238,8 @@ export class SidecarMcpServer {
     switch (request.method) {
       case "initialize":
         return {
-          protocolVersion: "2025-11-25",
-          capabilities: {
-            tools: {
-              listChanged: false
-            },
-            resources: {
-              listChanged: false
-            }
-          },
+          protocolVersion: SIDECAR_MCP_PROTOCOL_VERSION,
+          capabilities: this.capabilities(),
           serverInfo: {
             name: this.options.name ?? "sidecar",
             version: this.options.version ?? "0.0.0-dev"
@@ -167,28 +247,136 @@ export class SidecarMcpServer {
         };
 
       case "tools/list":
-        return {
-          tools: this.descriptors()
-        };
+        return this.listTools(request, context);
 
       case "tools/call":
         return this.callTool(request, context);
 
       case "resources/list":
-        return {
-          resources: [...this.resources.values()].map((resource) => ({
-            uri: resource.uri,
-            name: resource.name ?? resource.uri,
-            mimeType: resource.mimeType
-          }))
-        };
+        return this.listResources(request, context);
 
       case "resources/read":
-        return this.readResource(request);
+        return this.readResource(request, context);
+
+      case "resources/templates/list":
+        return this.listResourceTemplates(request, context);
+
+      case "resources/subscribe":
+        return this.subscribeResource(request);
+
+      case "resources/unsubscribe":
+        return this.unsubscribeResource(request);
+
+      case "prompts/list":
+        return this.listPrompts(request, context);
+
+      case "prompts/get":
+        return this.getPrompt(request, context);
 
       default:
         throw new JsonRpcError(-32601, `Unsupported method "${request.method}".`);
     }
+  }
+
+  /** Builds the MCP server capability object from implemented runtime features. */
+  private capabilities(): Record<string, unknown> {
+    const configured = this.options.capabilities ?? {};
+    return stripUndefined({
+      tools: stripUndefined({
+        listChanged: configured.tools?.listChanged || undefined,
+      }),
+      resources: stripUndefined({
+        subscribe: configured.resources?.subscribe || undefined,
+        listChanged: configured.resources?.listChanged || undefined,
+      }),
+      prompts: this.prompts.size || configured.prompts?.listChanged
+        ? stripUndefined({
+            listChanged: configured.prompts?.listChanged || undefined,
+          })
+        : undefined,
+    });
+  }
+
+  /** Lists tools with MCP cursor pagination. */
+  private async listTools(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<{ tools: McpToolDescriptor[]; nextCursor?: string }> {
+    const page = await this.paginate("tools/list", this.descriptors(), request, context);
+    return stripUndefined({
+      tools: [...page.items],
+      nextCursor: page.nextCursor,
+    });
+  }
+
+  /** Lists resources with MCP cursor pagination. */
+  private async listResources(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<{ resources: McpResourceDescriptor[]; nextCursor?: string }> {
+    const page = await this.paginate("resources/list", this.resourceDescriptors(), request, context);
+    return stripUndefined({
+      resources: [...page.items],
+      nextCursor: page.nextCursor,
+    });
+  }
+
+  /** Lists resource templates with MCP cursor pagination. */
+  private async listResourceTemplates(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<{ resourceTemplates: McpResourceTemplateDescriptor[]; nextCursor?: string }> {
+    const page = await this.paginate(
+      "resources/templates/list",
+      this.resourceTemplates.map((entry) => entry.descriptor),
+      request,
+      context,
+    );
+    return stripUndefined({
+      resourceTemplates: [...page.items],
+      nextCursor: page.nextCursor,
+    });
+  }
+
+  /** Lists prompts with MCP cursor pagination. */
+  private async listPrompts(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<{ prompts: McpPromptDescriptor[]; nextCursor?: string }> {
+    const page = await this.paginate("prompts/list", this.promptDescriptors(), request, context);
+    return stripUndefined({
+      prompts: [...page.items],
+      nextCursor: page.nextCursor,
+    });
+  }
+
+  /** Applies configured or default cursor pagination to one supported list operation. */
+  private async paginate<Item>(
+    operation: McpListOperation,
+    items: readonly Item[],
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<PaginationResult<Item>> {
+    const cursor = readCursorParam(request);
+    const pageSize = this.pageSize();
+    const override = selectPaginationOverride<Item>(this.options.pagination?.override, operation);
+    if (override) {
+      return override({
+        operation,
+        items,
+        cursor,
+        pageSize,
+        auth: context.authSession,
+      });
+    }
+
+    return defaultPagination(items, cursor, pageSize);
+  }
+
+  /** Returns the server-chosen page size for all built-in list pagination. */
+  private pageSize(): number {
+    const configured = this.options.pagination?.pageSize;
+    return configured && configured > 0 ? Math.floor(configured) : 10;
   }
 
   /** Executes a tool after request-level and tool-level auth checks. */
@@ -288,8 +476,11 @@ export class SidecarMcpServer {
     return toolAuth.auth;
   }
 
-  /** Reads a generated widget/resource by URI. */
-  private readResource(request: JsonRpcRequest): { contents: Array<{ uri: string; mimeType: string; text: string }> } {
+  /** Reads a generated widget or authored resource by URI. */
+  private async readResource(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<McpResourceReadResult> {
     const params = request.params as { uri?: unknown } | undefined;
     const uri = typeof params?.uri === "string" ? params.uri : undefined;
     if (!uri) {
@@ -298,18 +489,80 @@ export class SidecarMcpServer {
 
     const resource = this.resources.get(uri);
     if (!resource) {
-      throw new JsonRpcError(-32602, `Unknown resource "${uri}".`);
+      throw new JsonRpcError(-32002, `Resource not found: "${uri}".`, { uri });
+    }
+
+    if (resource.resource) {
+      const toolContext = this.options.createContext
+        ? await this.options.createContext(request)
+        : createDefaultContext(request);
+      if (context.authSession !== undefined) {
+        toolContext.auth = context.authSession;
+      }
+      return executeResource(resource.resource, toResourceContext(toolContext), {
+        uri,
+        mimeType: resource.descriptor.mimeType,
+      });
     }
 
     return {
       contents: [
         {
-          uri: resource.uri,
-          mimeType: resource.mimeType,
-          text: resource.text
+          uri,
+          mimeType: resource.mimeType ?? "text/plain",
+          text: resource.text ?? "",
+          _meta: resource._meta
         }
       ]
     };
+  }
+
+  /** Accepts a resource subscription when server-level support is enabled. */
+  private subscribeResource(request: JsonRpcRequest): Record<string, never> {
+    if (!this.options.capabilities?.resources?.subscribe) {
+      throw new JsonRpcError(-32601, "Resource subscriptions are not enabled.");
+    }
+    const uri = readUriParam(request, "resources/subscribe");
+    if (!this.resources.has(uri)) {
+      throw new JsonRpcError(-32002, `Resource not found: "${uri}".`, { uri });
+    }
+    return {};
+  }
+
+  /** Accepts a resource unsubscription when server-level support is enabled. */
+  private unsubscribeResource(request: JsonRpcRequest): Record<string, never> {
+    if (!this.options.capabilities?.resources?.subscribe) {
+      throw new JsonRpcError(-32601, "Resource subscriptions are not enabled.");
+    }
+    const uri = readUriParam(request, "resources/unsubscribe");
+    if (!this.resources.has(uri)) {
+      throw new JsonRpcError(-32002, `Resource not found: "${uri}".`, { uri });
+    }
+    return {};
+  }
+
+  /** Renders one named prompt with validated arguments. */
+  private async getPrompt(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<McpPromptResult> {
+    const params = request.params as { name?: unknown; arguments?: unknown } | undefined;
+    const name = typeof params?.name === "string" ? params.name : undefined;
+    if (!name) {
+      throw new JsonRpcError(-32602, "prompts/get requires params.name.");
+    }
+    const loaded = this.prompts.get(name);
+    if (!loaded) {
+      throw new JsonRpcError(-32602, `Unknown prompt "${name}".`);
+    }
+
+    const toolContext = this.options.createContext
+      ? await this.options.createContext(request)
+      : createDefaultContext(request);
+    if (context.authSession !== undefined) {
+      toolContext.auth = context.authSession;
+    }
+    return executePrompt(loaded.prompt, params?.arguments ?? {}, toPromptContext(toolContext));
   }
 
   /** Accepts notifications without side effects for client compatibility. */
@@ -413,7 +666,7 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
       response.writeHead(status, { "content-type": "application/json" });
       response.end(
         JSON.stringify({
-          jsonrpc: "2.0",
+          jsonrpc: JSONRPC_VERSION,
           id: null,
           error: normalizeHttpError(error)
         })
@@ -529,7 +782,7 @@ async function authorizeHttpRequest(
   });
   response.end(
     JSON.stringify({
-      jsonrpc: "2.0",
+      jsonrpc: JSONRPC_VERSION,
       id: null,
       error: {
         code: result.status === 401 ? -32001 : -32003,
@@ -579,6 +832,120 @@ function createDefaultContext(request: JsonRpcRequest): ToolContext {
   };
 }
 
+/** Narrows the full tool context into the resource context shape. */
+function toResourceContext(ctx: ToolContext): ResourceContext {
+  return {
+    auth: ctx.auth,
+    request: ctx.request,
+    services: ctx.services,
+    log: ctx.log,
+    storage: ctx.storage,
+    env: ctx.env,
+  };
+}
+
+/** Narrows the full tool context into the prompt context shape. */
+function toPromptContext(ctx: ToolContext): PromptContext {
+  return {
+    auth: ctx.auth,
+    request: ctx.request,
+    services: ctx.services,
+    log: ctx.log,
+    storage: ctx.storage,
+    env: ctx.env,
+  };
+}
+
+/** Reads a pagination cursor from request params. */
+function readCursorParam(request: JsonRpcRequest): string | undefined {
+  const params = request.params as { cursor?: unknown } | undefined;
+  if (params?.cursor === undefined) {
+    return undefined;
+  }
+  if (typeof params.cursor !== "string" || !params.cursor) {
+    throw new JsonRpcError(-32602, "Pagination cursor must be a non-empty string.");
+  }
+  return params.cursor;
+}
+
+/** Reads a required resource URI from request params. */
+function readUriParam(request: JsonRpcRequest, method: string): string {
+  const params = request.params as { uri?: unknown } | undefined;
+  const uri = typeof params?.uri === "string" ? params.uri : undefined;
+  if (!uri) {
+    throw new JsonRpcError(-32602, `${method} requires params.uri.`);
+  }
+  return uri;
+}
+
+/** Selects a global or operation-specific pagination override. */
+function selectPaginationOverride<Item>(
+  override: PaginationConfig["override"] | undefined,
+  operation: McpListOperation,
+): PaginationOverride<Item> | undefined {
+  if (!override) {
+    return undefined;
+  }
+  if (typeof override === "function") {
+    return override as PaginationOverride<Item>;
+  }
+
+  const key = operationToPaginationKey(operation);
+  return (override[key] ?? override.default) as PaginationOverride<Item> | undefined;
+}
+
+/** Maps MCP method names to typed config keys. */
+function operationToPaginationKey(
+  operation: McpListOperation,
+): "toolsList" | "resourcesList" | "resourceTemplatesList" | "promptsList" {
+  switch (operation) {
+    case "tools/list":
+      return "toolsList";
+    case "resources/list":
+      return "resourcesList";
+    case "resources/templates/list":
+      return "resourceTemplatesList";
+    case "prompts/list":
+      return "promptsList";
+  }
+}
+
+/** Default opaque-cursor pagination over an in-memory list. */
+function defaultPagination<Item>(
+  items: readonly Item[],
+  cursor: string | undefined,
+  pageSize: number,
+): PaginationResult<Item> {
+  const offset = cursor ? decodeCursor(cursor) : 0;
+  const page = items.slice(offset, offset + pageSize);
+  const nextOffset = offset + page.length;
+  return {
+    items: page,
+    nextCursor: nextOffset < items.length ? encodeCursor(nextOffset) : undefined,
+  };
+}
+
+/** Encodes a list offset as an opaque base64url cursor. */
+function encodeCursor(offset: number): string {
+  return Buffer.from(JSON.stringify({ offset }), "utf8").toString("base64url");
+}
+
+/** Decodes and validates Sidecar's default opaque cursor. */
+function decodeCursor(cursor: string): number {
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
+      offset?: unknown;
+    };
+    const offset = decoded.offset;
+    if (!Number.isInteger(offset) || typeof offset !== "number" || offset < 0) {
+      throw new Error("invalid offset");
+    }
+    return offset;
+  } catch {
+    throw new JsonRpcError(-32602, "Invalid pagination cursor.");
+  }
+}
+
 /** Converts auth challenges into JSON-RPC errors while preserving HTTP metadata. */
 function authJsonRpcError(result: Exclude<Awaited<ReturnType<SidecarAuth["authorizeRequest"]>>, { ok: true }>): JsonRpcError {
   return new JsonRpcError(
@@ -600,7 +967,7 @@ function validateProtocolVersion(request: IncomingMessage): void {
     return;
   }
 
-  const supported = new Set(["2025-11-25"]);
+  const supported = new Set([SIDECAR_MCP_PROTOCOL_VERSION]);
   if (!supported.has(version)) {
     throw new JsonRpcHttpError(
       400,
@@ -795,6 +1162,13 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return record;
 }
 
+/** Drops undefined values from JSON-like objects before returning protocol payloads. */
+function stripUndefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as T;
+}
+
 /** Extracts HTTP auth status/headers from a JSON-RPC auth error response. */
 function httpAuthError(value: unknown): { status: number; headers: Record<string, string> } | undefined {
   if (!value || typeof value !== "object" || !("error" in value)) {
@@ -881,7 +1255,7 @@ function assertJsonRpcRequest(value: unknown): JsonRpcRequest {
   }
 
   const record = value as Record<string, unknown>;
-  if (record.jsonrpc !== "2.0" || typeof record.method !== "string") {
+  if (record.jsonrpc !== JSONRPC_VERSION || typeof record.method !== "string") {
     throw new JsonRpcError(-32600, "Invalid JSON-RPC request.");
   }
   if (
@@ -895,7 +1269,7 @@ function assertJsonRpcRequest(value: unknown): JsonRpcRequest {
   }
 
   return {
-    jsonrpc: "2.0",
+    jsonrpc: JSONRPC_VERSION,
     id: typeof record.id === "string" || typeof record.id === "number" || record.id === null ? record.id : undefined,
     method: record.method,
     params: record.params
@@ -909,7 +1283,7 @@ function isJsonRpcResponseMessage(value: unknown): boolean {
   }
 
   const record = value as Record<string, unknown>;
-  if (record.jsonrpc !== "2.0" || !("id" in record) || !("result" in record || "error" in record)) {
+  if (record.jsonrpc !== JSONRPC_VERSION || !("id" in record) || !("result" in record || "error" in record)) {
     return false;
   }
 
@@ -927,6 +1301,12 @@ function normalizeError(error: unknown): JsonRpcErrorPayload {
       code: error.code,
       message: error.message,
       data: error.data
+    };
+  }
+  if (error instanceof SidecarRuntimeError && error.code === "invalid_pagination_cursor") {
+    return {
+      code: -32602,
+      message: error.message,
     };
   }
 

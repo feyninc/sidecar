@@ -92,6 +92,7 @@ createRoot(document.getElementById("root")!).render(
     await writeFile(outputFile, html);
 
     entry.widget.resourceUri = resourceUri;
+    entry.widget.resourceMeta = widgetResourceMeta(entry.widget.options, entry.target);
     entry.widget.outputFile = path.relative(outDir, outputFile);
     entry.descriptor._meta = mergeWidgetMeta(entry.descriptor._meta, widgetMeta(resourceUri, entry.widget.options, entry.target));
   }
@@ -211,31 +212,30 @@ export function readWidgetOptions(
   const description = readStringProperty(definition, "description");
   const prefersBorder = readBooleanProperty(definition, "prefersBorder");
   const csp = readWidgetCsp(definition);
+  const permissions = readWidgetPermissions(definition);
   const chatgpt = readChatGptWidgetOptions(definition);
+  const domain = readStringProperty(definition, "domain");
 
   if (description) options.description = description;
   if (prefersBorder !== undefined) options.prefersBorder = prefersBorder;
+  if (domain) options.domain = domain;
   if (csp) options.csp = csp;
+  if (permissions) options.permissions = permissions;
   if (chatgpt) options.hosts = { chatgpt };
 
   return Object.keys(options).length ? options : undefined;
 }
 
-/** Builds standard and ChatGPT-compatible widget metadata for a descriptor. */
+/** Builds standard tool-to-widget and ChatGPT-compatible metadata for a descriptor. */
 export function widgetMeta(
   resourceUri: string,
   options: ToolWidgetOptions = {},
   target: SidecarTarget = "mcp",
 ): Record<string, unknown> {
-  const csp = {
-    connectDomains: options.csp?.connectDomains ? [...options.csp.connectDomains] : [],
-    resourceDomains: options.csp?.resourceDomains ? [...options.csp.resourceDomains] : [],
-    frameDomains: options.csp?.frameDomains ? [...options.csp.frameDomains] : undefined,
-  };
   const chatgptCsp = {
-    connect_domains: csp.connectDomains,
-    resource_domains: csp.resourceDomains,
-    frame_domains: csp.frameDomains,
+    connect_domains: options.csp?.connectDomains ? [...options.csp.connectDomains] : [],
+    resource_domains: options.csp?.resourceDomains ? [...options.csp.resourceDomains] : [],
+    frame_domains: options.csp?.frameDomains ? [...options.csp.frameDomains] : undefined,
     redirect_domains: options.hosts?.chatgpt?.redirectDomains
       ? [...options.hosts.chatgpt.redirectDomains]
       : undefined,
@@ -244,8 +244,6 @@ export function widgetMeta(
   const standard = {
     ui: {
       resourceUri,
-      prefersBorder: options.prefersBorder,
-      csp: stripUndefined(csp),
     },
   };
 
@@ -260,6 +258,28 @@ export function widgetMeta(
     "openai/widgetDomain": options.hosts?.chatgpt?.domain,
     "openai/widgetCSP": stripUndefined(chatgptCsp),
   };
+}
+
+/** Builds MCP Apps metadata for the `ui://` resource content. */
+export function widgetResourceMeta(
+  options: ToolWidgetOptions = {},
+  target: SidecarTarget = "mcp",
+): Record<string, unknown> | undefined {
+  const csp = stripUndefined({
+    connectDomains: options.csp?.connectDomains ? [...options.csp.connectDomains] : [],
+    resourceDomains: options.csp?.resourceDomains ? [...options.csp.resourceDomains] : [],
+    frameDomains: options.csp?.frameDomains ? [...options.csp.frameDomains] : undefined,
+    baseUriDomains: options.csp?.baseUriDomains ? [...options.csp.baseUriDomains] : undefined,
+  });
+  const permissions = widgetPermissionsMeta(options);
+  const ui = stripUndefined({
+    csp,
+    permissions,
+    domain: options.domain ?? (target === "chatgpt" ? options.hosts?.chatgpt?.domain : undefined),
+    prefersBorder: options.prefersBorder,
+  });
+
+  return Object.keys(ui).length ? { ui } : undefined;
 }
 
 /** Locates the default-exported widget helper call when a widget uses one. */
@@ -295,8 +315,43 @@ function readWidgetCsp(
     connectDomains: readStringArrayProperty(initializer, "connectDomains"),
     resourceDomains: readStringArrayProperty(initializer, "resourceDomains"),
     frameDomains: readStringArrayProperty(initializer, "frameDomains"),
+    baseUriDomains: readStringArrayProperty(initializer, "baseUriDomains"),
   };
   return stripUndefined(csp);
+}
+
+/** Reads standard MCP Apps permission requests. */
+function readWidgetPermissions(
+  definition: ObjectLiteralExpression,
+): ToolWidgetOptions["permissions"] | undefined {
+  const initializer = readObjectProperty(definition, "permissions");
+  if (!initializer) {
+    return undefined;
+  }
+
+  const permissions = {
+    camera: readBooleanProperty(initializer, "camera"),
+    microphone: readBooleanProperty(initializer, "microphone"),
+    geolocation: readBooleanProperty(initializer, "geolocation"),
+    clipboardWrite: readBooleanProperty(initializer, "clipboardWrite"),
+  };
+  return stripUndefined(permissions);
+}
+
+/** Converts boolean permission flags into the standard empty-object shape. */
+function widgetPermissionsMeta(options: ToolWidgetOptions): Record<string, unknown> | undefined {
+  const permissions = options.permissions;
+  if (!permissions) {
+    return undefined;
+  }
+
+  const meta = stripUndefined({
+    camera: permissions.camera ? {} : undefined,
+    microphone: permissions.microphone ? {} : undefined,
+    geolocation: permissions.geolocation ? {} : undefined,
+    clipboardWrite: permissions.clipboardWrite ? {} : undefined,
+  });
+  return Object.keys(meta).length ? meta : undefined;
 }
 
 /** Reads ChatGPT-only widget compatibility options. */

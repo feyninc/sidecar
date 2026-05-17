@@ -75,6 +75,11 @@ export default defineConfig({
     "@tailwindcss/oxide",
     "@sidecar/native",
     "@sidecar/native/components",
+    "@sidecar/client",
+    "@modelcontextprotocol/sdk",
+    "@modelcontextprotocol/sdk/types.js",
+    "@modelcontextprotocol/ext-apps",
+    "@modelcontextprotocol/ext-apps/app-with-deps",
     "@openai/apps-sdk-ui/css",
     ...openAiComponentExternals
   ],

@@ -4,7 +4,12 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { JsonSchema } from "@sidecar/core";
-import type { SidecarToolManifestEntry } from "./types.js";
+import type {
+  SidecarCompilerConfig,
+  SidecarPromptManifestEntry,
+  SidecarResourceManifestEntry,
+  SidecarToolManifestEntry,
+} from "./types.js";
 
 /** Diagnostic severity surfaced by the CLI and future editor integrations. */
 export type DiagnosticSeverity = "warning" | "error";
@@ -23,9 +28,18 @@ export type SidecarDiagnostic = {
 /** Collects project-level warnings that do not block compilation by default. */
 export async function collectProjectDiagnostics(
   rootDir: string,
-  tools: SidecarToolManifestEntry[],
+  input: SidecarToolManifestEntry[] | {
+    tools: SidecarToolManifestEntry[];
+    resources?: SidecarResourceManifestEntry[];
+    prompts?: SidecarPromptManifestEntry[];
+    config?: SidecarCompilerConfig;
+  },
 ): Promise<SidecarDiagnostic[]> {
   const diagnostics: SidecarDiagnostic[] = [];
+  const tools = Array.isArray(input) ? input : input.tools;
+  const resources = Array.isArray(input) ? [] : input.resources ?? [];
+  const prompts = Array.isArray(input) ? [] : input.prompts ?? [];
+  const config = Array.isArray(input) ? undefined : input.config;
   const hasAuthConfig = existsSync(path.join(rootDir, "auth.ts"));
   const hasOpenAiAppsSdkUi = canResolveOpenAiAppsSdkUi(rootDir);
 
@@ -39,6 +53,22 @@ export async function collectProjectDiagnostics(
       const widgetSource = await readFile(widgetPath, "utf8");
       diagnostics.push(...diagnoseWidgetSource(rootDir, entry, widgetSource, hasOpenAiAppsSdkUi));
     }
+  }
+
+  for (const entry of resources) {
+    const resourcePath = path.join(rootDir, entry.sourceFile);
+    const resourceSource = await readFile(resourcePath, "utf8");
+    diagnostics.push(...diagnoseResourceSource(entry, resourceSource));
+  }
+
+  for (const entry of prompts) {
+    const promptPath = path.join(rootDir, entry.sourceFile);
+    const promptSource = await readFile(promptPath, "utf8");
+    diagnostics.push(...diagnosePromptSource(entry, promptSource));
+  }
+
+  if (config) {
+    diagnostics.push(...diagnoseCapabilities(config, resources));
   }
 
   return diagnostics;
@@ -163,7 +193,7 @@ function diagnoseWidgetSource(
       message: `Widget for "${entry.id}" reads window.openai directly.`,
       filePath: widgetFile,
       ...locate(source, "openai"),
-      hint: "Use @sidecar/native or @sidecar/client so ChatGPT-only capabilities degrade cleanly in Claude hosts.",
+      hint: "Use @sidecar/openai runtime helpers in ChatGPT-only widgets, or @sidecar/native/@sidecar/client for portable behavior.",
     });
   }
 
@@ -225,9 +255,75 @@ function diagnoseWidgetSource(
   return diagnostics.filter((diagnostic) => !isIgnored(source, diagnostic.code));
 }
 
+/** Emits warnings for one reserved `resource.ts` file. */
+function diagnoseResourceSource(
+  entry: SidecarResourceManifestEntry,
+  source: string,
+): SidecarDiagnostic[] {
+  const diagnostics: SidecarDiagnostic[] = [];
+  if (!returnsResourceResult(source) && !isIgnored(source, "SIDECAR_RESOURCE_RESULT_REQUIRED")) {
+    diagnostics.push({
+      severity: "warning",
+      code: "SIDECAR_RESOURCE_RESULT_REQUIRED",
+      message: `Resource "${entry.uri}" should return resourceResult(...) from read.`,
+      filePath: entry.sourceFile,
+      ...locate(source, "read"),
+      hint: "The runtime rejects plain objects so text/blob content maps cleanly to MCP resource contents.",
+    });
+  }
+  return diagnostics.filter((diagnostic) => !isIgnored(source, diagnostic.code));
+}
+
+/** Emits warnings for one reserved `prompt.ts` file. */
+function diagnosePromptSource(
+  entry: SidecarPromptManifestEntry,
+  source: string,
+): SidecarDiagnostic[] {
+  const diagnostics: SidecarDiagnostic[] = [];
+  if (!source.includes("run") && !isIgnored(source, "SIDECAR_PROMPT_RUN_REQUIRED")) {
+    diagnostics.push({
+      severity: "warning",
+      code: "SIDECAR_PROMPT_RUN_REQUIRED",
+      message: `Prompt "${entry.name}" should include a run method.`,
+      filePath: entry.sourceFile,
+      ...locate(source, "prompt({"),
+      hint: "Prompt run methods return a string for the common case or MCP prompt messages for advanced cases.",
+    });
+  }
+  return diagnostics.filter((diagnostic) => !isIgnored(source, diagnostic.code));
+}
+
+/** Emits build-time errors when config claims unsupported capability wiring. */
+function diagnoseCapabilities(
+  config: SidecarCompilerConfig,
+  resources: SidecarResourceManifestEntry[],
+): SidecarDiagnostic[] {
+  const diagnostics: SidecarDiagnostic[] = [];
+  if (!config.resources.subscribe && resources.some((entry) => entry.subscribe)) {
+    const entry = resources.find((resource) => resource.subscribe);
+    if (entry) {
+      diagnostics.push({
+        severity: "error",
+        code: "SIDECAR_RESOURCE_SUBSCRIBE_DISABLED",
+        message: `Resource "${entry.uri}" sets subscribe: true but sidecar.config.ts does not enable resources.subscribe.`,
+        filePath: entry.sourceFile,
+        line: 1,
+        column: 1,
+        hint: "Add resources: { subscribe: true } to sidecar.config.ts or remove subscribe: true from this resource.",
+      });
+    }
+  }
+  return diagnostics;
+}
+
 /** Returns true when the source visibly returns the standardized result helper. */
 function returnsToolResult(source: string): boolean {
   return /\breturn\s+toolResult(?:\.\w+)?\s*\(/.test(source);
+}
+
+/** Returns true when the source visibly returns the standardized resource helper. */
+function returnsResourceResult(source: string): boolean {
+  return /\breturn\s+resourceResult(?:\.\w+)?\s*\(/.test(source);
 }
 
 /** Finds required parameters without model-facing descriptions. */

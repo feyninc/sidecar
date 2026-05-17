@@ -4,5 +4,15 @@ import { defineConfig } from "@sidecar/core";
 export default defineConfig({
   name: "Simple Sidecar Example",
   version: "0.0.0-dev",
-  description: "A small Sidecar project used to exercise tool discovery."
+  description: "A small Sidecar project used to exercise tool discovery.",
+  resources: {
+    listChanged: false,
+    subscribe: false
+  },
+  prompts: {
+    listChanged: false
+  },
+  pagination: {
+    pageSize: 10
+  }
 });

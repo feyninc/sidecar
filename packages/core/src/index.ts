@@ -16,6 +16,9 @@ export type JsonObject = { [key: string]: JsonValue };
 /** Value that may be returned synchronously or asynchronously. */
 export type MaybePromise<T> = T | Promise<T>;
 
+/** MIME type required for HTML MCP Apps resources. */
+export const MCP_APP_RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
+
 /** Project-level metadata declared from `sidecar.config.ts`. */
 export type SidecarConfig = {
   /** Human-readable app/server name used in generated manifests. */
@@ -24,7 +27,112 @@ export type SidecarConfig = {
   version: string;
   /** Short app description used by hosts and generated install docs. */
   description: string;
+  /** Server-level MCP resource capabilities. */
+  resources?: ResourceCapabilityConfig;
+  /** Server-level MCP prompt capabilities. */
+  prompts?: PromptCapabilityConfig;
+  /** Server-level MCP tool capabilities. */
+  tools?: ToolCapabilityConfig;
+  /** Cursor pagination defaults for MCP list operations. */
+  pagination?: PaginationConfig;
 };
+
+/** MCP list operations that support cursor pagination. */
+export type McpListOperation =
+  | "tools/list"
+  | "resources/list"
+  | "resources/templates/list"
+  | "prompts/list";
+
+/** Configures server-level resource capabilities. */
+export type ResourceCapabilityConfig = {
+  /** Whether the runtime accepts `resources/subscribe` and `resources/unsubscribe`. */
+  subscribe?: boolean;
+  /** Whether the runtime may emit `notifications/resources/list_changed`. */
+  listChanged?: boolean;
+};
+
+/** Configures server-level prompt capabilities. */
+export type PromptCapabilityConfig = {
+  /** Whether the runtime may emit `notifications/prompts/list_changed`. */
+  listChanged?: boolean;
+};
+
+/** Configures server-level tool capabilities. */
+export type ToolCapabilityConfig = {
+  /** Whether the runtime may emit `notifications/tools/list_changed`. */
+  listChanged?: boolean;
+};
+
+/** Context passed to project-level pagination overrides. */
+export type PaginationContext<Auth = unknown> = {
+  operation: McpListOperation;
+  cursor?: string;
+  pageSize: number;
+  auth?: Auth;
+};
+
+/** Input accepted by a project-level pagination override. */
+export type PaginationOverrideInput<Item = unknown, Auth = unknown> =
+  PaginationContext<Auth> & {
+    items: readonly Item[];
+  };
+
+/** Result returned by a project-level pagination override. */
+export type PaginationResult<Item = unknown> = {
+  items: readonly Item[];
+  nextCursor?: string;
+};
+
+/** Custom pagination function used for one or more MCP list operations. */
+export type PaginationOverride<Item = unknown, Auth = unknown> = (
+  input: PaginationOverrideInput<Item, Auth>
+) => MaybePromise<PaginationResult<Item>>;
+
+/** Operation-specific pagination overrides. Specific keys win over `default`. */
+export type PaginationOverrideMap<Auth = unknown> = {
+  default?: PaginationOverride<unknown, Auth>;
+  toolsList?: PaginationOverride<unknown, Auth>;
+  resourcesList?: PaginationOverride<unknown, Auth>;
+  resourceTemplatesList?: PaginationOverride<unknown, Auth>;
+  promptsList?: PaginationOverride<unknown, Auth>;
+};
+
+/** Project-level cursor pagination config. */
+export type PaginationConfig<Auth = unknown> = {
+  /** Server-chosen page size. Clients must treat cursors as opaque and must not assume this value. */
+  pageSize?: number;
+  /** One override for all list operations, or specific overrides keyed by operation. */
+  override?: PaginationOverride<unknown, Auth> | PaginationOverrideMap<Auth>;
+};
+
+/** Options accepted by the built-in offset cursor pagination helper. */
+export type OffsetPaginationOptions<Item> = {
+  items: readonly Item[];
+  cursor?: string;
+  pageSize: number;
+};
+
+/**
+ * Paginates an in-memory list with opaque offset cursors.
+ *
+ * Use this inside `pagination.override` when you want Sidecar's standard
+ * cursor behavior after applying app-specific filtering or sorting.
+ */
+export function offsetPagination<Item>(
+  options: OffsetPaginationOptions<Item>,
+): PaginationResult<Item> {
+  const offset = options.cursor ? decodeOffsetCursor(options.cursor) : 0;
+  const pageSize = options.pageSize > 0 ? Math.floor(options.pageSize) : 10;
+  const page = options.items.slice(offset, offset + pageSize);
+  const nextOffset = offset + page.length;
+  return {
+    items: page,
+    nextCursor: nextOffset < options.items.length
+      ? encodeOffsetCursor(nextOffset)
+      : undefined,
+  };
+}
 
 /** MCP content block variants Sidecar currently normalizes. */
 export type McpContentBlock =
@@ -78,6 +186,242 @@ export type ToolAnnotations = {
   openWorldHint?: boolean;
 };
 
+/** Shared MCP annotations for resources, resource contents, and prompt content. */
+export type ResourceAnnotations = {
+  /** Intended audience for the annotated content. */
+  audience?: readonly ("user" | "assistant")[];
+  /** Relative importance from 0.0 to 1.0. */
+  priority?: number;
+  /** ISO 8601 timestamp describing when the content last changed. */
+  lastModified?: string | Date;
+};
+
+/** Icon metadata supported by MCP resources and prompts. */
+export type McpIcon = {
+  src: string;
+  mimeType?: string;
+  sizes?: readonly string[];
+};
+
+/** User-friendly input accepted by `resourceResult()`. */
+export type ResourceResultContentInput<
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  /** Text, JSON-compatible data, or bytes returned by the resource. */
+  content: string | JsonValue | Uint8Array | ArrayBuffer;
+  /** Optional MIME type. Sidecar infers a conservative value when omitted. */
+  mimeType?: string;
+  /** Optional MCP annotations for this returned content block. */
+  annotations?: ResourceAnnotations;
+  /** Optional host/client-only metadata emitted as MCP `_meta`. */
+  meta?: Meta;
+};
+
+/** Options accepted by `resourceResult()`. */
+export type ResourceResultInput<
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+> = ResourceResultContentInput<Meta> | readonly ResourceResultContentInput<Meta>[];
+
+declare const resourceResultTypeBrand: unique symbol;
+
+/** Branded Sidecar result returned by every resource read. */
+export type ResourceResult<
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+> = {
+  readonly [resourceResultTypeBrand]: true;
+  contents: ResourceResultContentInput<Meta>[];
+};
+
+/** MCP resource content emitted on the wire. */
+export type McpResourceContent =
+  | {
+      uri: string;
+      mimeType?: string;
+      text: string;
+      annotations?: ResourceAnnotations;
+      _meta?: Record<string, unknown>;
+    }
+  | {
+      uri: string;
+      mimeType: string;
+      blob: string;
+      annotations?: ResourceAnnotations;
+      _meta?: Record<string, unknown>;
+    };
+
+/** Normalized MCP resource read result returned by the runtime. */
+export type McpResourceReadResult = {
+  contents: McpResourceContent[];
+  _meta?: Record<string, unknown>;
+};
+
+/** Helper used by resources to return MCP-compliant content. */
+export type ResourceResultFactory = {
+  <Meta extends Record<string, unknown> = Record<string, unknown>>(
+    input: ResourceResultInput<Meta>
+  ): ResourceResult<Meta>;
+  many<Meta extends Record<string, unknown> = Record<string, unknown>>(
+    input: readonly ResourceResultContentInput<Meta>[]
+  ): ResourceResult<Meta>;
+};
+
+/** Runtime context passed to a resource's `read` method. */
+export type ResourceContext<Auth = unknown, Services = unknown> = {
+  auth: Auth;
+  request: ToolRequestContext;
+  services: Services;
+  log: Logger;
+  storage: ScopedStorage;
+  env: Readonly<Record<string, string | undefined>>;
+};
+
+/** Author-facing definition accepted by `resource()`. */
+export type ResourceDefinition<Auth = unknown, Services = unknown> = {
+  /** Human-readable name shown to users and clients. */
+  name: string;
+  /** Optional stable MCP resource URI. Defaults to `sidecar://resources/<folder>`. */
+  uri?: string;
+  /** Optional display title when the machine-facing name is terse. */
+  title?: string;
+  /** Optional human-readable description. */
+  description?: string;
+  /** Optional MIME type advertised from `resources/list` and used as a result default. */
+  mimeType?: string;
+  /** Optional resource size in bytes. */
+  size?: number;
+  /** Optional MCP display icons. */
+  icons?: readonly McpIcon[];
+  /** Optional MCP annotations for the listed resource. */
+  annotations?: ResourceAnnotations;
+  /** Whether this resource is worth subscribing to when server subscribe is enabled. */
+  subscribe?: boolean;
+  /** Resource implementation. It may be synchronous or asynchronous. */
+  read: (ctx: ResourceContext<Auth, Services>) => MaybePromise<ResourceResult>;
+};
+
+/** Branded Sidecar resource returned by `resource()`. */
+export type SidecarResource<Auth = unknown, Services = unknown> =
+  ResourceDefinition<Auth, Services> & {
+    readonly kind: "sidecar.resource";
+  };
+
+/** MCP descriptor emitted for `resources/list`. */
+export type McpResourceDescriptor = {
+  uri: string;
+  name: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  size?: number;
+  icons?: McpIcon[];
+  annotations?: ResourceAnnotations;
+  _meta?: Record<string, unknown>;
+};
+
+/** MCP resource template descriptor emitted for `resources/templates/list`. */
+export type McpResourceTemplateDescriptor = {
+  uriTemplate: string;
+  name: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  icons?: McpIcon[];
+  annotations?: ResourceAnnotations;
+  _meta?: Record<string, unknown>;
+};
+
+/** Shorthand argument forms accepted by `prompt({ args })`. */
+export type PromptArgInput =
+  | string
+  | readonly JsonPrimitive[]
+  | {
+      description?: string;
+      required?: boolean;
+    };
+
+/** Prompt argument schema declared in normal TypeScript objects. */
+export type PromptArgsDefinition = Record<string, PromptArgInput>;
+
+/** MCP prompt argument descriptor emitted for `prompts/list`. */
+export type McpPromptArgument = {
+  name: string;
+  description?: string;
+  required?: boolean;
+};
+
+/** MCP prompt descriptor emitted for `prompts/list`. */
+export type McpPromptDescriptor = {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: McpPromptArgument[];
+  icons?: McpIcon[];
+};
+
+/** MCP prompt message content. */
+export type McpPromptContent = McpContentBlock;
+
+/** MCP prompt message emitted by `prompts/get`. */
+export type McpPromptMessage = {
+  role: "user" | "assistant";
+  content: McpPromptContent;
+};
+
+/** User-friendly value accepted from `prompt().run`. */
+export type PromptResultInput =
+  | string
+  | McpPromptMessage
+  | McpPromptMessage[]
+  | {
+      description?: string;
+      messages: McpPromptMessage[];
+    };
+
+/** Normalized MCP prompt result returned by the runtime. */
+export type McpPromptResult = {
+  description?: string;
+  messages: McpPromptMessage[];
+};
+
+/** Runtime context passed to a prompt's `run` method. */
+export type PromptContext<Auth = unknown, Services = unknown> = {
+  auth: Auth;
+  request: ToolRequestContext;
+  services: Services;
+  log: Logger;
+  storage: ScopedStorage;
+  env: Readonly<Record<string, string | undefined>>;
+};
+
+/** Author-facing definition accepted by `prompt()`. */
+export type PromptDefinition<
+  Args extends Record<string, unknown> = Record<string, unknown>,
+  Auth = unknown,
+  Services = unknown,
+> = {
+  /** Optional MCP prompt machine name. Defaults to the folder name. */
+  name?: string;
+  /** Human-readable display title. */
+  title: string;
+  /** Optional human-readable description. */
+  description?: string;
+  /** Optional simple argument declarations. */
+  args?: PromptArgsDefinition;
+  /** Optional MCP display icons. */
+  icons?: readonly McpIcon[];
+  /** Prompt implementation. Returning a string creates one user text message. */
+  run: (args: Args, ctx: PromptContext<Auth, Services>) => MaybePromise<PromptResultInput>;
+};
+
+/** Branded Sidecar prompt returned by `prompt()`. */
+export type SidecarPrompt<
+  Args extends Record<string, unknown> = Record<string, unknown>,
+  Auth = unknown,
+  Services = unknown,
+> = PromptDefinition<Args, Auth, Services> & {
+  readonly kind: "sidecar.prompt";
+};
+
 /** Controls which callers can see or call a tool. */
 export type ToolVisibility = {
   model?: boolean;
@@ -110,6 +454,16 @@ export type WidgetCspOptions = {
   resourceDomains?: readonly string[];
   /** Origins allowed for subframes. Omit unless the widget embeds iframes. */
   frameDomains?: readonly string[];
+  /** Allowed base URI origins. Omit to let hosts enforce the secure default. */
+  baseUriDomains?: readonly string[];
+};
+
+/** Browser permissions an MCP Apps host may grant to a widget iframe. */
+export type WidgetPermissionOptions = {
+  camera?: boolean;
+  microphone?: boolean;
+  geolocation?: boolean;
+  clipboardWrite?: boolean;
 };
 
 /** ChatGPT-only widget compatibility options. */
@@ -126,8 +480,12 @@ export type ToolWidgetOptions = {
   description?: string;
   /** Whether the widget prefers a host-provided border. */
   prefersBorder?: boolean;
+  /** Optional dedicated sandbox origin. Host-specific validation still applies. */
+  domain?: string;
   /** Standard MCP Apps CSP allowlists. */
   csp?: WidgetCspOptions;
+  /** Standard MCP Apps iframe permission requests. */
+  permissions?: WidgetPermissionOptions;
   /** Host-specific widget compatibility metadata. */
   hosts?: {
     chatgpt?: ChatGptWidgetOptions;
@@ -361,6 +719,9 @@ export type SkillDefinition = {
 
 const toolBrand = Symbol.for("sidecar.tool");
 const toolResultBrand = Symbol.for("sidecar.toolResult");
+const resourceBrand = Symbol.for("sidecar.resource");
+const resourceResultBrand = Symbol.for("sidecar.resourceResult");
+const promptBrand = Symbol.for("sidecar.prompt");
 const skillBrand = Symbol.for("sidecar.skill");
 
 /**
@@ -411,6 +772,59 @@ export function isSidecarTool(value: unknown): value is SidecarTool {
   return Boolean(value && typeof value === "object" && (value as Record<symbol, unknown>)[toolBrand]);
 }
 
+/**
+ * Declares a Sidecar MCP resource.
+ *
+ * The compiler fills default URIs from the reserved folder name, while the
+ * runtime executes the returned branded value for `resources/read`.
+ */
+export function resource<Auth = unknown, Services = unknown>(
+  definition: ResourceDefinition<Auth, Services>
+): SidecarResource<Auth, Services> {
+  if (!definition.name.trim()) {
+    throw new SidecarDefinitionError("Resource name is required.");
+  }
+  if (definition.uri) {
+    validateResourceUri(definition.uri);
+  }
+
+  return Object.freeze({
+    ...definition,
+    kind: "sidecar.resource" as const,
+    [resourceBrand]: true
+  }) as SidecarResource<Auth, Services>;
+}
+
+/** Returns true when a value was produced by `resource()`. */
+export function isSidecarResource(value: unknown): value is SidecarResource {
+  return Boolean(value && typeof value === "object" && (value as Record<symbol, unknown>)[resourceBrand]);
+}
+
+/**
+ * Declares a Sidecar MCP prompt.
+ *
+ * The compiler fills default machine names from the reserved folder name and
+ * converts `args` into MCP prompt argument descriptors.
+ */
+export function prompt<Args extends Record<string, unknown> = Record<string, unknown>, Auth = unknown>(
+  definition: PromptDefinition<Args, Auth>
+): SidecarPrompt<Args, Auth> {
+  if (!definition.title.trim()) {
+    throw new SidecarDefinitionError("Prompt title is required.");
+  }
+
+  return Object.freeze({
+    ...definition,
+    kind: "sidecar.prompt" as const,
+    [promptBrand]: true
+  }) as SidecarPrompt<Args, Auth>;
+}
+
+/** Returns true when a value was produced by `prompt()`. */
+export function isSidecarPrompt(value: unknown): value is SidecarPrompt {
+  return Boolean(value && typeof value === "object" && (value as Record<symbol, unknown>)[promptBrand]);
+}
+
 /** Declares a generated skill that can be emitted as `SKILL.md`. */
 export function skill(definition: SkillDefinition): SkillDefinition {
   if (!definition.name.trim()) {
@@ -453,6 +867,18 @@ export const toolResult = Object.assign(
   }
 ) as ToolResultFactory;
 
+/** Factory for standardized resource results. */
+export const resourceResult = Object.assign(
+  createResourceResult,
+  {
+    many<Meta extends Record<string, unknown> = Record<string, unknown>>(
+      input: readonly ResourceResultContentInput<Meta>[],
+    ): ResourceResult<Meta> {
+      return createResourceResult(input);
+    },
+  },
+) as ResourceResultFactory;
+
 /** Creates and brands one standardized Sidecar tool result. */
 function createToolResult<
   Structured,
@@ -473,12 +899,45 @@ function createToolResult<
   return resultEnvelope;
 }
 
+/** Creates and brands one standardized Sidecar resource result. */
+function createResourceResult<
+  Meta extends Record<string, unknown> = Record<string, unknown>,
+>(input: ResourceResultInput<Meta>): ResourceResult<Meta> {
+  const contents = Array.isArray(input) ? [...input] : [input];
+  if (!contents.length) {
+    throw new SidecarRuntimeError(
+      "resourceResult(...) must include at least one content item.",
+      "invalid_resource_result",
+    );
+  }
+
+  const resultEnvelope = {
+    contents,
+  } as ResourceResult<Meta>;
+
+  Object.defineProperty(resultEnvelope, resourceResultBrand, {
+    enumerable: false,
+    value: true,
+  });
+
+  return resultEnvelope;
+}
+
 /** Returns true when a value was produced by `toolResult()`. */
 export function isToolResult(value: unknown): value is ToolResult {
   return Boolean(
     value &&
       typeof value === "object" &&
       (value as Record<symbol, unknown>)[toolResultBrand] === true
+  );
+}
+
+/** Returns true when a value was produced by `resourceResult()`. */
+export function isResourceResult(value: unknown): value is ResourceResult {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      (value as Record<symbol, unknown>)[resourceResultBrand] === true
   );
 }
 
@@ -499,6 +958,26 @@ export function normalizeToolResult(value: unknown): McpToolResult {
   });
 }
 
+/** Converts a branded Sidecar resource result into an MCP-compliant read result. */
+export function normalizeResourceResult(
+  value: unknown,
+  uri: string,
+  defaultMimeType?: string,
+): McpResourceReadResult {
+  if (!isResourceResult(value)) {
+    throw new SidecarRuntimeError(
+      "Resource read() must return resourceResult(...).",
+      "invalid_resource_result",
+    );
+  }
+
+  return {
+    contents: value.contents.map((content) =>
+      normalizeResourceContent(content, uri, defaultMimeType),
+    ),
+  };
+}
+
 /** Validates params, runs a tool, and normalizes its result for JSON-RPC. */
 export async function executeTool<Params, Output>(
   sidecarTool: SidecarTool<Params, Output>,
@@ -508,6 +987,27 @@ export async function executeTool<Params, Output>(
   const parsedParams = validateParams(sidecarTool, params);
   const value = await sidecarTool.execute(parsedParams, ctx);
   return normalizeToolResult(value);
+}
+
+/** Reads a resource and normalizes its result for JSON-RPC. */
+export async function executeResource(
+  sidecarResource: SidecarResource,
+  ctx: ResourceContext,
+  options: { uri: string; mimeType?: string },
+): Promise<McpResourceReadResult> {
+  const value = await sidecarResource.read(ctx);
+  return normalizeResourceResult(value, options.uri, sidecarResource.mimeType ?? options.mimeType);
+}
+
+/** Runs a prompt and normalizes its messages for JSON-RPC. */
+export async function executePrompt<Args extends Record<string, unknown>>(
+  sidecarPrompt: SidecarPrompt<Args>,
+  args: unknown,
+  ctx: PromptContext,
+): Promise<McpPromptResult> {
+  const parsedArgs = validatePromptArgs(sidecarPrompt, args);
+  const value = await sidecarPrompt.run(parsedArgs, ctx);
+  return normalizePromptResult(value, sidecarPrompt.description);
 }
 
 /** Builds an MCP descriptor from a Sidecar tool definition. */
@@ -543,6 +1043,52 @@ export function createToolDescriptor(definition: {
       target === "chatgpt" ? chatGptToolMeta(definition.hosts?.chatgpt) : undefined,
       definition.meta
     )
+  });
+}
+
+/** Builds an MCP resource descriptor from a Sidecar resource definition. */
+export function createResourceDescriptor(definition: {
+  name: string;
+  uri: string;
+  title?: string;
+  description?: string;
+  mimeType?: string;
+  size?: number;
+  icons?: readonly McpIcon[];
+  annotations?: ResourceAnnotations;
+  meta?: Record<string, unknown>;
+}): McpResourceDescriptor {
+  validateResourceUri(definition.uri);
+
+  return stripUndefined({
+    uri: definition.uri,
+    name: definition.name,
+    title: definition.title,
+    description: definition.description,
+    mimeType: definition.mimeType,
+    size: definition.size,
+    icons: definition.icons ? [...definition.icons] : undefined,
+    annotations: normalizeAnnotations(definition.annotations),
+    _meta: definition.meta,
+  });
+}
+
+/** Builds an MCP prompt descriptor from a Sidecar prompt definition. */
+export function createPromptDescriptor(definition: {
+  name: string;
+  title: string;
+  description?: string;
+  args?: PromptArgsDefinition;
+  icons?: readonly McpIcon[];
+}): McpPromptDescriptor {
+  validatePromptName(definition.name);
+
+  return stripUndefined({
+    name: definition.name,
+    title: definition.title,
+    description: definition.description,
+    arguments: promptArguments(definition.args),
+    icons: definition.icons ? [...definition.icons] : undefined,
   });
 }
 
@@ -674,6 +1220,29 @@ export function validateToolId(id: string): void {
   }
 }
 
+/** Throws when a resource URI is not a valid absolute URI. */
+export function validateResourceUri(uri: string): void {
+  try {
+    const parsed = new URL(uri);
+    if (!parsed.protocol || parsed.hash) {
+      throw new Error("invalid uri");
+    }
+  } catch {
+    throw new SidecarDefinitionError(
+      `Invalid resource uri "${uri}". Resource URIs must be absolute and must not include fragments.`
+    );
+  }
+}
+
+/** Throws when a prompt machine name is not MCP-safe. */
+export function validatePromptName(name: string): void {
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(name) || name === "." || name === "..") {
+    throw new SidecarDefinitionError(
+      `Invalid prompt name "${name}". Prompt names must be 1-128 ASCII letters, digits, dots, hyphens, or underscores.`
+    );
+  }
+}
+
 /** Applies conservative annotation defaults when a tool omits them. */
 export function withAnnotationDefaults(annotations: ToolAnnotations | undefined): ToolAnnotations {
   const readOnlyHint = annotations?.readOnlyHint ?? false;
@@ -731,6 +1300,203 @@ function normalizeRequiredContent(content: ToolResultContent): McpContentBlock[]
     "toolResult({ content }) must include at least one MCP content block.",
     "invalid_tool_result",
   );
+}
+
+/** Converts one friendly resource content item to the MCP wire shape. */
+function normalizeResourceContent(
+  content: ResourceResultContentInput,
+  uri: string,
+  defaultMimeType?: string,
+): McpResourceContent {
+  const annotations = normalizeAnnotations(content.annotations);
+  const meta = content.meta;
+  if (isBinaryLike(content.content)) {
+    return stripUndefined({
+      uri,
+      mimeType: content.mimeType ?? defaultMimeType ?? "application/octet-stream",
+      blob: bytesToBase64(content.content),
+      annotations,
+      _meta: meta,
+    });
+  }
+
+  if (typeof content.content === "string") {
+    return stripUndefined({
+      uri,
+      mimeType: content.mimeType ?? defaultMimeType ?? "text/plain",
+      text: content.content,
+      annotations,
+      _meta: meta,
+    });
+  }
+
+  return stripUndefined({
+    uri,
+    mimeType: content.mimeType ?? defaultMimeType ?? "application/json",
+    text: JSON.stringify(content.content),
+    annotations,
+    _meta: meta,
+  });
+}
+
+/** Returns true for byte containers that MCP resources must expose as base64 blobs. */
+function isBinaryLike(value: unknown): value is Uint8Array | ArrayBuffer {
+  return value instanceof ArrayBuffer || value instanceof Uint8Array;
+}
+
+/** Encodes bytes as base64 in Node and browser-compatible runtimes. */
+function bytesToBase64(value: Uint8Array | ArrayBuffer): string {
+  const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : value;
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+/** Encodes an offset as an opaque base64url cursor. */
+function encodeOffsetCursor(offset: number): string {
+  return base64UrlEncode(JSON.stringify({ offset }));
+}
+
+/** Decodes an opaque offset cursor produced by `offsetPagination()`. */
+function decodeOffsetCursor(cursor: string): number {
+  try {
+    const decoded = JSON.parse(base64UrlDecode(cursor)) as { offset?: unknown };
+    if (typeof decoded.offset !== "number" || !Number.isInteger(decoded.offset) || decoded.offset < 0) {
+      throw new Error("invalid offset");
+    }
+    return decoded.offset;
+  } catch {
+    throw new SidecarRuntimeError("Invalid pagination cursor.", "invalid_pagination_cursor");
+  }
+}
+
+/** Base64url-encodes UTF-8 text in Node and browser-compatible runtimes. */
+function base64UrlEncode(value: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "utf8").toString("base64url");
+  }
+  return btoa(value)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/g, "");
+}
+
+/** Base64url-decodes UTF-8 text in Node and browser-compatible runtimes. */
+function base64UrlDecode(value: string): string {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "base64url").toString("utf8");
+  }
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return atob(padded);
+}
+
+/** Converts Date annotations to the protocol's ISO timestamp string. */
+function normalizeAnnotations(
+  annotations: ResourceAnnotations | undefined,
+): ResourceAnnotations | undefined {
+  if (!annotations) {
+    return undefined;
+  }
+
+  return stripUndefined({
+    audience: annotations.audience ? [...annotations.audience] : undefined,
+    priority: annotations.priority,
+    lastModified: annotations.lastModified instanceof Date
+      ? annotations.lastModified.toISOString()
+      : annotations.lastModified,
+  });
+}
+
+/** Converts friendly prompt argument declarations to MCP descriptors. */
+function promptArguments(args: PromptArgsDefinition | undefined): McpPromptArgument[] | undefined {
+  if (!args) {
+    return undefined;
+  }
+
+  const entries = Object.entries(args).map(([name, value]) => {
+    if (typeof value === "string") {
+      return { name, description: value, required: true };
+    }
+    if (isReadonlyArray(value)) {
+      return {
+        name,
+        description: value.length
+          ? `One of: ${value.map(String).join(", ")}.`
+          : undefined,
+        required: true,
+      };
+    }
+    return {
+      name,
+      description: value.description,
+      required: value.required ?? true,
+    };
+  });
+
+  return entries.length ? entries : undefined;
+}
+
+/** Narrows readonly argument enum arrays. */
+function isReadonlyArray(value: PromptArgInput): value is readonly JsonPrimitive[] {
+  return Array.isArray(value);
+}
+
+/** Validates required prompt arguments before running a prompt. */
+function validatePromptArgs<Args extends Record<string, unknown>>(
+  promptDefinition: SidecarPrompt<Args>,
+  args: unknown,
+): Args {
+  const input = args && typeof args === "object" && !Array.isArray(args)
+    ? args as Record<string, unknown>
+    : {};
+  for (const argument of promptArguments(promptDefinition.args) ?? []) {
+    if (argument.required !== false && !(argument.name in input)) {
+      throw new SidecarRuntimeError(
+        `Prompt "${promptDefinition.name ?? promptDefinition.title}" is missing required argument "${argument.name}".`,
+        "invalid_prompt_args",
+      );
+    }
+  }
+  return input as Args;
+}
+
+/** Converts a prompt's friendly return value into MCP messages. */
+function normalizePromptResult(value: PromptResultInput, defaultDescription?: string): McpPromptResult {
+  if (typeof value === "string") {
+    return {
+      description: defaultDescription,
+      messages: [{
+        role: "user",
+        content: toolResult.text(value),
+      }],
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      description: defaultDescription,
+      messages: value,
+    };
+  }
+
+  if ("messages" in value) {
+    return {
+      description: value.description ?? defaultDescription,
+      messages: value.messages,
+    };
+  }
+
+  return {
+    description: defaultDescription,
+    messages: [value],
+  };
 }
 
 /** Removes `undefined` keys so JSON serialization matches MCP expectations. */

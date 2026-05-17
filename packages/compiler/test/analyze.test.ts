@@ -3,7 +3,15 @@ import path from "node:path";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { analyzeProjectTools, buildProject, collectProjectDiagnostics, type SidecarToolManifestEntry } from "../src/index.js";
+import {
+  analyzeProjectConfig,
+  analyzeProjectPrompts,
+  analyzeProjectResources,
+  analyzeProjectTools,
+  buildProject,
+  collectProjectDiagnostics,
+  type SidecarToolManifestEntry,
+} from "../src/index.js";
 
 describe("analyzeProjectTools", () => {
   it("discovers reserved tool files and generates schemas", async () => {
@@ -33,6 +41,38 @@ describe("analyzeProjectTools", () => {
     });
   });
 
+  it("discovers reserved resource and prompt files with folder-derived ids", async () => {
+    const rootDir = path.resolve(import.meta.dirname, "../../../examples/simple");
+    const config = analyzeProjectConfig(rootDir);
+    const resources = await analyzeProjectResources(rootDir);
+    const prompts = await analyzeProjectPrompts(rootDir);
+
+    expect(config.pagination.pageSize).toBe(10);
+    expect(resources).toHaveLength(1);
+    expect(resources[0]).toMatchObject({
+      uri: "sidecar://resources/company-handbook",
+      name: "Company Handbook",
+      descriptor: {
+        mimeType: "text/markdown",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.7,
+        },
+      },
+    });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toMatchObject({
+      name: "review-expense",
+      title: "Review Expense",
+      descriptor: {
+        arguments: [
+          { name: "reportId", description: "Expense report id to review.", required: true },
+          { name: "severity", description: "How urgent the review is.", required: false },
+        ],
+      },
+    });
+  });
+
   it("builds widget resources, generated clients, and plugin packages", async () => {
     const fixture = path.resolve(import.meta.dirname, "../../../examples/simple");
     const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-simple-"));
@@ -46,15 +86,19 @@ describe("analyzeProjectTools", () => {
       expect(widgetTool?.descriptor._meta).toMatchObject({
         ui: {
           resourceUri: widgetTool?.widget?.resourceUri,
-          csp: {
-            connectDomains: [],
-            resourceDomains: []
-          }
         },
         "openai/outputTemplate": widgetTool?.widget?.resourceUri,
         "openai/widgetCSP": {
           connect_domains: [],
           resource_domains: []
+        }
+      });
+      expect(widgetTool?.widget?.resourceMeta).toMatchObject({
+        ui: {
+          csp: {
+            connectDomains: [],
+            resourceDomains: []
+          }
         }
       });
 
@@ -164,6 +208,82 @@ export default tool({
     }
   });
 
+  it("warns when resources do not return resourceResult", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-resource-diagnostics-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "resources", "plain", "resource.ts"),
+        `import { resource } from "@sidecar/core";
+
+export default resource({
+  name: "Plain Resource",
+  read() {
+    return { content: "plain" };
+  }
+});
+`,
+      );
+
+      const resources = await analyzeProjectResources(rootDir);
+      const diagnostics = await collectProjectDiagnostics(rootDir, {
+        tools: [],
+        resources,
+      });
+
+      expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+        "SIDECAR_RESOURCE_RESULT_REQUIRED",
+      );
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("errors when per-resource subscriptions are enabled without server support", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-resource-subscribe-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "sidecar.config.ts"),
+        `import { defineConfig } from "@sidecar/core";
+
+export default defineConfig({
+  name: "Subscribe Fixture",
+  version: "0.1.0",
+  description: "Checks subscription diagnostics."
+});
+`,
+      );
+      await writeFixture(
+        path.join(rootDir, "resources", "live", "resource.ts"),
+        `import { resource, resourceResult } from "@sidecar/core";
+
+export default resource({
+  name: "Live Resource",
+  subscribe: true,
+  read() {
+    return resourceResult({ content: "live" });
+  }
+});
+`,
+      );
+
+      const resources = await analyzeProjectResources(rootDir);
+      const diagnostics = await collectProjectDiagnostics(rootDir, {
+        tools: [],
+        resources,
+        config: analyzeProjectConfig(rootDir),
+      });
+
+      expect(diagnostics).toContainEqual(expect.objectContaining({
+        severity: "error",
+        code: "SIDECAR_RESOURCE_SUBSCRIBE_DISABLED",
+      }));
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("accepts named default exports and reads widget-owned metadata", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-reserved-helpers-"));
 
@@ -235,12 +355,7 @@ export default declaredWidget;
       });
       expect(entry?.descriptor._meta).toMatchObject({
         ui: {
-          prefersBorder: true,
-          csp: {
-            connectDomains: ["https://api.example.com"],
-            resourceDomains: ["https://cdn.example.com"],
-            frameDomains: ["https://frame.example.com"],
-          },
+          resourceUri: "ui://folder-id/widget.html",
         },
         "openai/widgetDescription": "Widget-owned description.",
         "openai/widgetDomain": "https://widgets.example.com",
@@ -251,6 +366,44 @@ export default declaredWidget;
           redirect_domains: ["https://example.com"],
         },
       });
+      expect(entry?.widget?.resourceMeta).toMatchObject({
+        ui: {
+          prefersBorder: true,
+          csp: {
+            connectDomains: ["https://api.example.com"],
+            resourceDomains: ["https://cdn.example.com"],
+            frameDomains: ["https://frame.example.com"],
+          },
+        },
+      });
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("omits model-only tools from generated widget clients", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-visibility-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "server", "model-only", "tool.ts"),
+        visibilityFixture("Model Only", "widgets: false"),
+      );
+      await writeFixture(
+        path.join(rootDir, "server", "app-only", "tool.ts"),
+        visibilityFixture("App Only", "model: false"),
+      );
+      await writeFixture(
+        path.join(rootDir, "server", "default-tool", "tool.ts"),
+        visibilityFixture("Default Tool", ""),
+      );
+
+      await buildProject({ rootDir, outDir: "out/mcp" });
+      const generated = await readFile(path.join(rootDir, ".sidecar/generated/tools.ts"), "utf8");
+
+      expect(generated).not.toContain("modelOnly(");
+      expect(generated).toContain("appOnly(");
+      expect(generated).toContain("defaultTool(");
     } finally {
       await rm(rootDir, { recursive: true, force: true });
     }
@@ -388,4 +541,22 @@ export default function Widget() {
 async function writeFixture(filePath: string, contents: string): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, contents);
+}
+
+/** Creates a minimal tool fixture with optional visibility metadata. */
+function visibilityFixture(name: string, visibility: string): string {
+  return `import { tool, toolResult } from "@sidecar/core";
+
+export default tool({
+  name: ${JSON.stringify(name)},
+  description: "Use this when checking generated widget tool visibility.",
+  ${visibility ? `visibility: { ${visibility} },` : ""}
+  execute() {
+    return toolResult({
+      structuredContent: { ok: true },
+      content: "ok"
+    });
+  }
+});
+`;
 }

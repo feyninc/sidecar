@@ -4,13 +4,13 @@ Sidecar is an opinionated TypeScript framework for building interactive MCP Apps
 
 The current implementation is the first vertical slice:
 
-- `@sidecar/core`: public `tool({ execute })` API, `toolResult(...)`, and MCP descriptor helpers.
-- `@sidecar/client`: framework-agnostic widget bridge for tool calls, tool results, model messages, and model context.
+- `@sidecar/core`: public `tool(...)`, `resource(...)`, `prompt(...)`, result envelopes, and MCP descriptor helpers.
+- `@sidecar/client`: framework-agnostic widget bridge built on the official MCP Apps postMessage protocol.
 - `@sidecar/react`: React widget declaration helper and hooks around `@sidecar/client`.
 - `@sidecar/auth`: provider-agnostic MCP auth helpers, typed scopes, and `AuthSession`.
 - `@sidecar/anthropic`: Claude plugin helpers plus reconstructed Claude-styled components.
-- `@sidecar/compiler`: reserved `server/**/tool.ts` discovery and TypeScript/JSDoc schema extraction.
-- `@sidecar/server`: minimal MCP JSON-RPC runtime for `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
+- `@sidecar/compiler`: reserved `server/**/tool.ts`, `resources/**/resource.ts`, and `prompts/**/prompt.ts` discovery.
+- `@sidecar/server`: Streamable HTTP MCP runtime for tools, resources, prompts, widgets, auth, and cursor-paginated list methods.
 - `@sidecar/cli`: `sidecar inspect`, `sidecar build`, and `sidecar dev`.
 - `@sidecar/native`: early runtime host feature facade and portable components.
 - `@sidecar/openai`: typed ChatGPT compatibility helpers and official OpenAI Apps SDK UI component re-exports.
@@ -61,6 +61,91 @@ export default tool({
 
 Inside reserved `server/<tool-id>/tool.ts` files, the MCP machine id defaults to the folder name. Add `id` only when you need an explicit override such as `expenses.review`.
 
+## Resources And Prompts
+
+Resources are MCP-readable context. The URI defaults to the folder name and can be overridden when you need a stable external URI:
+
+```text
+resources/
+  company-handbook/
+    resource.ts
+```
+
+```ts
+import { resource, resourceResult } from "@sidecar/core";
+
+export default resource({
+  name: "Company Handbook",
+  description: "Reference handbook for expense policy.",
+  mimeType: "text/markdown",
+  annotations: {
+    audience: ["assistant"],
+    priority: 0.7
+  },
+  read() {
+    return resourceResult({
+      content: "# Handbook\n\nExpense reports need receipts.",
+      mimeType: "text/markdown"
+    });
+  }
+});
+```
+
+`resourceResult(...)` is required for authored resources, mirroring `toolResult(...)`. Sidecar lowers it to MCP `contents` with the generated or overridden URI.
+
+Prompts are named MCP prompt templates. The prompt machine name defaults to the folder name:
+
+```text
+prompts/
+  review-expense/
+    prompt.ts
+```
+
+```ts
+import { prompt } from "@sidecar/core";
+
+export default prompt({
+  title: "Review Expense",
+  description: "Creates an expense review request.",
+  args: {
+    reportId: "Expense report id to review.",
+    severity: {
+      description: "How urgent the review is.",
+      required: false
+    }
+  },
+  run({ reportId, severity }: { reportId: string; severity?: string }) {
+    return `Review expense report ${reportId}. Urgency: ${severity ?? "normal"}.`;
+  }
+});
+```
+
+Returning a string creates one MCP user text message. Advanced prompts can return MCP prompt messages directly.
+
+Cursor pagination is configured once. Sidecar applies it only to the four MCP list methods that support pagination: `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list`.
+
+```ts
+import { defineConfig, offsetPagination } from "@sidecar/core";
+import { paginateTools } from "./lib/pagination.js";
+
+export default defineConfig({
+  name: "Acme",
+  version: "0.1.0",
+  description: "Acme MCP app.",
+  pagination: {
+    pageSize: 10,
+    override: {
+      default({ items, cursor, pageSize }) {
+        return offsetPagination({ items, cursor, pageSize });
+      },
+      toolsList: paginateTools
+    }
+  }
+});
+```
+
+Clients must treat cursors as opaque. `pageSize` is only the server's default choice.
+
 ## Local Commands
 
 ```sh
@@ -104,8 +189,8 @@ type Result = {
 };
 
 function AddNumbersWidget() {
-  const { structured } = useToolResult<Result>();
-  return <output>{structured?.sum ?? "--"}</output>;
+  const { structuredContent } = useToolResult<Result>();
+  return <output>{structuredContent?.sum ?? "--"}</output>;
 }
 
 export default widget(
@@ -120,18 +205,36 @@ export default widget(
 );
 ```
 
+`tools/list` gets only the tool-to-widget pointer:
+
 ```json
 {
   "_meta": {
     "ui": {
-      "resourceUri": "ui://add-numbers/widget.<hash>.html",
-      "csp": {
-        "connectDomains": [],
-        "resourceDomains": [],
-        "frameDomains": []
-      }
-    },
+      "resourceUri": "ui://add-numbers/widget.<hash>.html"
+    }
   }
+}
+```
+
+`resources/read` serves the HTML with `text/html;profile=mcp-app` and resource-level UI metadata:
+
+```json
+{
+  "contents": [
+    {
+      "uri": "ui://add-numbers/widget.<hash>.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "_meta": {
+        "ui": {
+          "csp": {
+            "connectDomains": [],
+            "resourceDomains": []
+          }
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -165,6 +268,15 @@ await files.download(JSON.stringify(data), {
   mimeType: "application/json"
 });
 await links.openExternal("https://example.com");
+```
+
+OpenAI-specific host globals are intentionally not used by `@sidecar/client` or `@sidecar/native`. If a widget is intentionally ChatGPT-only, import the explicit runtime helpers from `@sidecar/openai`:
+
+```ts
+import { chatgpt } from "@sidecar/openai";
+
+await chatgpt.runtime.requestDisplayMode("fullscreen");
+await chatgpt.runtime.sendFollowUpMessage("Show more detail about this row.");
 ```
 
 Use `@sidecar/native/components` for portable controls that auto-style at runtime. Use `@sidecar/openai/components` when a widget is intentionally ChatGPT-only and needs the official OpenAI Apps SDK UI components. Use `@sidecar/anthropic/components` when a widget is intentionally Claude-only and should use Sidecar's reconstructed Claude component recipes.
@@ -273,7 +385,7 @@ export default tool({
 });
 ```
 
-Tools are public by default, even when `auth.ts` exists. Use a policy only when the tool needs auth:
+Tools have no additional tool-level policy by default. If the project has no `auth.ts`, they are unauthenticated. If `auth.ts` exists, the MCP endpoint still requires a valid bearer token and the default tool policy means "no extra scopes." Use a policy when the tool needs specific auth beyond the endpoint session:
 
 ```ts
 auth: {
@@ -281,7 +393,7 @@ auth: {
 }
 ```
 
-Explicit public policy is available when you want the source to make that choice obvious:
+Explicit public policy is available when you want the source to make "no extra scopes" obvious:
 
 ```ts
 auth: {

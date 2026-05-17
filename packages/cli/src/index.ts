@@ -16,6 +16,9 @@ import { tsImport } from "tsx/esm/api";
 import { isSidecarAuth, type SidecarAuth } from "@sidecar/auth";
 import {
   analyzeProjectTools,
+  analyzeProjectConfig,
+  analyzeProjectPrompts,
+  analyzeProjectResources,
   buildProject,
   collectProjectDiagnostics,
   formatDiagnostic,
@@ -23,8 +26,8 @@ import {
   type SidecarManifest,
   type SidecarTarget,
 } from "@sidecar/compiler";
-import { isSidecarTool } from "@sidecar/core";
-import { createSidecarHttpServer, isSidecarProxy, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar/server";
+import { isSidecarPrompt, isSidecarResource, isSidecarTool, MCP_APP_RESOURCE_MIME_TYPE, type SidecarConfig } from "@sidecar/core";
+import { createSidecarHttpServer, isSidecarProxy, type LoadedPrompt, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar/server";
 import { startTunnel, type TunnelProvider, type TunnelSession } from "./tunnel.js";
 
 type Command = "build" | "check" | "dev" | "inspect" | "preview" | "help";
@@ -45,7 +48,11 @@ export async function main(argv: string[]): Promise<void> {
       if (strict && manifest.diagnostics?.length) {
         exit(1);
       }
-      console.log(`Built ${manifest.tools.length} ${target} tool${manifest.tools.length === 1 ? "" : "s"} to ${outDir}.`);
+      console.log(
+        `Built ${manifest.tools.length} ${target} tool${manifest.tools.length === 1 ? "" : "s"}, ` +
+          `${manifest.resources.length} resource${manifest.resources.length === 1 ? "" : "s"}, and ` +
+          `${manifest.prompts.length} prompt${manifest.prompts.length === 1 ? "" : "s"} to ${outDir}.`,
+      );
       if (plugins) {
         console.log("Built claude-plugin package.");
       }
@@ -54,8 +61,16 @@ export async function main(argv: string[]): Promise<void> {
 
     case "check": {
       const target = readTarget(argv);
+      const config = analyzeProjectConfig(rootDir);
       const tools = await analyzeProjectTools(rootDir, { target });
-      const diagnostics = await collectProjectDiagnostics(rootDir, tools);
+      const resources = await analyzeProjectResources(rootDir);
+      const prompts = await analyzeProjectPrompts(rootDir);
+      const diagnostics = await collectProjectDiagnostics(rootDir, {
+        tools,
+        resources,
+        prompts,
+        config,
+      });
       printDiagnostics(diagnostics);
       if (diagnostics.some((diagnostic) => diagnostic.severity === "error") || (argv.includes("--strict") && diagnostics.length > 0)) {
         exit(1);
@@ -81,9 +96,11 @@ export async function main(argv: string[]): Promise<void> {
       }
 
       const loadedAuth = await loadRuntimeAuth(rootDir);
+      const runtimeConfig = await loadRuntimeConfig(rootDir);
       const auth = loadedAuth && tunnel ? loadedAuth.withResource(tunnel.mcpUrl) : loadedAuth;
       const proxy = await loadRuntimeProxy(rootDir);
       const resources = await loadResources(rootDir, outDir, manifest);
+      const prompts = await loadRuntimePrompts(rootDir, manifest);
       const server = createSidecarHttpServer({
         name: "sidecar-dev",
         version: "0.0.0-dev",
@@ -91,12 +108,21 @@ export async function main(argv: string[]): Promise<void> {
         auth,
         proxy,
         tools,
-        resources
+        resources,
+        prompts,
+        capabilities: {
+          tools: runtimeConfig?.tools ?? manifest.config.tools,
+          resources: runtimeConfig?.resources ?? manifest.config.resources,
+          prompts: runtimeConfig?.prompts ?? manifest.config.prompts,
+        },
+        pagination: runtimeConfig?.pagination ?? {
+          pageSize: manifest.config.pagination.pageSize,
+        },
       });
 
       server.listen(port, "127.0.0.1", () => {
         console.log(`MCP running on Streamable HTTP (${target}) at http://127.0.0.1:${port}/mcp`);
-        console.log(`Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"} and ${resources.length} resource${resources.length === 1 ? "" : "s"}.`);
+        console.log(`Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"}, ${resources.length} resource${resources.length === 1 ? "" : "s"}, and ${prompts.length} prompt${prompts.length === 1 ? "" : "s"}.`);
         if (tunnel) {
           console.log(`HTTPS tunnel (${tunnel.provider}) ready: ${tunnel.mcpUrl}`);
           console.log("Use this HTTPS MCP URL in ChatGPT, Claude, or a Claude plugin install.");
@@ -720,6 +746,28 @@ async function loadRuntimeProxy(rootDir: string): Promise<SidecarProxy | undefin
   return module.default;
 }
 
+/** Loads `sidecar.config.ts` at runtime so dev can honor function overrides. */
+async function loadRuntimeConfig(rootDir: string): Promise<SidecarConfig | undefined> {
+  const configPath = path.join(rootDir, "sidecar.config.ts");
+  if (!existsSync(configPath)) {
+    return undefined;
+  }
+
+  const parentURL = pathToFileURL(configPath).href;
+  const tsconfigPath = path.join(rootDir, "tsconfig.json");
+  const tsconfig = existsSync(tsconfigPath) ? tsconfigPath : false;
+  const module = (await tsImport(pathToFileURL(configPath).href, {
+    parentURL,
+    tsconfig
+  })) as { default?: unknown };
+
+  if (!module.default || typeof module.default !== "object") {
+    throw new Error("sidecar.config.ts must default-export defineConfig({ ... }) from @sidecar/core.");
+  }
+
+  return module.default as SidecarConfig;
+}
+
 /** Imports built-time discovered tools for the dev server. */
 async function loadRuntimeTools(rootDir: string, manifest: SidecarManifest): Promise<LoadedTool[]> {
   const parentURL = pathToFileURL(path.join(rootDir, "sidecar.config.ts")).href;
@@ -759,12 +807,62 @@ async function loadResources(rootDir: string, outDir: string, manifest: SidecarM
     resources.push({
       uri: entry.widget.resourceUri,
       name: entry.name,
-      mimeType: "text/html",
-      text
+      description: entry.widget.options?.description,
+      mimeType: MCP_APP_RESOURCE_MIME_TYPE,
+      text,
+      _meta: entry.widget.resourceMeta
+    });
+  }
+
+  const parentURL = pathToFileURL(path.join(rootDir, "sidecar.config.ts")).href;
+  const tsconfigPath = path.join(rootDir, "tsconfig.json");
+  const tsconfig = existsSync(tsconfigPath) ? tsconfigPath : false;
+  for (const entry of manifest.resources) {
+    const sourcePath = path.join(rootDir, entry.sourceFile);
+    const module = (await tsImport(pathToFileURL(sourcePath).href, {
+      parentURL,
+      tsconfig
+    })) as { default?: unknown };
+
+    if (!isSidecarResource(module.default)) {
+      throw new Error(`${entry.sourceFile} did not default-export a Sidecar resource.`);
+    }
+
+    resources.push({
+      uri: entry.uri,
+      descriptor: entry.descriptor,
+      resource: module.default,
     });
   }
 
   return resources;
+}
+
+/** Imports build-time discovered prompts for the dev server. */
+async function loadRuntimePrompts(rootDir: string, manifest: SidecarManifest): Promise<LoadedPrompt[]> {
+  const parentURL = pathToFileURL(path.join(rootDir, "sidecar.config.ts")).href;
+  const tsconfigPath = path.join(rootDir, "tsconfig.json");
+  const tsconfig = existsSync(tsconfigPath) ? tsconfigPath : false;
+  const loaded: LoadedPrompt[] = [];
+
+  for (const entry of manifest.prompts) {
+    const sourcePath = path.join(rootDir, entry.sourceFile);
+    const module = (await tsImport(pathToFileURL(sourcePath).href, {
+      parentURL,
+      tsconfig
+    })) as { default?: unknown };
+
+    if (!isSidecarPrompt(module.default)) {
+      throw new Error(`${entry.sourceFile} did not default-export a Sidecar prompt.`);
+    }
+
+    loaded.push({
+      prompt: module.default,
+      descriptor: entry.descriptor,
+    });
+  }
+
+  return loaded;
 }
 
 /** Reads a simple `--name value` option from argv. */

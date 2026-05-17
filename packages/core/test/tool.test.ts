@@ -1,6 +1,20 @@
 /** Tests for core tool declaration and result normalization. */
 import { describe, expect, it } from "vitest";
-import { createToolDescriptor, executeTool, tool, toolResult, type ToolContext } from "../src/index.js";
+import {
+  createPromptDescriptor,
+  createResourceDescriptor,
+  createToolDescriptor,
+  executePrompt,
+  executeResource,
+  executeTool,
+  offsetPagination,
+  prompt,
+  resource,
+  resourceResult,
+  tool,
+  toolResult,
+  type ToolContext,
+} from "../src/index.js";
 
 describe("tool", () => {
   it("normalizes a sync execute toolResult into an MCP tool result", async () => {
@@ -90,6 +104,130 @@ describe("tool", () => {
     ]);
     expect(descriptor._meta).toMatchObject({
       securitySchemes: [{ type: "oauth2", scopes: ["expenses.read"] }]
+    });
+  });
+
+  it("normalizes resourceResult values into MCP resource contents", async () => {
+    const handbook = resource({
+      name: "Company Handbook",
+      mimeType: "text/markdown",
+      read() {
+        return resourceResult({
+          content: "# Handbook",
+          annotations: {
+            audience: ["assistant"],
+            priority: 0.8
+          }
+        });
+      }
+    });
+
+    await expect(
+      executeResource(handbook, testContext(), {
+        uri: "sidecar://resources/company-handbook",
+      })
+    ).resolves.toEqual({
+      contents: [{
+        uri: "sidecar://resources/company-handbook",
+        mimeType: "text/markdown",
+        text: "# Handbook",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.8,
+        },
+      }]
+    });
+  });
+
+  it("rejects resource reads not created by resourceResult", async () => {
+    const unsafe = resource({
+      name: "Unsafe Resource",
+      read() {
+        return { content: "plain" };
+      }
+    } as never);
+
+    await expect(
+      executeResource(unsafe, testContext(), {
+        uri: "sidecar://resources/unsafe",
+      })
+    ).rejects.toMatchObject({
+      code: "invalid_resource_result"
+    });
+  });
+
+  it("creates MCP-safe resource and prompt descriptors", () => {
+    expect(createResourceDescriptor({
+      uri: "sidecar://resources/company-handbook",
+      name: "Company Handbook",
+      mimeType: "text/markdown"
+    })).toMatchObject({
+      uri: "sidecar://resources/company-handbook",
+      name: "Company Handbook",
+      mimeType: "text/markdown"
+    });
+
+    expect(createPromptDescriptor({
+      name: "review-expense",
+      title: "Review Expense",
+      args: {
+        reportId: "Expense report id.",
+        urgency: { description: "Optional urgency.", required: false }
+      }
+    })).toMatchObject({
+      name: "review-expense",
+      title: "Review Expense",
+      arguments: [
+        { name: "reportId", description: "Expense report id.", required: true },
+        { name: "urgency", description: "Optional urgency.", required: false }
+      ]
+    });
+  });
+
+  it("normalizes prompt string returns into MCP prompt messages", async () => {
+    const review = prompt({
+      title: "Review Expense",
+      args: {
+        reportId: "Expense report id."
+      },
+      run({ reportId }: { reportId: string }) {
+        return `Review ${reportId}.`;
+      }
+    });
+
+    await expect(
+      executePrompt(review, { reportId: "exp_123" }, testContext())
+    ).resolves.toEqual({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: "Review exp_123.",
+        },
+      }],
+    });
+
+    await expect(executePrompt(review, {}, testContext())).rejects.toMatchObject({
+      code: "invalid_prompt_args",
+    });
+  });
+
+  it("paginates in-memory lists with opaque offset cursors", () => {
+    const first = offsetPagination({
+      items: ["a", "b", "c"],
+      pageSize: 2,
+    });
+    expect(first).toMatchObject({
+      items: ["a", "b"],
+      nextCursor: expect.any(String),
+    });
+    expect(offsetPagination({
+      items: ["a", "b", "c"],
+      cursor: first.nextCursor,
+      pageSize: 2,
+    })).toEqual({
+      items: ["c"],
+      nextCursor: undefined,
     });
   });
 });

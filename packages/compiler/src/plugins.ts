@@ -60,6 +60,8 @@ async function buildClaudePlugin(
   await writeJson(path.join(pluginDir, "settings.json"), {
     sidecar: {
       tools: manifest.tools.map((entry) => entry.id),
+      resources: manifest.resources.map((entry) => entry.uri),
+      prompts: manifest.prompts.map((entry) => entry.name),
     },
   });
 
