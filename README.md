@@ -29,6 +29,8 @@ npm run dev:https
 
 `sidecar dev --tunnel` starts Sidecar on Streamable HTTP and opens a temporary HTTPS tunnel. Sidecar tries `cloudflared` first. If it is missing, the CLI asks whether to install `cloudflared` or continue with `npx wrangler`.
 
+The generated tunnel URL is public and unprotected unless your app has `auth.ts`, `proxy.ts`, or upstream network controls in place. Treat tunneled dev servers as temporary test endpoints, avoid sensitive data, and stop the process when you are done.
+
 ## Project Structure
 
 ```txt
@@ -209,7 +211,7 @@ export default prompt({
 });
 ```
 
-Returning a string creates one MCP user text message. Advanced prompts can return MCP prompt messages directly.
+Returning a string creates one MCP user text message. Advanced prompts can return many MCP prompt messages directly.
 
 ## Pagination
 
@@ -490,7 +492,7 @@ out/
     agents/
 ```
 
-The MCP server itself still needs to be hosted somewhere. Claude plugin packages reference the hosted MCP URL instead of bundling the server.
+The MCP server itself still needs to be hosted somewhere. Claude plugin packages reference the hosted MCP URL instead of bundling the server. After hosting the MCP server, update the generated `claude-plugin/.mcp.json` URL from the placeholder to your real HTTPS MCP endpoint before sharing or installing the plugin.
 
 ## Developing Sidecar Itself
 
