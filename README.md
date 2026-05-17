@@ -8,17 +8,23 @@ It gives you a Next.js-style project structure for MCP:
 - write widgets as React components
 - use typed helpers instead of raw JSON-RPC and metadata strings
 - generate MCP apps and Claude plugin packages from the same source tree
-- keep platform-specific features in `@sidecar/openai` and `@sidecar/anthropic`
+- keep platform-specific features in `@sidecar-ai/openai` and `@sidecar-ai/anthropic`
 
 Sidecar is currently alpha. The core API is usable, but public docs, deployment polish, and larger examples are still evolving.
 
 ## Create An App
 
 ```sh
-npm create sidecar-app my-app
+npm create sidecar-app@latest my-app
 cd my-app
 npm install
 npm run dev
+```
+
+For an existing project:
+
+```sh
+npm install sidecar-ai
 ```
 
 For an HTTPS MCP URL that can be added to ChatGPT or Claude:
@@ -62,7 +68,7 @@ You can override ids and URIs when you need to.
 ## App Config
 
 ```ts
-import { defineConfig } from "@sidecar/core";
+import { defineConfig } from "sidecar-ai";
 
 export default defineConfig({
   name: "Expense Review",
@@ -81,7 +87,7 @@ Sidecar uses `sidecar.config.ts` for app identity, generated manifests, plugin m
 Tools live in `server/<tool-id>/tool.ts`.
 
 ```ts
-import { tool, toolResult } from "@sidecar/core";
+import { tool, toolResult } from "sidecar-ai";
 
 type Params = {
   /** First number to add. */
@@ -129,7 +135,7 @@ Every tool returns `toolResult(...)`. Sidecar keeps the MCP result channels expl
 Place `widget.tsx` next to a tool to give it UI.
 
 ```tsx
-import { widget, useToolResult } from "@sidecar/react";
+import { widget, useToolResult } from "@sidecar-ai/react";
 
 type Result = {
   sum: number;
@@ -167,7 +173,7 @@ Widget code is React. The iframe still supports normal CSS, Tailwind, and any Re
 Resources expose readable MCP context.
 
 ```ts
-import { resource, resourceResult } from "@sidecar/core";
+import { resource, resourceResult } from "sidecar-ai";
 
 export default resource({
   name: "Company Handbook",
@@ -193,7 +199,7 @@ export default resource({
 Prompts expose reusable MCP prompt templates.
 
 ```ts
-import { prompt } from "@sidecar/core";
+import { prompt } from "sidecar-ai";
 
 export default prompt({
   title: "Review Expense",
@@ -225,7 +231,7 @@ Sidecar paginates the MCP list operations that support cursors:
 The default page size is `10`. Override globally or per operation:
 
 ```ts
-import { defineConfig, offsetPagination } from "@sidecar/core";
+import { defineConfig, offsetPagination } from "sidecar-ai";
 
 export default defineConfig({
   name: "Acme",
@@ -253,7 +259,7 @@ Clients treat cursors as opaque. The server decides page size.
 
 ## Styling And Native Components
 
-Sidecar imports `@sidecar/native/styles.css` before your root `style.css`.
+Sidecar imports `@sidecar-ai/native/styles.css` before your root `style.css`.
 
 Use `style.css` for:
 
@@ -265,7 +271,7 @@ Use `style.css` for:
 Use portable native components when you want controls that adapt to the current host:
 
 ```tsx
-import { Button, Text, Surface } from "@sidecar/native/components";
+import { Button, Text, Surface } from "@sidecar-ai/native/components";
 
 export function ReviewPanel() {
   return (
@@ -279,10 +285,10 @@ export function ReviewPanel() {
 
 Use platform packages when you intentionally want host-specific APIs or components:
 
-- `@sidecar/openai`
-- `@sidecar/openai/components`
-- `@sidecar/anthropic`
-- `@sidecar/anthropic/components`
+- `@sidecar-ai/openai`
+- `@sidecar-ai/openai/components`
+- `@sidecar-ai/anthropic`
+- `@sidecar-ai/anthropic/components`
 
 Sidecar warns when shared widgets import platform-specific features without an obvious platform boundary.
 
@@ -316,7 +322,7 @@ sidecar build --target claude --plugins
 `auth.ts` owns MCP/OAuth resource-server behavior. Your auth provider still validates tokens.
 
 ```ts
-import { auth, scope, type AuthSession } from "@sidecar/auth";
+import { auth, scope, type AuthSession } from "sidecar-ai";
 
 type Session = AuthSession<
   { sub: string; scope: string; org_id: string },
@@ -351,7 +357,7 @@ export default appAuth;
 Tool policy lives with the tool:
 
 ```ts
-import { tool, toolResult } from "@sidecar/core";
+import { tool, toolResult } from "sidecar-ai";
 import { scopes } from "../../auth.js";
 
 export default tool({
@@ -376,7 +382,7 @@ export default tool({
 `proxy.ts` is for HTTP middleware such as origins, request ids, and rate limits:
 
 ```ts
-import { origin, proxy, rateLimit, requestId } from "@sidecar/server/proxy";
+import { origin, proxy, rateLimit, requestId } from "@sidecar-ai/server/proxy";
 
 export default proxy({
   before: [
@@ -403,7 +409,7 @@ agents/
 ```
 
 ```ts
-import { agent } from "@sidecar/anthropic/plugin";
+import { agent } from "@sidecar-ai/anthropic/plugin";
 
 export default agent({
   name: "review-writer",
@@ -423,7 +429,7 @@ hooks/
 ```
 
 ```ts
-import { commandHook, hook } from "@sidecar/anthropic/hooks";
+import { commandHook, hook } from "@sidecar-ai/anthropic/hooks";
 
 export default hook({
   event: "PreToolUse",
@@ -435,7 +441,7 @@ export default hook({
 Slash commands:
 
 ```ts
-import { command } from "@sidecar/anthropic/plugin";
+import { command } from "@sidecar-ai/anthropic/plugin";
 
 export default command({
   name: "review-summary",
@@ -500,6 +506,7 @@ This repository is a monorepo:
 
 ```txt
 packages/
+  sidecar-ai/
   core/
   cli/
   compiler/

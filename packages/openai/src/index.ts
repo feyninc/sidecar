@@ -5,7 +5,7 @@
  * optional ChatGPT fields and runtime globals that still need OpenAI-specific
  * names on the wire.
  */
-import type { ChatGptToolOptions } from "@sidecar/core";
+import type { ChatGptToolOptions } from "@sidecar-ai/core";
 
 /** CSP domains supported by ChatGPT widget metadata. */
 export type ChatGptWidgetCsp = {

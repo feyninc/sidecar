@@ -8,7 +8,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { runProxy, type SidecarProxy } from "./proxy.js";
-import type { SidecarAuth } from "@sidecar/auth";
+import type { SidecarAuth } from "@sidecar-ai/auth";
 import { JSONRPC_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -38,7 +38,7 @@ import {
   type SidecarTool,
   type ToolCapabilityConfig,
   type ToolContext
-} from "@sidecar/core";
+} from "@sidecar-ai/core";
 
 /** JSON-RPC request shape accepted by the MCP runtime. */
 export type JsonRpcRequest = {

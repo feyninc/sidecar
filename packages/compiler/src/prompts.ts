@@ -4,7 +4,7 @@ import {
   type McpIcon,
   type PromptArgInput,
   type PromptArgsDefinition,
-} from "@sidecar/core";
+} from "@sidecar-ai/core";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import {

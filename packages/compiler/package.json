@@ -1,6 +1,6 @@
 {
-  "name": "@sidecar/compiler",
-  "version": "0.0.0-dev",
+  "name": "@sidecar-ai/compiler",
+  "version": "0.1.0-alpha.0",
   "type": "module",
   "files": [
     "dist"
@@ -13,11 +13,14 @@
   },
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@sidecar/core": "0.0.0-dev",
+    "@sidecar-ai/core": "0.1.0-alpha.0",
     "@tailwindcss/postcss": "^4.3.0",
     "autoprefixer": "^10.5.0",
     "esbuild": "^0.28.0",
     "postcss": "^8.5.14",
     "ts-morph": "^26.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

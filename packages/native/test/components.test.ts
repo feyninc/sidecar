@@ -18,7 +18,7 @@ import {
   createPrimitiveComponents,
 } from "../src/components/index.js";
 
-describe("@sidecar/native components", () => {
+describe("@sidecar-ai/native components", () => {
   it("denies unsafe external URL schemes before host fallback", async () => {
     await expect(links.openExternal("javascript:alert(1)")).resolves.toMatchObject({
       ok: false,

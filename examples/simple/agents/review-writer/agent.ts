@@ -1,5 +1,5 @@
 /** Example Claude plugin subagent emitted by Sidecar. */
-import { agent } from "@sidecar/anthropic/plugin";
+import { agent } from "@sidecar-ai/anthropic/plugin";
 
 export default agent({
   name: "review-writer",

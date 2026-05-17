@@ -1,9 +1,9 @@
 /** Example Sidecar project identity used by build and plugin outputs. */
-import { defineConfig } from "@sidecar/core";
+import { defineConfig } from "sidecar-ai";
 
 export default defineConfig({
   name: "Simple Sidecar Example",
-  version: "0.0.0-dev",
+  version: "0.1.0-alpha.0",
   description: "A small Sidecar project used to exercise tool discovery.",
   resources: {
     listChanged: false,

@@ -1,6 +1,6 @@
 /** Example protected tool with a typed auth scope requirement. */
-import { tool, toolResult } from "@sidecar/core";
-import type { ChatGptToolOptions } from "@sidecar/openai";
+import { tool, toolResult } from "sidecar-ai";
+import type { ChatGptToolOptions } from "@sidecar-ai/openai";
 import { scopes } from "../../auth.js";
 
 type Params = {

@@ -8,7 +8,7 @@ describe("create-sidecar-app", () => {
 
     expect(css).toContain('@import "tailwindcss";');
     expect(css).toContain('@source "./server/**/*.{ts,tsx}";');
-    expect(css).toContain("Sidecar automatically loads @sidecar/native/styles.css before this file.");
+    expect(css).toContain("Sidecar automatically loads @sidecar-ai/native/styles.css before this file.");
     expect(css).toContain("--app-font-sans");
     expect(css).toContain("--app-surface");
     expect(css).toContain("--app-text");
@@ -35,6 +35,6 @@ describe("create-sidecar-app", () => {
 
     expect(css).not.toMatch(/^\s*--sc-primary:/m);
     expect(css).not.toMatch(/^\s*--sc-radius-md:/m);
-    expect(css).not.toContain('@import "@sidecar/native/styles.css";');
+    expect(css).not.toContain('@import "@sidecar-ai/native/styles.css";');
   });
 });

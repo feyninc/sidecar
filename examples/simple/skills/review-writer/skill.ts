@@ -1,5 +1,5 @@
 /** Example typed skill emitted as SKILL.md. */
-import { skill } from "@sidecar/core";
+import { skill } from "sidecar-ai";
 
 export default skill({
   name: "review-writer",

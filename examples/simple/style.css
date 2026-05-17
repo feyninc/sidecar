@@ -1,7 +1,7 @@
 /*
  * App-wide widget CSS.
  *
- * Sidecar automatically loads @sidecar/native/styles.css before this file.
+ * Sidecar automatically loads @sidecar-ai/native/styles.css before this file.
  * Keep this file for normal app CSS: Tailwind, product tokens, layout classes,
  * charts, tables, and intentional overrides.
  *

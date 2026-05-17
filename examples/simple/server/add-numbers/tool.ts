@@ -1,5 +1,5 @@
 /** Example public tool that relies on the default public auth policy. */
-import { tool, toolResult } from "@sidecar/core";
+import { tool, toolResult } from "sidecar-ai";
 
 type Params = {
   /** First number to add. */

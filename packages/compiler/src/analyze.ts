@@ -7,7 +7,7 @@ import {
   type ToolAnnotations,
   type ToolAuthPolicy,
   type ToolVisibility,
-} from "@sidecar/core";
+} from "@sidecar-ai/core";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import {

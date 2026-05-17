@@ -39,16 +39,17 @@ function devSidecarTypePaths(): Record<string, string[]> | undefined {
   }
 
   return {
-    "@sidecar/core": ["packages/core/src/index.ts"],
-    "@sidecar/client": ["packages/client/src/index.ts"],
-    "@sidecar/react": ["packages/react/src/index.ts"],
-    "@sidecar/native": ["packages/native/src/index.ts"],
-    "@sidecar/native/components": ["packages/native/src/components/index.tsx"],
-    "@sidecar/openai": ["packages/openai/src/index.ts"],
-    "@sidecar/openai/components": ["packages/openai/src/components.tsx"],
-    "@sidecar/anthropic": ["packages/anthropic/src/index.ts"],
-    "@sidecar/anthropic/components": ["packages/anthropic/src/components.tsx"],
-    "@sidecar/anthropic/plugin": ["packages/anthropic/src/plugin.ts"],
-    "@sidecar/anthropic/hooks": ["packages/anthropic/src/hooks.ts"],
+    "sidecar-ai": ["packages/sidecar-ai/src/index.ts"],
+    "@sidecar-ai/core": ["packages/core/src/index.ts"],
+    "@sidecar-ai/client": ["packages/client/src/index.ts"],
+    "@sidecar-ai/react": ["packages/react/src/index.ts"],
+    "@sidecar-ai/native": ["packages/native/src/index.ts"],
+    "@sidecar-ai/native/components": ["packages/native/src/components/index.tsx"],
+    "@sidecar-ai/openai": ["packages/openai/src/index.ts"],
+    "@sidecar-ai/openai/components": ["packages/openai/src/components.tsx"],
+    "@sidecar-ai/anthropic": ["packages/anthropic/src/index.ts"],
+    "@sidecar-ai/anthropic/components": ["packages/anthropic/src/components.tsx"],
+    "@sidecar-ai/anthropic/plugin": ["packages/anthropic/src/plugin.ts"],
+    "@sidecar-ai/anthropic/hooks": ["packages/anthropic/src/hooks.ts"],
   };
 }

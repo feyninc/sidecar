@@ -20,7 +20,7 @@ describe("collectProjectDiagnostics", () => {
 
       await writeFixture(
         path.join(rootDir, "auth.ts"),
-        `import { auth } from "@sidecar/auth";
+        `import { auth } from "sidecar-ai";
 
 export default auth({
   scopes: {
@@ -88,7 +88,7 @@ export default auth({
       await writeTool(rootDir, "host-test");
       await writeFixture(
         path.join(rootDir, "server", "host-test", "widget.tsx"),
-        `import { Button } from "@sidecar/anthropic/components";
+        `import { Button } from "@sidecar-ai/anthropic/components";
 
 export default function Widget() {
   return <Button>Claude only</Button>;
@@ -117,7 +117,7 @@ export default function Widget() {
       );
       await writeFixture(
         path.join(rootDir, "server", "openai-component-test", "widget.openai.tsx"),
-        `import { Button } from "@sidecar/openai/components";
+        `import { Button } from "@sidecar-ai/openai/components";
 
 export default function Widget() {
   return <Button>ChatGPT only</Button>;
@@ -242,7 +242,7 @@ function toolSource(options: ToolOptions = {}): string {
   const structuredContent = options.structuredContent ?? "{ value: params.value }";
   const content = options.content ?? "params.value";
 
-  return `${options.leadingComment ? `${options.leadingComment}\n` : ""}import { tool, toolResult } from "@sidecar/core";
+  return `${options.leadingComment ? `${options.leadingComment}\n` : ""}import { tool, toolResult } from "sidecar-ai";
 
 ${params}
 

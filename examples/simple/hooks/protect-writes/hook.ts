@@ -1,5 +1,5 @@
 /** Example Claude plugin hook using a tool matcher. */
-import { commandHook, hook } from "@sidecar/anthropic/hooks";
+import { commandHook, hook } from "@sidecar-ai/anthropic/hooks";
 
 export default hook({
   event: "PreToolUse",

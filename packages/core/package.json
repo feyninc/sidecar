@@ -1,6 +1,6 @@
 {
-  "name": "@sidecar/core",
-  "version": "0.0.0-dev",
+  "name": "@sidecar-ai/core",
+  "version": "0.1.0-alpha.0",
   "type": "module",
   "files": [
     "dist"
@@ -19,5 +19,8 @@
     "zod": {
       "optional": true
     }
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

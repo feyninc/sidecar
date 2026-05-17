@@ -5,7 +5,7 @@
 /*
  * Project-level Sidecar styles.
  *
- * Widget builds include @sidecar/native/styles.css first, then this file.
+ * Widget builds include @sidecar-ai/native/styles.css first, then this file.
  * That means Tailwind utilities and app CSS can override native defaults when
  * a widget intentionally wants custom styling.
  */

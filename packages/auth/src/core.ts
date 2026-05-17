@@ -8,7 +8,7 @@ import type {
   AuthScopeDefinition,
   MaybePromise,
   ToolAuthPolicy,
-} from "@sidecar/core";
+} from "@sidecar-ai/core";
 
 /** Internal session shape Sidecar expects after provider-specific token validation. */
 export type AuthSession<

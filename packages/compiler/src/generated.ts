@@ -39,8 +39,8 @@ export async function writeGeneratedTypes(
  * sidecar dev.
  */
 ${imports}
-import { createToolClient } from "@sidecar/client";
-import type { ToolResult } from "@sidecar/core";
+import { createToolClient } from "@sidecar-ai/client";
+import type { ToolResult } from "@sidecar-ai/core";
 
 type ExecuteOf<T> = T extends { execute: infer Execute } ? Execute : never;
 type ToolParams<T> = ExecuteOf<T> extends (params: infer Params, ...args: any[]) => unknown ? Params : never;

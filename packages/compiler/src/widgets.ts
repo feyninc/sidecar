@@ -11,7 +11,7 @@ import {
   type ObjectLiteralExpression,
   type SourceFile,
 } from "ts-morph";
-import type { ChatGptWidgetOptions, ToolWidgetOptions } from "@sidecar/core";
+import type { ChatGptWidgetOptions, ToolWidgetOptions } from "@sidecar-ai/core";
 import { resolveDefaultExportCall, unwrapExpression } from "./ast.js";
 import { CompilerError } from "./errors.js";
 import type { SidecarSourceVariant, SidecarTarget, SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
@@ -48,8 +48,8 @@ export async function buildWidgets(
       entryFile,
       `import React from "react";
 import { createRoot } from "react-dom/client";
-import { SidecarWidgetRoot } from "@sidecar/react";
-import "@sidecar/native/styles.css";
+import { SidecarWidgetRoot } from "@sidecar-ai/react";
+import "@sidecar-ai/native/styles.css";
 ${appStyle ? `import ${JSON.stringify(toImportSpecifier(path.dirname(entryFile), appStyle))};` : ""}
 import Component from ${JSON.stringify(importPath)};
 
@@ -110,12 +110,13 @@ function devSidecarBundleAliases(rootDir: string): Record<string, string> | unde
   }
 
   return {
-    "@sidecar/client": path.join(repoRoot, "packages", "client", "src", "index.ts"),
-    "@sidecar/core": path.join(repoRoot, "packages", "core", "src", "index.ts"),
-    "@sidecar/react": reactEntry,
-    "@sidecar/native": path.join(repoRoot, "packages", "native", "src", "index.ts"),
-    "@sidecar/native/components": path.join(repoRoot, "packages", "native", "src", "components", "index.tsx"),
-    "@sidecar/native/styles.css": path.join(repoRoot, "packages", "native", "src", "styles.css"),
+    "sidecar-ai": path.join(repoRoot, "packages", "sidecar-ai", "src", "index.ts"),
+    "@sidecar-ai/client": path.join(repoRoot, "packages", "client", "src", "index.ts"),
+    "@sidecar-ai/core": path.join(repoRoot, "packages", "core", "src", "index.ts"),
+    "@sidecar-ai/react": reactEntry,
+    "@sidecar-ai/native": path.join(repoRoot, "packages", "native", "src", "index.ts"),
+    "@sidecar-ai/native/components": path.join(repoRoot, "packages", "native", "src", "components", "index.tsx"),
+    "@sidecar-ai/native/styles.css": path.join(repoRoot, "packages", "native", "src", "styles.css"),
   };
 }
 

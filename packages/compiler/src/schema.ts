@@ -1,5 +1,5 @@
 /** TypeScript and lightweight Zod-to-JSON-Schema extraction. */
-import { emptyObjectSchema, type JsonSchema } from "@sidecar/core";
+import { emptyObjectSchema, type JsonSchema } from "@sidecar-ai/core";
 import {
   Node,
   type ArrowFunction,

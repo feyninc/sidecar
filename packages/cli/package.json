@@ -1,12 +1,12 @@
 {
-  "name": "@sidecar/cli",
-  "version": "0.0.0-dev",
+  "name": "@sidecar-ai/cli",
+  "version": "0.1.0-alpha.0",
   "type": "module",
   "files": [
     "dist"
   ],
   "bin": {
-    "sidecar": "./dist/index.js"
+    "sidecar": "dist/index.js"
   },
   "exports": {
     ".": {
@@ -16,10 +16,13 @@
   },
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@sidecar/auth": "0.0.0-dev",
-    "@sidecar/compiler": "0.0.0-dev",
-    "@sidecar/core": "0.0.0-dev",
-    "@sidecar/server": "0.0.0-dev",
+    "@sidecar-ai/auth": "0.1.0-alpha.0",
+    "@sidecar-ai/compiler": "0.1.0-alpha.0",
+    "@sidecar-ai/core": "0.1.0-alpha.0",
+    "@sidecar-ai/server": "0.1.0-alpha.0",
     "tsx": "^4.22.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

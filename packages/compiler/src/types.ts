@@ -10,7 +10,7 @@ import type {
   ToolAnnotations,
   ToolVisibility,
   ToolWidgetOptions,
-} from "@sidecar/core";
+} from "@sidecar-ai/core";
 import type { SidecarDiagnostic } from "./diagnostics.js";
 
 /** Build target profile selected by reserved platform file suffixes. */

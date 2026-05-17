@@ -8,7 +8,7 @@ afterEach(() => {
   setWindow(originalWindow);
 });
 
-describe("@sidecar/openai runtime", () => {
+describe("@sidecar-ai/openai runtime", () => {
   it("uses window.openai only through explicit ChatGPT helpers", async () => {
     const callTool = vi.fn(async () => ({ sum: 7 }));
     const sendFollowUpMessage = vi.fn(async () => undefined);

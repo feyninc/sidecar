@@ -1,5 +1,5 @@
 /** Example authored MCP resource exposed by the sample app. */
-import { resource, resourceResult } from "@sidecar/core";
+import { resource, resourceResult } from "sidecar-ai";
 
 export default resource({
   name: "Company Handbook",

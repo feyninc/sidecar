@@ -1,6 +1,6 @@
 {
-  "name": "@sidecar/auth",
-  "version": "0.0.0-dev",
+  "name": "@sidecar-ai/auth",
+  "version": "0.1.0-alpha.0",
   "type": "module",
   "files": [
     "dist"
@@ -11,5 +11,11 @@
       "default": "./dist/index.js"
     }
   },
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@sidecar-ai/core": "0.1.0-alpha.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

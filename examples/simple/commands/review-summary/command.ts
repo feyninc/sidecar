@@ -1,5 +1,5 @@
 /** Example Claude slash command emitted by Sidecar. */
-import { command } from "@sidecar/anthropic/plugin";
+import { command } from "@sidecar-ai/anthropic/plugin";
 
 export default command({
   name: "review-summary",

@@ -6,7 +6,7 @@
  * token with their OAuth provider and return an AuthSession with whatever
  * custom fields their tools need.
  */
-import { auth, scope, type AuthSession } from "@sidecar/auth";
+import { auth, scope, type AuthSession } from "sidecar-ai";
 
 type DemoSession = AuthSession<
   { sub: string; scope: string; org_id: string },

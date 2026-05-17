@@ -15,6 +15,7 @@ const packageNames = [
   "openai",
   "react",
   "server",
+  "sidecar-ai",
 ] as const;
 
 describe("package metadata", () => {
@@ -27,7 +28,7 @@ describe("package metadata", () => {
       expect(manifest.files).toContain("dist");
 
       for (const binPath of Object.values(manifest.bin ?? {})) {
-        expect(binPath).toMatch(/^\.\/dist\/.+\.js$/);
+        expect(binPath).toMatch(/^dist\/.+\.js$/);
       }
     }
   });

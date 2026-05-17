@@ -1,12 +1,12 @@
 {
   "name": "create-sidecar-app",
-  "version": "0.0.0-dev",
+  "version": "0.1.0-alpha.0",
   "type": "module",
   "files": [
     "dist"
   ],
   "bin": {
-    "create-sidecar-app": "./dist/index.js"
+    "create-sidecar-app": "dist/index.js"
   },
   "exports": {
     ".": {
@@ -14,5 +14,8 @@
       "default": "./dist/index.js"
     }
   },
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  }
 }

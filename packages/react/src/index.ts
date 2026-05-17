@@ -1,5 +1,5 @@
 /**
- * React conveniences over the framework-agnostic `@sidecar/client` bridge.
+ * React conveniences over the framework-agnostic `@sidecar-ai/client` bridge.
  *
  * Widgets can use this package for hooks, but the underlying iframe bridge is
  * intentionally not React-specific.
@@ -9,7 +9,7 @@ import {
   type WidgetBridge,
   type WidgetToolResult,
   type SidecarHostContext,
-} from "@sidecar/client";
+} from "@sidecar-ai/client";
 import {
   createContext,
   createElement,
@@ -20,7 +20,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
-import type { ToolWidgetOptions } from "@sidecar/core";
+import type { ToolWidgetOptions } from "@sidecar-ai/core";
 
 export {
   browserBridge,
@@ -49,12 +49,12 @@ export {
   type ToolInputListener,
   type WidgetBridge,
   type WidgetToolResult,
-} from "@sidecar/client";
+} from "@sidecar-ai/client";
 export type {
   ChatGptWidgetOptions,
   ToolWidgetOptions as WidgetOptions,
   WidgetCspOptions,
-} from "@sidecar/core";
+} from "@sidecar-ai/core";
 
 /** Props supplied to generated widget roots. Widgets read data through hooks. */
 export type WidgetProps = Record<string, never>;

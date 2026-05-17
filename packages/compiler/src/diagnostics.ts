@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { JsonSchema } from "@sidecar/core";
+import type { JsonSchema } from "@sidecar-ai/core";
 import type {
   SidecarCompilerConfig,
   SidecarPromptManifestEntry,
@@ -137,14 +137,14 @@ function diagnoseToolSource(
     });
   }
 
-  if (/["']openai\//.test(source) && !/@sidecar\/openai/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_MAGIC_META")) {
+  if (/["']openai\//.test(source) && !/@sidecar-ai\/openai/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_MAGIC_META")) {
     diagnostics.push({
       severity: "warning",
       code: "SIDECAR_OPENAI_MAGIC_META",
       message: `Tool "${entry.id}" uses raw ChatGPT metadata strings.`,
       filePath: entry.sourceFile,
       ...locate(source, "openai/"),
-      hint: "Use @sidecar/openai helpers or the typed hosts.chatgpt field so platform metadata stays typed.",
+      hint: "Use @sidecar-ai/openai helpers or the typed hosts.chatgpt field so platform metadata stays typed.",
     });
   }
 
@@ -193,62 +193,62 @@ function diagnoseWidgetSource(
       message: `Widget for "${entry.id}" reads window.openai directly.`,
       filePath: widgetFile,
       ...locate(source, "openai"),
-      hint: "Use @sidecar/openai runtime helpers in ChatGPT-only widgets, or @sidecar/native/@sidecar/client for portable behavior.",
+      hint: "Use @sidecar-ai/openai runtime helpers in ChatGPT-only widgets, or @sidecar-ai/native/@sidecar-ai/client for portable behavior.",
     });
   }
 
-  if (entry.widget?.variant !== "openai" && /@sidecar\/openai/.test(source) && !/@sidecar\/native/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_FALLBACK")) {
+  if (entry.widget?.variant !== "openai" && /@sidecar-ai\/openai/.test(source) && !/@sidecar-ai\/native/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_FALLBACK")) {
     diagnostics.push({
       severity: "warning",
       code: "SIDECAR_OPENAI_FALLBACK",
-      message: `Widget for "${entry.id}" imports @sidecar/openai without a portable fallback.`,
+      message: `Widget for "${entry.id}" imports @sidecar-ai/openai without a portable fallback.`,
       filePath: widgetFile,
-      ...locate(source, "@sidecar/openai"),
-      hint: "Prefer @sidecar/native for user-facing behavior and reserve @sidecar/openai for typed metadata or explicit ChatGPT-only code paths.",
+      ...locate(source, "@sidecar-ai/openai"),
+      hint: "Prefer @sidecar-ai/native for user-facing behavior and reserve @sidecar-ai/openai for typed metadata or explicit ChatGPT-only code paths.",
     });
   }
 
-  if (entry.widget?.variant !== "openai" && /@sidecar\/openai\/components/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_COMPONENT_CROSS_HOST")) {
+  if (entry.widget?.variant !== "openai" && /@sidecar-ai\/openai\/components/.test(source) && !isIgnored(source, "SIDECAR_OPENAI_COMPONENT_CROSS_HOST")) {
     diagnostics.push({
       severity: "warning",
       code: "SIDECAR_OPENAI_COMPONENT_CROSS_HOST",
       message: `Widget for "${entry.id}" imports ChatGPT-only components.`,
       filePath: widgetFile,
-      ...locate(source, "@sidecar/openai/components"),
-      hint: "Use @sidecar/native for portable primitives. Keep @sidecar/openai/components for widgets intentionally targeted to ChatGPT.",
+      ...locate(source, "@sidecar-ai/openai/components"),
+      hint: "Use @sidecar-ai/native for portable primitives. Keep @sidecar-ai/openai/components for widgets intentionally targeted to ChatGPT.",
     });
   }
 
-  if (/@sidecar\/openai\/components/.test(source) && !hasOpenAiAppsSdkUi && !isIgnored(source, "SIDECAR_OPENAI_UI_SDK_MISSING")) {
+  if (/@sidecar-ai\/openai\/components/.test(source) && !hasOpenAiAppsSdkUi && !isIgnored(source, "SIDECAR_OPENAI_UI_SDK_MISSING")) {
     diagnostics.push({
       severity: "error",
       code: "SIDECAR_OPENAI_UI_SDK_MISSING",
-      message: `Widget for "${entry.id}" imports @sidecar/openai/components but @openai/apps-sdk-ui is not installed.`,
+      message: `Widget for "${entry.id}" imports @sidecar-ai/openai/components but @openai/apps-sdk-ui is not installed.`,
       filePath: widgetFile,
-      ...locate(source, "@sidecar/openai/components"),
+      ...locate(source, "@sidecar-ai/openai/components"),
       hint: "Install it with: npm install @openai/apps-sdk-ui",
     });
   }
 
-  if (entry.widget?.variant !== "anthropic" && /@sidecar\/anthropic\/components/.test(source) && !isIgnored(source, "SIDECAR_ANTHROPIC_COMPONENT_CROSS_HOST")) {
+  if (entry.widget?.variant !== "anthropic" && /@sidecar-ai\/anthropic\/components/.test(source) && !isIgnored(source, "SIDECAR_ANTHROPIC_COMPONENT_CROSS_HOST")) {
     diagnostics.push({
       severity: "warning",
       code: "SIDECAR_ANTHROPIC_COMPONENT_CROSS_HOST",
       message: `Widget for "${entry.id}" imports Claude-only components.`,
       filePath: widgetFile,
-      ...locate(source, "@sidecar/anthropic/components"),
-      hint: "Use @sidecar/native for portable primitives. Keep @sidecar/anthropic/components for widgets intentionally targeted to Claude.",
+      ...locate(source, "@sidecar-ai/anthropic/components"),
+      hint: "Use @sidecar-ai/native for portable primitives. Keep @sidecar-ai/anthropic/components for widgets intentionally targeted to Claude.",
     });
   }
 
-  if (/\bPopover\b/.test(source) && /@sidecar\/native/.test(source) && !isIgnored(source, "SIDECAR_NATIVE_NON_PORTABLE_COMPONENT")) {
+  if (/\bPopover\b/.test(source) && /@sidecar-ai\/native/.test(source) && !isIgnored(source, "SIDECAR_NATIVE_NON_PORTABLE_COMPONENT")) {
     diagnostics.push({
       severity: "warning",
       code: "SIDECAR_NATIVE_NON_PORTABLE_COMPONENT",
       message: `Widget for "${entry.id}" appears to expect a native Popover.`,
       filePath: widgetFile,
       ...locate(source, "Popover"),
-      hint: "Popover is host-specific because Claude inline apps discourage clipped overlay UI. Use @sidecar/openai/components for ChatGPT-only popovers.",
+      hint: "Popover is host-specific because Claude inline apps discourage clipped overlay UI. Use @sidecar-ai/openai/components for ChatGPT-only popovers.",
     });
   }
 

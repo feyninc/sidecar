@@ -11,8 +11,8 @@ import {
   tool,
   toolResult,
   type ToolContext,
-} from "@sidecar/core";
-import { auth, scope, type AuthSession } from "@sidecar/auth";
+} from "sidecar-ai";
+import { auth, scope, type AuthSession } from "sidecar-ai";
 import { createSidecarHttpServer, createSidecarMcpServer } from "../src/index.js";
 
 describe("SidecarMcpServer", () => {

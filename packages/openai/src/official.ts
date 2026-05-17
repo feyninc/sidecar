@@ -1,2 +1,2 @@
-/** Backward-compatible alias for `@sidecar/openai/components`. */
+/** Backward-compatible alias for `@sidecar-ai/openai/components`. */
 export * from "./components.js";

@@ -1,6 +1,6 @@
 /** Example React widget rendered for the sibling Add Numbers tool. */
-import { useToolResult, widget } from "@sidecar/react";
-import { Button } from "@sidecar/native/components";
+import { useToolResult, widget } from "@sidecar-ai/react";
+import { Button } from "@sidecar-ai/native/components";
 
 type Result = {
   sum: number;

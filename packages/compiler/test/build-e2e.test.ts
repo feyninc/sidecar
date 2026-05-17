@@ -121,7 +121,7 @@ describe("buildProject E2E artifacts", () => {
       await mkdir(path.join(rootDir, "commands", "danger"), { recursive: true });
       await writeFile(
         path.join(rootDir, "commands", "danger", "command.ts"),
-        `import { command } from "@sidecar/anthropic";
+        `import { command } from "@sidecar-ai/anthropic";
 
 export default command({
   name: "../release:notes",
@@ -134,7 +134,7 @@ export default command({
       await mkdir(path.join(rootDir, "agents", "danger"), { recursive: true });
       await writeFile(
         path.join(rootDir, "agents", "danger", "agent.ts"),
-        `import { agent } from "@sidecar/anthropic";
+        `import { agent } from "@sidecar-ai/anthropic";
 
 export default agent({
   name: "../review-agent",

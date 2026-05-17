@@ -4,7 +4,7 @@
  * APIs in this package use the standard MCP Apps host bridge at runtime and
  * return typed unsupported/denied/failed results when a capability is absent.
  */
-import { browserBridge, detectHostContext as detectSidecarHostContext } from "@sidecar/client";
+import { browserBridge, detectHostContext as detectSidecarHostContext } from "@sidecar-ai/client";
 
 export {
   Alert,

@@ -2,7 +2,7 @@
  * Official ChatGPT Apps SDK UI components.
  *
  * This subpath intentionally re-exports OpenAI's MIT-licensed Apps SDK UI
- * package instead of reconstructing it. Use `@sidecar/native` when code needs
+ * package instead of reconstructing it. Use `@sidecar-ai/native` when code needs
  * portable host-adaptive primitives.
  */
 import "@openai/apps-sdk-ui/css";

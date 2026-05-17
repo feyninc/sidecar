@@ -1,5 +1,5 @@
 /** Example MCP prompt template exposed by the sample app. */
-import { prompt } from "@sidecar/core";
+import { prompt } from "sidecar-ai";
 
 export default prompt({
   title: "Review Expense",

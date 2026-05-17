@@ -136,7 +136,7 @@ describe("analyzeProjectTools", () => {
     try {
       await writeFixture(
         path.join(rootDir, "server", "raw-openai", "tool.ts"),
-        `import { tool, toolResult } from "@sidecar/core";
+        `import { tool, toolResult } from "sidecar-ai";
 
 type Params = {
   q: string;
@@ -164,7 +164,7 @@ export default tool({
       );
       await writeFixture(
         path.join(rootDir, "server", "plain-return", "tool.ts"),
-        `import { tool } from "@sidecar/core";
+        `import { tool } from "sidecar-ai";
 
 export default tool({
   name: "Plain Return",
@@ -214,7 +214,7 @@ export default tool({
     try {
       await writeFixture(
         path.join(rootDir, "resources", "plain", "resource.ts"),
-        `import { resource } from "@sidecar/core";
+        `import { resource } from "sidecar-ai";
 
 export default resource({
   name: "Plain Resource",
@@ -245,7 +245,7 @@ export default resource({
     try {
       await writeFixture(
         path.join(rootDir, "sidecar.config.ts"),
-        `import { defineConfig } from "@sidecar/core";
+        `import { defineConfig } from "sidecar-ai";
 
 export default defineConfig({
   name: "Subscribe Fixture",
@@ -256,7 +256,7 @@ export default defineConfig({
       );
       await writeFixture(
         path.join(rootDir, "resources", "live", "resource.ts"),
-        `import { resource, resourceResult } from "@sidecar/core";
+        `import { resource, resourceResult } from "sidecar-ai";
 
 export default resource({
   name: "Live Resource",
@@ -290,7 +290,7 @@ export default resource({
     try {
       await writeFixture(
         path.join(rootDir, "server", "folder-id", "tool.ts"),
-        `import { tool, toolResult } from "@sidecar/core";
+        `import { tool, toolResult } from "sidecar-ai";
 
 const declaredTool = tool({
   name: "Folder Named Tool",
@@ -313,7 +313,7 @@ export default declaredTool;
       );
       await writeFixture(
         path.join(rootDir, "server", "folder-id", "widget.tsx"),
-        `import { widget } from "@sidecar/react";
+        `import { widget } from "@sidecar-ai/react";
 
 function Widget() {
   return null;
@@ -415,7 +415,7 @@ export default declaredWidget;
     try {
       await writeFixture(
         path.join(rootDir, "server", "component-test", "tool.ts"),
-        `import { tool, toolResult } from "@sidecar/core";
+        `import { tool, toolResult } from "sidecar-ai";
 
 export default tool({
   name: "Component Test",
@@ -431,7 +431,7 @@ export default tool({
       );
       await writeFixture(
         path.join(rootDir, "server", "component-test", "widget.tsx"),
-        `import { Popover } from "@sidecar/openai/components";
+        `import { Popover } from "@sidecar-ai/openai/components";
 
 export default function Widget() {
   return <Popover trigger="More">OpenAI only</Popover>;
@@ -456,7 +456,7 @@ export default function Widget() {
     try {
       await writeFixture(
         path.join(rootDir, "server", "demo", "tool.ts"),
-        `import { tool, toolResult } from "@sidecar/core";
+        `import { tool, toolResult } from "sidecar-ai";
 
 export default tool({
   name: "Demo Tool",
@@ -472,7 +472,7 @@ export default tool({
       );
       await writeFixture(
         path.join(rootDir, "server", "demo", "tool.openai.ts"),
-        `import { tool, toolResult } from "@sidecar/core";
+        `import { tool, toolResult } from "sidecar-ai";
 
 export default tool({
   name: "Demo Tool",
@@ -495,7 +495,7 @@ export default tool({
       );
       await writeFixture(
         path.join(rootDir, "server", "demo", "widget.openai.tsx"),
-        `import { Button } from "@sidecar/openai/components";
+        `import { Button } from "@sidecar-ai/openai/components";
 
 export default function Widget() {
   return <Button>openai</Button>;
@@ -545,7 +545,7 @@ async function writeFixture(filePath: string, contents: string): Promise<void> {
 
 /** Creates a minimal tool fixture with optional visibility metadata. */
 function visibilityFixture(name: string, visibility: string): string {
-  return `import { tool, toolResult } from "@sidecar/core";
+  return `import { tool, toolResult } from "sidecar-ai";
 
 export default tool({
   name: ${JSON.stringify(name)},

@@ -1,10 +1,10 @@
 /**
  * Claude-pinned React components.
  *
- * Shared primitives use the same Claude recipe that `@sidecar/native` selects
+ * Shared primitives use the same Claude recipe that `@sidecar-ai/native` selects
  * at runtime inside Claude MCP Apps. Claude-specific helpers live beside them.
  */
-import { createPrimitiveComponents } from "@sidecar/native/components";
+import { createPrimitiveComponents } from "@sidecar-ai/native/components";
 import type { HTMLAttributes, ReactNode } from "react";
 
 export type {
@@ -71,7 +71,7 @@ export type {
   TextProps,
   Variant,
   Variants,
-} from "@sidecar/native/components";
+} from "@sidecar-ai/native/components";
 
 const primitives = createPrimitiveComponents("claude");
 

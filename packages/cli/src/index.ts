@@ -13,7 +13,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { cwd, exit, stdin, stdout } from "node:process";
 import { tsImport } from "tsx/esm/api";
-import { isSidecarAuth, type SidecarAuth } from "@sidecar/auth";
+import { isSidecarAuth, type SidecarAuth } from "@sidecar-ai/auth";
 import {
   analyzeProjectTools,
   analyzeProjectConfig,
@@ -25,9 +25,9 @@ import {
   type SidecarDiagnostic,
   type SidecarManifest,
   type SidecarTarget,
-} from "@sidecar/compiler";
-import { isSidecarPrompt, isSidecarResource, isSidecarTool, MCP_APP_RESOURCE_MIME_TYPE, type SidecarConfig } from "@sidecar/core";
-import { createSidecarHttpServer, isSidecarProxy, type LoadedPrompt, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar/server";
+} from "@sidecar-ai/compiler";
+import { isSidecarPrompt, isSidecarResource, isSidecarTool, MCP_APP_RESOURCE_MIME_TYPE, type SidecarConfig } from "@sidecar-ai/core";
+import { createSidecarHttpServer, isSidecarProxy, type LoadedPrompt, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar-ai/server";
 import { startTunnel, type TunnelProvider, type TunnelSession } from "./tunnel.js";
 
 type Command = "build" | "check" | "dev" | "inspect" | "preview" | "help";
@@ -718,7 +718,7 @@ async function loadRuntimeAuth(rootDir: string): Promise<SidecarAuth | undefined
   })) as { default?: unknown };
 
   if (!isSidecarAuth(module.default)) {
-    throw new Error("auth.ts must default-export auth({ ... }) from @sidecar/auth.");
+    throw new Error("auth.ts must default-export auth({ ... }) from sidecar-ai.");
   }
 
   return module.default;
@@ -740,7 +740,7 @@ async function loadRuntimeProxy(rootDir: string): Promise<SidecarProxy | undefin
   })) as { default?: unknown };
 
   if (!isSidecarProxy(module.default)) {
-    throw new Error("proxy.ts must default-export proxy({ ... }) from @sidecar/server/proxy.");
+    throw new Error("proxy.ts must default-export proxy({ ... }) from @sidecar-ai/server/proxy.");
   }
 
   return module.default;
@@ -762,7 +762,7 @@ async function loadRuntimeConfig(rootDir: string): Promise<SidecarConfig | undef
   })) as { default?: unknown };
 
   if (!module.default || typeof module.default !== "object") {
-    throw new Error("sidecar.config.ts must default-export defineConfig({ ... }) from @sidecar/core.");
+    throw new Error("sidecar.config.ts must default-export defineConfig({ ... }) from sidecar-ai.");
   }
 
   return module.default as SidecarConfig;

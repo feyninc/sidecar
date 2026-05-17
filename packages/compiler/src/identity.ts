@@ -1,7 +1,7 @@
 /** Project identity loading for generated manifests and plugin packages. */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { toMachineName } from "@sidecar/core";
+import { toMachineName } from "@sidecar-ai/core";
 import type { ProjectIdentity } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
 
