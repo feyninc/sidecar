@@ -27,11 +27,25 @@ For each package, go to Settings -> Trusted publishing and add:
 - Organization or user: `chonkie-inc`
 - Repository: `sidecar`
 - Workflow filename: `release.yml`
-- Environment name: leave blank
+- Environment name: `npm-publish`
 
 npm requires this package-level allowlist before GitHub Actions can publish with
 OIDC. The workflow will fail at the publish step until every package being
 released has this trusted publisher configured.
+
+## GitHub Release Protection
+
+The release workflow publishes through the `npm-publish` GitHub Environment. In
+the repository settings, configure that environment with:
+
+- Required reviewers: a Chonkie-owned team that is allowed to publish packages
+- Prevent self-review: enabled
+- Deployment branches and tags: selected tags matching `v*`
+
+GitHub does not expose a workflow-level "any organization member" publisher
+switch. Use a team such as `@chonkie-inc/npm-publishers` or
+`@chonkie-inc/maintainers` as the explicit allowlist. Avoid granting release
+approval to outside collaborators.
 
 ## Cutting a Release
 
