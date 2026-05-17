@@ -10,7 +10,8 @@
     "build": "tsup --config tsup.config.ts && node scripts/sync-package-dist.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "release:publish": "node scripts/publish-packages.mjs"
   },
   "devDependencies": {
     "@openai/apps-sdk-ui": "^0.2.2",
@@ -30,5 +31,9 @@
     "typescript": "^5.9.0",
     "vitest": "^3.2.0",
     "zod": "^4.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chonkie-inc/sidecar.git"
   }
 }

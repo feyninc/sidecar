@@ -21,5 +21,10 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chonkie-inc/sidecar.git",
+    "directory": "packages/react"
   }
 }
