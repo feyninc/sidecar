@@ -45,6 +45,13 @@ describe("buildProject E2E artifacts", () => {
       expect(mcpWidget?.resourceUri).toMatch(/^ui:\/\/add-numbers\/widget\.[a-f0-9]{12}\.html$/);
       expect(chatgptWidget?.resourceUri).toMatch(/^ui:\/\/add-numbers\/widget\.[a-f0-9]{12}\.html$/);
       expect(claudeWidget?.resourceUri).toMatch(/^ui:\/\/add-numbers\/widget\.[a-f0-9]{12}\.html$/);
+      expect(claudeWidget?.resourceMeta).toMatchObject({
+        ui: {
+          csp: {
+            resourceDomains: ["https://assets.claude.ai"],
+          },
+        },
+      });
 
       expect(mcpManifest.tools.find((tool) => tool.id === "add-numbers")?.descriptor._meta)
         .not.toHaveProperty("openai/outputTemplate");
@@ -93,6 +100,66 @@ describe("buildProject E2E artifacts", () => {
       expect(firstUri).toMatch(/^ui:\/\/add-numbers\/widget\.[a-f0-9]{12}\.html$/);
       expect(secondUri).toMatch(/^ui:\/\/add-numbers\/widget\.[a-f0-9]{12}\.html$/);
       expect(secondUri).not.toBe(firstUri);
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("builds the Notion example with authenticated tools and native widgets", async () => {
+    const rootDir = await copyExampleFixture("notion", "sidecar-e2e-notion-");
+
+    try {
+      const mcp = await buildProject({ rootDir, outDir: "out/mcp", target: "mcp" });
+      const claude = await buildProject({ rootDir, outDir: "out/claude", target: "claude", plugins: true });
+
+      expect(mcp.tools).toHaveLength(18);
+      expect(mcp.tools.map((tool) => tool.id).sort()).toEqual([
+        "notion-create-comment",
+        "notion-create-database",
+        "notion-create-pages",
+        "notion-create-view",
+        "notion-duplicate-page",
+        "notion-fetch",
+        "notion-get-comments",
+        "notion-get-self",
+        "notion-get-teams",
+        "notion-get-user",
+        "notion-get-users",
+        "notion-move-pages",
+        "notion-query-data-sources",
+        "notion-query-database-view",
+        "notion-search",
+        "notion-update-data-source",
+        "notion-update-page",
+        "notion-update-view",
+      ]);
+      expect(mcp.tools.every((tool) => tool.widget)).toBe(true);
+      expect(mcp.tools.every((tool) =>
+        tool.descriptor.securitySchemes?.some((scheme) => scheme.type === "oauth2"),
+      )).toBe(true);
+
+      const search = mcp.tools.find((tool) => tool.id === "notion-search");
+      const update = mcp.tools.find((tool) => tool.id === "notion-update-page");
+      expect(search?.descriptor.description).toContain("Use this when");
+      expect(update?.descriptor.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+      });
+
+      const widgetHtml = await readFile(path.join(rootDir, "out/mcp", update?.widget?.outputFile ?? ""), "utf8");
+      expect(widgetHtml).toContain("notion-document-peek");
+      expect(widgetHtml).toContain("SidecarWidgetRoot");
+
+      expect(claude.tools.find((tool) => tool.id === "notion-search")?.widget?.resourceMeta)
+        .toMatchObject({
+          ui: {
+            csp: {
+              resourceDomains: ["https://assets.claude.ai"],
+            },
+          },
+        });
+      await expect(readFile(path.join(rootDir, "out/claude-plugin/.mcp.json"), "utf8"))
+        .resolves.toContain("\"url\": \"${SIDECAR_MCP_URL}\"");
     } finally {
       await rm(rootDir, { recursive: true, force: true });
     }
@@ -163,7 +230,12 @@ export default agent({
 
 /** Copies the sample app into a temporary directory so builds can mutate it. */
 async function copySimpleFixture(prefix: string): Promise<string> {
-  const fixture = path.resolve(import.meta.dirname, "../../../examples/simple");
+  return copyExampleFixture("simple", prefix);
+}
+
+/** Copies an example app into a temporary directory so builds can mutate it. */
+async function copyExampleFixture(exampleName: string, prefix: string): Promise<string> {
+  const fixture = path.resolve(import.meta.dirname, "../../../examples", exampleName);
   const rootDir = await mkdtemp(path.join(tmpdir(), prefix));
   await cp(fixture, rootDir, { recursive: true });
   return rootDir;

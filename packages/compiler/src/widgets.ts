@@ -17,6 +17,8 @@ import { CompilerError } from "./errors.js";
 import type { SidecarSourceVariant, SidecarTarget, SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
 import { escapeHtml, safePathSegment, toImportSpecifier } from "./utils.js";
 
+const CLAUDE_FONT_RESOURCE_DOMAIN = "https://assets.claude.ai";
+
 /** Bundles every discovered `widget.tsx` into a content-hashed HTML resource. */
 export async function buildWidgets(
   rootDir: string,
@@ -268,7 +270,7 @@ export function widgetResourceMeta(
 ): Record<string, unknown> | undefined {
   const csp = stripUndefined({
     connectDomains: options.csp?.connectDomains ? [...options.csp.connectDomains] : [],
-    resourceDomains: options.csp?.resourceDomains ? [...options.csp.resourceDomains] : [],
+    resourceDomains: widgetResourceDomains(options, target),
     frameDomains: options.csp?.frameDomains ? [...options.csp.frameDomains] : undefined,
     baseUriDomains: options.csp?.baseUriDomains ? [...options.csp.baseUriDomains] : undefined,
   });
@@ -281,6 +283,18 @@ export function widgetResourceMeta(
   });
 
   return Object.keys(ui).length ? { ui } : undefined;
+}
+
+/** Adds Claude's documented font origin when building Claude-targeted widgets. */
+function widgetResourceDomains(
+  options: ToolWidgetOptions,
+  target: SidecarTarget,
+): string[] {
+  const domains = [...(options.csp?.resourceDomains ?? [])];
+  if (target === "claude" && !domains.includes(CLAUDE_FONT_RESOURCE_DOMAIN)) {
+    domains.push(CLAUDE_FONT_RESOURCE_DOMAIN);
+  }
+  return domains;
 }
 
 /** Locates the default-exported widget helper call when a widget uses one. */

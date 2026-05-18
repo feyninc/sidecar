@@ -769,7 +769,12 @@ export function tool<Params, Output, Auth = unknown>(
 
 /** Returns true when a value was produced by `tool()`. */
 export function isSidecarTool(value: unknown): value is SidecarTool {
-  return Boolean(value && typeof value === "object" && (value as Record<symbol, unknown>)[toolBrand]);
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      ((value as Record<symbol, unknown>)[toolBrand] ||
+        (value as { kind?: unknown }).kind === "sidecar.tool"),
+  );
 }
 
 /**
@@ -797,7 +802,12 @@ export function resource<Auth = unknown, Services = unknown>(
 
 /** Returns true when a value was produced by `resource()`. */
 export function isSidecarResource(value: unknown): value is SidecarResource {
-  return Boolean(value && typeof value === "object" && (value as Record<symbol, unknown>)[resourceBrand]);
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      ((value as Record<symbol, unknown>)[resourceBrand] ||
+        (value as { kind?: unknown }).kind === "sidecar.resource"),
+  );
 }
 
 /**
@@ -822,7 +832,12 @@ export function prompt<Args extends Record<string, unknown> = Record<string, unk
 
 /** Returns true when a value was produced by `prompt()`. */
 export function isSidecarPrompt(value: unknown): value is SidecarPrompt {
-  return Boolean(value && typeof value === "object" && (value as Record<symbol, unknown>)[promptBrand]);
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      ((value as Record<symbol, unknown>)[promptBrand] ||
+        (value as { kind?: unknown }).kind === "sidecar.prompt"),
+  );
 }
 
 /** Declares a generated skill that can be emitted as `SKILL.md`. */

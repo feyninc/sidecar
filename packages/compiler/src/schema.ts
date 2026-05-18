@@ -197,15 +197,26 @@ function typeToJsonSchemaInner(type: Type): JsonSchema {
   }
 
   const properties = type.getProperties();
+  const indexType = type.getStringIndexType() ?? type.getNumberIndexType();
   if (properties.length > 0) {
-    return objectTypeToSchema(properties);
+    return objectTypeToSchema(properties, indexType);
+  }
+
+  if (indexType) {
+    return {
+      type: "object",
+      additionalProperties: indexTypeToAdditionalProperties(indexType),
+    };
   }
 
   return {};
 }
 
 /** Converts object properties into JSON Schema properties and required lists. */
-function objectTypeToSchema(properties: MorphSymbol[]): JsonSchema {
+function objectTypeToSchema(
+  properties: MorphSymbol[],
+  indexType: Type | undefined,
+): JsonSchema {
   const schemaProperties: Record<string, JsonSchema> = {};
   const required: string[] = [];
 
@@ -234,8 +245,20 @@ function objectTypeToSchema(properties: MorphSymbol[]): JsonSchema {
     type: "object",
     properties: schemaProperties,
     required,
-    additionalProperties: false,
+    additionalProperties: indexType
+      ? indexTypeToAdditionalProperties(indexType)
+      : false,
   };
+}
+
+/** Converts a TypeScript index signature into JSON Schema additionalProperties. */
+function indexTypeToAdditionalProperties(type: Type): boolean | JsonSchema {
+  if (type.isAny() || type.isUnknown()) {
+    return true;
+  }
+
+  const schema = typeToJsonSchema(type);
+  return Object.keys(schema).length ? schema : true;
 }
 
 /** Returns a literal const schema when possible, otherwise a primitive schema. */

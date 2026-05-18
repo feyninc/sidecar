@@ -1,6 +1,17 @@
 /** Tests for framework-agnostic widget client helpers. */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createToolClient, detectHostContext, type WidgetBridge } from "../src/index.js";
+
+const originalWindow = globalThis.window;
+const originalDocument = globalThis.document;
+const originalGetComputedStyle = globalThis.getComputedStyle;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  setGlobal("window", originalWindow);
+  setGlobal("document", originalDocument);
+  setGlobal("getComputedStyle", originalGetComputedStyle);
+});
 
 describe("createToolClient", () => {
   it("turns typed methods into bridge tool calls", async () => {
@@ -51,4 +62,35 @@ describe("detectHostContext", () => {
       source: "fallback"
     });
   });
+
+  it("detects Claude from documented host style variables", () => {
+    setGlobal("window", {
+      matchMedia() {
+        return {
+          matches: false,
+          addEventListener() {},
+          removeEventListener() {},
+        };
+      },
+    });
+    setGlobal("document", { documentElement: {} });
+    setGlobal("getComputedStyle", () => ({
+      getPropertyValue(name: string) {
+        return name === "--font-sans" ? "Anthropic Sans, sans-serif" : "";
+      },
+    }));
+
+    expect(detectHostContext()).toMatchObject({
+      name: "claude",
+      source: "claude-css",
+    });
+  });
 });
+
+function setGlobal(key: "window" | "document" | "getComputedStyle", value: unknown): void {
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    value,
+    writable: true,
+  });
+}

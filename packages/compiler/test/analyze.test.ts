@@ -73,6 +73,58 @@ describe("analyzeProjectTools", () => {
     });
   });
 
+  it("emits JSON object schemas for TypeScript record parameters", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-record-schema-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "server", "record-tool", "tool.ts"),
+        `import { tool, toolResult } from "sidecar-ai";
+
+type Params = {
+  /** Arbitrary JSON object keyed by provider property name. */
+  properties?: Record<string, unknown>;
+  /** Arbitrary string map. */
+  labels?: Record<string, string>;
+};
+
+export default tool({
+  name: "Record Tool",
+  description: "Use this when testing record schema inference.",
+  execute(params: Params) {
+    return toolResult({
+      structuredContent: params,
+      content: "ok"
+    });
+  }
+});
+`,
+      );
+
+      const [entry] = await analyzeProjectTools(rootDir);
+
+      expect(entry?.inputSchema).toMatchObject({
+        type: "object",
+        properties: {
+          properties: {
+            type: "object",
+            description: "Arbitrary JSON object keyed by provider property name.",
+            additionalProperties: true,
+          },
+          labels: {
+            type: "object",
+            description: "Arbitrary string map.",
+            additionalProperties: { type: "string" },
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      });
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("builds widget resources, generated clients, and plugin packages", async () => {
     const fixture = path.resolve(import.meta.dirname, "../../../examples/simple");
     const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-simple-"));

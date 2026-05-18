@@ -35,6 +35,12 @@ describe("MCP Apps bridge", () => {
       theme: "dark",
       source: "mcp-apps",
     });
+    const document = globalThis.document as unknown as FakeDocument;
+    expect(document.documentElement.attributes["data-theme"]).toBe("dark");
+    expect(document.documentElement.style.properties["--font-sans"])
+      .toBe("Anthropic Sans, sans-serif");
+    expect(document.head.children[0]?.textContent)
+      .toContain("Anthropic Sans");
   });
 
   it("updates subscribers from ui/notifications/tool-result", async () => {
@@ -237,7 +243,7 @@ function installFakeHost() {
   };
 
   setGlobal("window", fakeWindow);
-  setGlobal("document", { documentElement: {}, body: {} });
+  setGlobal("document", createFakeDocument());
   setGlobal("getComputedStyle", () => ({ getPropertyValue: () => "" }));
 
   function respond(message: JsonRpcMessage) {
@@ -266,6 +272,15 @@ function installFakeHost() {
             theme: "dark",
             userAgent: "claude-desktop",
             availableDisplayModes: ["inline", "fullscreen"],
+            styles: {
+              variables: {
+                "--font-sans": "Anthropic Sans, sans-serif",
+                "--color-text-primary": "#faf9f5",
+              },
+              css: {
+                fonts: '@font-face { font-family: "Anthropic Sans"; src: url("https://assets.claude.ai/anthropic-sans.woff2"); }',
+              },
+            },
           },
         },
       });
@@ -341,6 +356,67 @@ function installFakeHost() {
       });
     },
   };
+}
+
+type FakeElement = {
+  attributes: Record<string, string>;
+  children: FakeElement[];
+  id?: string;
+  style: {
+    colorScheme?: string;
+    properties: Record<string, string>;
+    setProperty(name: string, value: string): void;
+  };
+  textContent?: string;
+  appendChild(child: FakeElement): void;
+  setAttribute(name: string, value: string): void;
+};
+
+type FakeDocument = {
+  body: FakeElement;
+  documentElement: FakeElement;
+  head: FakeElement;
+  createElement(tagName: string): FakeElement;
+  getElementById(id: string): FakeElement | undefined;
+};
+
+function createFakeDocument(): FakeDocument {
+  const elements = new Map<string, FakeElement>();
+  const document: FakeDocument = {
+    body: createFakeElement(elements),
+    documentElement: createFakeElement(elements),
+    head: createFakeElement(elements),
+    createElement() {
+      return createFakeElement(elements);
+    },
+    getElementById(id: string) {
+      return elements.get(id);
+    },
+  };
+  return document;
+}
+
+function createFakeElement(elements: Map<string, FakeElement>): FakeElement {
+  const element: FakeElement = {
+    attributes: {},
+    children: [],
+    style: {
+      properties: {},
+      setProperty(name: string, value: string) {
+        this.properties[name] = value;
+      },
+    },
+    appendChild(child: FakeElement) {
+      this.children.push(child);
+      if (child.id) {
+        elements.set(child.id, child);
+      }
+    },
+    setAttribute(name: string, value: string) {
+      this.attributes[name] = value;
+    },
+  };
+  return element;
 }
 
 function setGlobal(name: "window" | "document" | "getComputedStyle", value: unknown): void {

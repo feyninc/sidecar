@@ -39,7 +39,8 @@ export function isSidecarProxy(value: unknown): value is SidecarProxy {
   return Boolean(
     value &&
       typeof value === "object" &&
-      (value as Record<symbol, unknown>)[proxyBrand] === true,
+      ((value as Record<symbol, unknown>)[proxyBrand] === true ||
+        (value as { kind?: unknown }).kind === "sidecar.proxy"),
   );
 }
 

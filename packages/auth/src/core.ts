@@ -238,8 +238,9 @@ export function auth<
 export function isSidecarAuth(value: unknown): value is SidecarAuth {
   return Boolean(
     value &&
-    typeof value === "object" &&
-    (value as Record<symbol, unknown>)[authBrand],
+      typeof value === "object" &&
+      ((value as Record<symbol, unknown>)[authBrand] ||
+        (value as { kind?: unknown }).kind === "sidecar.auth"),
   );
 }
 

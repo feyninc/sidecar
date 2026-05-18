@@ -25,6 +25,7 @@ import {
   type SidecarDiagnostic,
   type SidecarManifest,
   type SidecarTarget,
+  type SidecarToolManifestEntry,
 } from "@sidecar-ai/compiler";
 import { isSidecarPrompt, isSidecarResource, isSidecarTool, MCP_APP_RESOURCE_MIME_TYPE, type SidecarConfig } from "@sidecar-ai/core";
 import { createSidecarHttpServer, isSidecarProxy, type LoadedPrompt, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar-ai/server";
@@ -86,19 +87,21 @@ export async function main(argv: string[]): Promise<void> {
       const target = readTarget(argv);
       const tunnelProvider = readTunnelProvider(argv);
       const outDir = `.sidecar/dev/${target}`;
+      const loadedAuth = await loadRuntimeAuth(rootDir);
+      const runtimeConfig = await loadRuntimeConfig(rootDir);
+      const proxy = await loadRuntimeProxy(rootDir);
+      const runtimeToolEntries = await analyzeProjectTools(rootDir, { target });
+      const runtimeTools = await loadRuntimeTools(rootDir, runtimeToolEntries);
       const manifest = await buildProject({ rootDir, outDir, target });
       printDiagnostics(manifest.diagnostics ?? []);
-      const tools = await loadRuntimeTools(rootDir, manifest);
+      const tools = attachBuiltToolDescriptors(runtimeTools, manifest);
       let tunnel: TunnelSession | undefined;
       if (tunnelProvider) {
         tunnel = await startTunnel({ provider: tunnelProvider, port, path: "/mcp" });
         process.env.SIDECAR_MCP_URL = tunnel.mcpUrl;
       }
 
-      const loadedAuth = await loadRuntimeAuth(rootDir);
-      const runtimeConfig = await loadRuntimeConfig(rootDir);
       const auth = loadedAuth && tunnel ? loadedAuth.withResource(tunnel.mcpUrl) : loadedAuth;
-      const proxy = await loadRuntimeProxy(rootDir);
       const resources = await loadResources(rootDir, outDir, manifest);
       const prompts = await loadRuntimePrompts(rootDir, manifest);
       const server = createSidecarHttpServer({
@@ -717,11 +720,12 @@ async function loadRuntimeAuth(rootDir: string): Promise<SidecarAuth | undefined
     tsconfig
   })) as { default?: unknown };
 
-  if (!isSidecarAuth(module.default)) {
+  const defaultExport = unwrapRuntimeDefault(module.default);
+  if (!isSidecarAuth(defaultExport)) {
     throw new Error("auth.ts must default-export auth({ ... }) from sidecar-ai.");
   }
 
-  return module.default;
+  return defaultExport;
 }
 
 /** Loads `proxy.ts` at runtime for the dev server when present. */
@@ -739,11 +743,12 @@ async function loadRuntimeProxy(rootDir: string): Promise<SidecarProxy | undefin
     tsconfig
   })) as { default?: unknown };
 
-  if (!isSidecarProxy(module.default)) {
+  const defaultExport = unwrapRuntimeDefault(module.default);
+  if (!isSidecarProxy(defaultExport)) {
     throw new Error("proxy.ts must default-export proxy({ ... }) from @sidecar-ai/server/proxy.");
   }
 
-  return module.default;
+  return defaultExport;
 }
 
 /** Loads `sidecar.config.ts` at runtime so dev can honor function overrides. */
@@ -761,38 +766,58 @@ async function loadRuntimeConfig(rootDir: string): Promise<SidecarConfig | undef
     tsconfig
   })) as { default?: unknown };
 
-  if (!module.default || typeof module.default !== "object") {
+  const defaultExport = unwrapRuntimeDefault(module.default);
+  if (!defaultExport || typeof defaultExport !== "object") {
     throw new Error("sidecar.config.ts must default-export defineConfig({ ... }) from sidecar-ai.");
   }
 
-  return module.default as SidecarConfig;
+  return defaultExport as SidecarConfig;
 }
 
 /** Imports built-time discovered tools for the dev server. */
-async function loadRuntimeTools(rootDir: string, manifest: SidecarManifest): Promise<LoadedTool[]> {
+async function loadRuntimeTools(
+  rootDir: string,
+  entries: SidecarToolManifestEntry[],
+): Promise<Array<LoadedTool & { sourceFile: string }>> {
   const parentURL = pathToFileURL(path.join(rootDir, "sidecar.config.ts")).href;
   const tsconfigPath = path.join(rootDir, "tsconfig.json");
   const tsconfig = existsSync(tsconfigPath) ? tsconfigPath : false;
-  const loaded: LoadedTool[] = [];
+  const loaded: Array<LoadedTool & { sourceFile: string }> = [];
 
-  for (const entry of manifest.tools) {
+  for (const entry of entries) {
     const sourcePath = path.join(rootDir, entry.sourceFile);
     const module = (await tsImport(pathToFileURL(sourcePath).href, {
       parentURL,
       tsconfig
     })) as { default?: unknown };
 
-    if (!isSidecarTool(module.default)) {
+    const defaultExport = unwrapRuntimeDefault(module.default);
+    if (!isSidecarTool(defaultExport)) {
       throw new Error(`${entry.sourceFile} did not default-export a Sidecar tool.`);
     }
 
     loaded.push({
-      tool: module.default,
+      sourceFile: entry.sourceFile,
+      tool: defaultExport,
       descriptor: entry.descriptor
     });
   }
 
   return loaded;
+}
+
+/** Reuses already-imported tool modules with descriptors updated by widget bundling. */
+function attachBuiltToolDescriptors(
+  loadedTools: Array<LoadedTool & { sourceFile: string }>,
+  manifest: SidecarManifest,
+): LoadedTool[] {
+  const descriptorsBySource = new Map(
+    manifest.tools.map((entry) => [entry.sourceFile, entry.descriptor]),
+  );
+  return loadedTools.map(({ sourceFile, tool, descriptor }) => ({
+    tool,
+    descriptor: descriptorsBySource.get(sourceFile) ?? descriptor,
+  }));
 }
 
 /** Reads generated widget resources so the dev server can serve them through MCP. */
@@ -824,14 +849,15 @@ async function loadResources(rootDir: string, outDir: string, manifest: SidecarM
       tsconfig
     })) as { default?: unknown };
 
-    if (!isSidecarResource(module.default)) {
+    const defaultExport = unwrapRuntimeDefault(module.default);
+    if (!isSidecarResource(defaultExport)) {
       throw new Error(`${entry.sourceFile} did not default-export a Sidecar resource.`);
     }
 
     resources.push({
       uri: entry.uri,
       descriptor: entry.descriptor,
-      resource: module.default,
+      resource: defaultExport,
     });
   }
 
@@ -852,17 +878,31 @@ async function loadRuntimePrompts(rootDir: string, manifest: SidecarManifest): P
       tsconfig
     })) as { default?: unknown };
 
-    if (!isSidecarPrompt(module.default)) {
+    const defaultExport = unwrapRuntimeDefault(module.default);
+    if (!isSidecarPrompt(defaultExport)) {
       throw new Error(`${entry.sourceFile} did not default-export a Sidecar prompt.`);
     }
 
     loaded.push({
-      prompt: module.default,
+      prompt: defaultExport,
       descriptor: entry.descriptor,
     });
   }
 
   return loaded;
+}
+
+/** Normalizes default-export interop shapes produced by source TypeScript loaders. */
+function unwrapRuntimeDefault(value: unknown): unknown {
+  if (
+    value &&
+    typeof value === "object" &&
+    "default" in value &&
+    Object.keys(value).length === 1
+  ) {
+    return unwrapRuntimeDefault((value as { default: unknown }).default);
+  }
+  return value;
 }
 
 /** Reads a simple `--name value` option from argv. */

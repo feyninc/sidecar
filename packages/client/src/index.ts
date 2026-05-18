@@ -5,7 +5,13 @@
  * official MCP Apps iframe bridge. Platform-specific globals live in their
  * platform packages, not in this generic client.
  */
-import { App, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-with-deps";
+import {
+  App,
+  PostMessageTransport,
+  applyDocumentTheme,
+  applyHostFonts,
+  applyHostStyleVariables,
+} from "@modelcontextprotocol/ext-apps/app-with-deps";
 
 /** Standard result shape for host-only capabilities that may not exist everywhere. */
 export type HostFeatureResult<T = void> =
@@ -497,6 +503,12 @@ type McpAppsHostCapabilities = {
 
 type McpAppsHostContext = {
   theme?: "light" | "dark";
+  styles?: {
+    variables?: Record<string, string | undefined>;
+    css?: {
+      fonts?: string;
+    };
+  };
   userAgent?: string;
   displayMode?: SidecarDisplayMode;
   availableDisplayModes?: SidecarDisplayMode[];
@@ -655,7 +667,20 @@ function updateMcpHostContext(state: McpAppsState, context: McpAppsHostContext):
   state.hostContext = {
     ...(state.hostContext ?? {}),
     ...context,
+    styles: {
+      ...(state.hostContext?.styles ?? {}),
+      ...(context.styles ?? {}),
+      css: {
+        ...(state.hostContext?.styles?.css ?? {}),
+        ...(context.styles?.css ?? {}),
+      },
+      variables: {
+        ...(state.hostContext?.styles?.variables ?? {}),
+        ...(context.styles?.variables ?? {}),
+      },
+    },
   };
+  applyHostPresentation(state.hostContext);
   notifyHostContextListeners(state);
 }
 
@@ -756,13 +781,42 @@ function normalizeHostContext(
 /** Infers ChatGPT/Claude from standard host context and runtime hints. */
 function inferHostName(context: McpAppsHostContext): SidecarHostName {
   const userAgent = String(context.userAgent ?? "").toLowerCase();
-  if (userAgent.includes("claude") || looksLikeClaudeTheme()) {
+  if (userAgent.includes("claude") || contextHasClaudeStyles(context) || looksLikeClaudeTheme()) {
     return "claude";
   }
   if (userAgent.includes("chatgpt") || userAgent.includes("openai")) {
     return "chatgpt";
   }
   return "generic";
+}
+
+/** Applies host-provided MCP Apps theme variables and font faces to the widget document. */
+function applyHostPresentation(context: McpAppsHostContext): void {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  try {
+    if (context.theme) {
+      applyDocumentTheme(context.theme);
+    }
+    if (context.styles?.variables) {
+      applyHostStyleVariables(context.styles.variables);
+    }
+    if (context.styles?.css?.fonts) {
+      applyHostFonts(context.styles.css.fonts);
+    }
+  } catch {
+    // Host styling is best-effort; widget bridge behavior must keep working.
+  }
+}
+
+/** Detects Claude's documented MCP Apps style payload before it reaches the DOM. */
+function contextHasClaudeStyles(context: McpAppsHostContext): boolean {
+  const variables = context.styles?.variables;
+  const fontStack = variables?.["--font-sans"]?.toLowerCase() ?? "";
+  const fontCss = context.styles?.css?.fonts?.toLowerCase() ?? "";
+  return fontStack.includes("anthropic") || fontCss.includes("anthropic sans");
 }
 
 /** Converts a standard MCP tool result into Sidecar's hook-friendly result. */
@@ -809,7 +863,8 @@ function looksLikeClaudeTheme(): boolean {
   return Boolean(
     style.getPropertyValue("--claude-text-color").trim() ||
       style.getPropertyValue("--claude-background-color").trim() ||
-      style.getPropertyValue("--claude-border-color").trim(),
+      style.getPropertyValue("--claude-border-color").trim() ||
+      style.getPropertyValue("--font-sans").toLowerCase().includes("anthropic"),
   );
 }
 

@@ -1,0 +1,37 @@
+/*
+ * App-wide widget CSS for the Notion example.
+ *
+ * Sidecar loads @sidecar-ai/native/styles.css first. Keep this file for
+ * app-specific layout, Tailwind utilities, and narrow product styling.
+ */
+@import "tailwindcss";
+@source "./server/**/*.{ts,tsx}";
+@source "./components/**/*.{ts,tsx}";
+
+:root {
+  color-scheme: light dark;
+  background: transparent;
+
+  --notion-page-max: 74ch;
+  --notion-muted: color-mix(in srgb, CanvasText 62%, transparent);
+  --notion-border: color-mix(in srgb, CanvasText 16%, transparent);
+  --notion-panel: color-mix(in srgb, Canvas 92%, CanvasText 8%);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  color: CanvasText;
+}
+
+.notion-document-peek {
+  max-width: var(--notion-page-max);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
