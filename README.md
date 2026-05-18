@@ -33,9 +33,9 @@ For an HTTPS MCP URL that can be added to ChatGPT or Claude:
 npm run dev:https
 ```
 
-`sidecar dev --tunnel` starts Sidecar on Streamable HTTP and opens a temporary HTTPS tunnel. Sidecar tries `cloudflared` first. If it is missing, the CLI asks whether to install `cloudflared` or continue with `npx wrangler`.
+`sidecar dev --tunnel` starts Sidecar on Streamable HTTP, opens a temporary HTTPS tunnel, and validates the public MCP endpoint before printing the URL. Sidecar tries `cloudflared` first. If it is missing, the CLI asks whether to install `cloudflared` or continue with `npx wrangler`.
 
-The generated tunnel URL is public and unprotected unless your app has `auth.ts`, `proxy.ts`, or upstream network controls in place. Treat tunneled dev servers as temporary test endpoints, avoid sensitive data, and stop the process when you are done.
+The generated tunnel URL is public and unprotected unless your app has `auth.ts`, `proxy.ts`, or upstream network controls in place. Treat tunneled dev servers as temporary test endpoints, avoid sensitive data, and stop the process when you are done. Quick tunnels are still best-effort infrastructure; for repeatable team testing, use a configured tunnel/domain or a deployed preview.
 
 ## Project Structure
 

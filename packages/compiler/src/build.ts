@@ -103,6 +103,6 @@ ${prompts || "No prompts detected."}
 
 ## Local HTTPS Testing
 
-Run \`sidecar dev --tunnel\` from the project root to start the local MCP server on Streamable HTTP and print an HTTPS MCP URL that can be added to ChatGPT, Claude, or a Claude plugin install.
+Run \`sidecar dev --tunnel\` from the project root to start the local MCP server on Streamable HTTP and print a validated HTTPS MCP URL that can be added to ChatGPT, Claude, or a Claude plugin install. Temporary quick tunnels are public and best-effort; use a configured tunnel/domain or deployed preview for repeatable testing.
 `;
 }

@@ -29,7 +29,7 @@ import {
 } from "@sidecar-ai/compiler";
 import { isSidecarPrompt, isSidecarResource, isSidecarTool, MCP_APP_RESOURCE_MIME_TYPE, type SidecarConfig } from "@sidecar-ai/core";
 import { createSidecarHttpServer, isSidecarProxy, type LoadedPrompt, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar-ai/server";
-import { startTunnel, type TunnelProvider, type TunnelSession } from "./tunnel.js";
+import { startTunnel, validateTunnelEndpoint, type TunnelProvider, type TunnelSession } from "./tunnel.js";
 
 type Command = "build" | "check" | "dev" | "inspect" | "preview" | "help";
 
@@ -123,14 +123,30 @@ export async function main(argv: string[]): Promise<void> {
         },
       });
 
-      server.listen(port, "127.0.0.1", () => {
+      let listening = false;
+      try {
+        await listenOnLocalhost(server, port);
+        listening = true;
+        if (tunnel) {
+          await validateTunnelEndpoint({
+            mcpUrl: tunnel.mcpUrl,
+            auth: Boolean(auth),
+          });
+        }
+
         console.log(`MCP running on Streamable HTTP (${target}) at http://127.0.0.1:${port}/mcp`);
         console.log(`Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"}, ${resources.length} resource${resources.length === 1 ? "" : "s"}, and ${prompts.length} prompt${prompts.length === 1 ? "" : "s"}.`);
         if (tunnel) {
-          console.log(`HTTPS tunnel (${tunnel.provider}) ready: ${tunnel.mcpUrl}`);
+          console.log(`HTTPS tunnel (${tunnel.provider}) validated: ${tunnel.mcpUrl}`);
           console.log("Use this HTTPS MCP URL in ChatGPT, Claude, or a Claude plugin install.");
         }
-      });
+      } catch (error) {
+        tunnel?.close();
+        if (listening) {
+          await closeServer(server);
+        }
+        throw error;
+      }
 
       const shutdown = () => {
         tunnel?.close();
@@ -903,6 +919,30 @@ function unwrapRuntimeDefault(value: unknown): unknown {
     return unwrapRuntimeDefault((value as { default: unknown }).default);
   }
   return value;
+}
+
+/** Starts the local dev server and resolves only once the port is bound. */
+function listenOnLocalhost(
+  server: ReturnType<typeof createSidecarHttpServer>,
+  port: number,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error) => {
+      reject(error);
+    };
+    server.once("error", onError);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
+}
+
+/** Closes a dev server during startup failure cleanup. */
+function closeServer(server: ReturnType<typeof createSidecarHttpServer>): Promise<void> {
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
 }
 
 /** Reads a simple `--name value` option from argv. */
