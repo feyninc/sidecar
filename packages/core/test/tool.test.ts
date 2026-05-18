@@ -262,6 +262,13 @@ function testContext(): ToolContext {
       async set() {},
       async delete() {}
     },
+    notify: {
+      async progress() {},
+      async toolsChanged() {},
+      async resourcesChanged() {},
+      async promptsChanged() {},
+      async resourceUpdated() {}
+    },
     env: {}
   };
 }

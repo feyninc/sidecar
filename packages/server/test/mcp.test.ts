@@ -88,6 +88,18 @@ describe("SidecarMcpServer", () => {
     });
   });
 
+  it("responds to MCP ping requests with an empty result", async () => {
+    const server = createSidecarMcpServer({ tools: [] });
+
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: "ping-1", method: "ping" })
+    ).resolves.toEqual({
+      jsonrpc: "2.0",
+      id: "ping-1",
+      result: {}
+    });
+  });
+
   it("serves MCP Apps resources with standard MIME and resource metadata", async () => {
     const server = createSidecarMcpServer({
       tools: [],
@@ -453,6 +465,45 @@ describe("SidecarMcpServer", () => {
     });
   });
 
+  it("honors notifications/cancelled by aborting an active tool request", async () => {
+    let markStarted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const longRunning = tool({
+      name: "Long Running",
+      description: "Use this when testing cancellation.",
+      execute(_params: {}, ctx) {
+        markStarted();
+        return new Promise<never>((_resolve, reject) => {
+          ctx.request.signal.addEventListener("abort", () => {
+            reject(ctx.request.signal.reason);
+          }, { once: true });
+        });
+      }
+    });
+    const server = createSidecarMcpServer({
+      tools: [{ tool: longRunning }],
+      createContext: () => testContext()
+    });
+
+    const call = server.handle({
+      jsonrpc: "2.0",
+      id: 44,
+      method: "tools/call",
+      params: { name: "long_running", arguments: {} }
+    });
+    await started;
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { requestId: 44, reason: "test cancellation" }
+      })
+    ).resolves.toBeUndefined();
+    await expect(call).resolves.toBeUndefined();
+  });
+
   it("enforces tool-local auth policies", async () => {
     type DemoSession = AuthSession<Record<string, unknown>, { orgId: string }>;
     const appAuth = auth({
@@ -721,6 +772,21 @@ describe("SidecarMcpServer", () => {
 
       await expect(
         fetch(`${baseUrl}/mcp`, {
+          method: "GET",
+          headers: {
+            accept: "application/json"
+          }
+        }).then((response) => response.status)
+      ).resolves.toBe(406);
+
+      await expect(
+        fetch(`${baseUrl}/mcp`, {
+          method: "DELETE"
+        }).then((response) => response.status)
+      ).resolves.toBe(405);
+
+      await expect(
+        fetch(`${baseUrl}/mcp`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -734,6 +800,189 @@ describe("SidecarMcpServer", () => {
           })
         }).then((response) => response.status)
       ).resolves.toBe(413);
+    } finally {
+      await close(http);
+    }
+  });
+
+  it("opens a Streamable HTTP GET SSE stream for server notifications", async () => {
+    const announce = tool({
+      name: "Announce Change",
+      description: "Use this when testing list change notifications.",
+      async execute(_params: {}, ctx) {
+        await ctx.notify.toolsChanged();
+        return toolResult({
+          structuredContent: { ok: true },
+          content: "Announced."
+        });
+      }
+    });
+    const http = createSidecarHttpServer({
+      tools: [{ tool: announce }],
+      capabilities: {
+        tools: {
+          listChanged: true
+        }
+      }
+    });
+    const baseUrl = await listen(http);
+    const abort = new AbortController();
+
+    try {
+      const sseResponse = await fetch(`${baseUrl}/mcp`, {
+        headers: {
+          accept: "text/event-stream"
+        },
+        signal: abort.signal
+      });
+      expect(sseResponse.status).toBe(200);
+      expect(sseResponse.headers.get("content-type")).toContain("text/event-stream");
+
+      const notification = readSseMessage(sseResponse, (message) =>
+        message.method === "notifications/tools/list_changed"
+      );
+      await postRpc(baseUrl, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "announce_change", arguments: {} }
+      });
+
+      await expect(notification).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        method: "notifications/tools/list_changed"
+      });
+    } finally {
+      abort.abort();
+      await close(http);
+    }
+  });
+
+  it("emits resource update notifications after resource subscription", async () => {
+    const refresh = tool({
+      name: "Refresh Resource",
+      description: "Use this when testing subscribed resource updates.",
+      async execute(_params: {}, ctx) {
+        await ctx.notify.resourceUpdated("sidecar://resources/demo");
+        return toolResult({
+          structuredContent: { ok: true },
+          content: "Resource refreshed."
+        });
+      }
+    });
+    const http = createSidecarHttpServer({
+      tools: [{ tool: refresh }],
+      resources: [{
+        uri: "sidecar://resources/demo",
+        name: "Demo",
+        text: "demo"
+      }],
+      capabilities: {
+        resources: {
+          subscribe: true
+        }
+      }
+    });
+    const baseUrl = await listen(http);
+    const abort = new AbortController();
+
+    try {
+      const sseResponse = await fetch(`${baseUrl}/mcp`, {
+        headers: {
+          accept: "text/event-stream"
+        },
+        signal: abort.signal
+      });
+      expect(sseResponse.status).toBe(200);
+
+      await postRpc(baseUrl, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "resources/subscribe",
+        params: { uri: "sidecar://resources/demo" }
+      });
+      const notification = readSseMessage(sseResponse, (message) =>
+        message.method === "notifications/resources/updated"
+      );
+      await postRpc(baseUrl, {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "refresh_resource", arguments: {} }
+      });
+
+      await expect(notification).resolves.toMatchObject({
+        jsonrpc: "2.0",
+        method: "notifications/resources/updated",
+        params: {
+          uri: "sidecar://resources/demo"
+        }
+      });
+    } finally {
+      abort.abort();
+      await close(http);
+    }
+  });
+
+  it("streams request progress and the final response over POST SSE", async () => {
+    const longTask = tool({
+      name: "Long Task",
+      description: "Use this when testing request progress notifications.",
+      async execute(_params: {}, ctx) {
+        await ctx.notify.progress({ progress: 1, total: 2, message: "Halfway." });
+        return toolResult({
+          structuredContent: { done: true },
+          content: "Done."
+        });
+      }
+    });
+    const http = createSidecarHttpServer({
+      tools: [{ tool: longTask }]
+    });
+    const baseUrl = await listen(http);
+
+    try {
+      const response = await fetch(`${baseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "long_task",
+            arguments: {},
+            _meta: {
+              progressToken: "progress-1"
+            }
+          }
+        })
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/event-stream");
+      await expect(readSseMessages(response, 2)).resolves.toEqual([
+        expect.objectContaining({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: {
+            progressToken: "progress-1",
+            progress: 1,
+            total: 2,
+            message: "Halfway."
+          }
+        }),
+        expect.objectContaining({
+          jsonrpc: "2.0",
+          id: 1,
+          result: expect.objectContaining({
+            structuredContent: { done: true }
+          })
+        })
+      ]);
     } finally {
       await close(http);
     }
@@ -805,7 +1054,155 @@ describe("SidecarMcpServer", () => {
       }
     });
   });
+
+  it("validates schema-shaped additionalProperties at runtime", async () => {
+    const tagged = tool({
+      name: "Tagged Tool",
+      description: "Use this when checking additional property schemas.",
+      execute(params: { fixed: string; [key: string]: unknown }) {
+        return toolResult({
+          structuredContent: { fixed: params.fixed, extra: "valid" },
+          content: "Tagged."
+        });
+      }
+    });
+    const server = createSidecarMcpServer({
+      tools: [{
+        tool: tagged,
+        descriptor: createToolDescriptor({
+          name: "Tagged Tool",
+          id: "tagged-tool",
+          description: "Use this when checking additional property schemas.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              fixed: { type: "string" }
+            },
+            required: ["fixed"],
+            additionalProperties: { type: "string" }
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              fixed: { type: "string" }
+            },
+            required: ["fixed"],
+            additionalProperties: { type: "string" }
+          }
+        })
+      }]
+    });
+
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "tagged-tool", arguments: { fixed: "ok", extra: 1 } }
+      })
+    ).resolves.toMatchObject({
+      error: {
+        code: -32602,
+        data: { validation: "$.extra must be string." }
+      }
+    });
+
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "tagged-tool", arguments: { fixed: "ok", extra: "ok" } }
+      })
+    ).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          fixed: "ok",
+          extra: "valid"
+        }
+      }
+    });
+  });
 });
+
+type JsonRpcLike = { method?: string; [key: string]: unknown };
+
+/** Reads the first matching JSON-RPC message from an SSE response. */
+async function readSseMessage(
+  response: Response,
+  predicate: (message: JsonRpcLike) => boolean,
+): Promise<JsonRpcLike> {
+  const messages = await readSseMessages(response, 1, predicate);
+  return messages[0] as JsonRpcLike;
+}
+
+/** Reads JSON payloads from Streamable HTTP SSE message events. */
+async function readSseMessages(
+  response: Response,
+  count: number,
+  predicate: (message: JsonRpcLike) => boolean = () => true,
+): Promise<JsonRpcLike[]> {
+  const body = response.body;
+  if (!body) {
+    throw new Error("Expected SSE response body.");
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const messages: JsonRpcLike[] = [];
+
+  try {
+    while (messages.length < count) {
+      const chunk = await readStreamChunk(reader);
+      if (chunk.done) {
+        break;
+      }
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let separator = buffer.indexOf("\n\n");
+      while (separator !== -1) {
+        const rawEvent = buffer.slice(0, separator);
+        buffer = buffer.slice(separator + 2);
+        const data = rawEvent
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice("data:".length).trimStart())
+          .join("\n");
+        if (data) {
+          const parsed = JSON.parse(data) as JsonRpcLike;
+          if (predicate(parsed)) {
+            messages.push(parsed);
+            if (messages.length >= count) {
+              return messages;
+            }
+          }
+        }
+        separator = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+
+  return messages;
+}
+
+/** Reads one stream chunk with a timeout so failed SSE tests do not hang. */
+function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timeout: NodeJS.Timeout | undefined;
+  return Promise.race([
+    reader.read(),
+    new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => reject(new Error("Timed out waiting for SSE message.")), 2_000);
+    }),
+  ]).finally(() => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  });
+}
 
 /** Creates the minimal context needed to execute tools in server tests. */
 function testContext(): ToolContext {
@@ -836,6 +1233,13 @@ function testContext(): ToolContext {
       },
       async set() {},
       async delete() {}
+    },
+    notify: {
+      async progress() {},
+      async toolsChanged() {},
+      async resourcesChanged() {},
+      async promptsChanged() {},
+      async resourceUpdated() {}
     },
     env: {}
   };

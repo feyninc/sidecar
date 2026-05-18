@@ -8,6 +8,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { runProxy, type SidecarProxy } from "./proxy.js";
+import { createSseHub, createSseStream, type McpNotificationSink } from "./sse.js";
 import type { SidecarAuth } from "@sidecar-ai/auth";
 import { JSONRPC_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
@@ -30,9 +31,11 @@ import {
   type PaginationConfig,
   type PaginationOverride,
   type PaginationResult,
+  type ProgressToken,
   type PromptContext,
   type ResourceCapabilityConfig,
   type ResourceContext,
+  type RuntimeNotifications,
   type SidecarPrompt,
   type SidecarResource,
   type SidecarTool,
@@ -138,6 +141,16 @@ export type SidecarMcpServerOptions = {
 export type SidecarHandleContext = {
   request?: Request;
   authSession?: unknown;
+  notifications?: McpNotificationSink;
+};
+
+export type { McpNotificationMessage, McpNotificationSink } from "./sse.js";
+
+type RuntimeNotificationOptions = {
+  toolsListChanged: boolean;
+  resourcesListChanged: boolean;
+  promptsListChanged: boolean;
+  isResourceSubscribed(uri: string): boolean;
 };
 
 /** JSON-RPC MCP dispatcher for Sidecar tools and resources. */
@@ -146,6 +159,8 @@ export class SidecarMcpServer {
   private readonly resources = new Map<string, RegisteredResource>();
   private readonly prompts = new Map<string, RegisteredPrompt>();
   private readonly resourceTemplates: LoadedResourceTemplate[];
+  private readonly activeRequests = new Map<RequestId, AbortController>();
+  private readonly subscribedResourceUris = new Set<string>();
 
   constructor(private readonly options: SidecarMcpServerOptions) {
     for (const loaded of options.tools) {
@@ -222,6 +237,9 @@ export class SidecarMcpServer {
         result
       };
     } catch (error) {
+      if (error instanceof RequestCancelledError) {
+        return undefined;
+      }
       return {
         jsonrpc: JSONRPC_VERSION,
         id: request.id,
@@ -245,6 +263,9 @@ export class SidecarMcpServer {
             version: this.options.version ?? "0.0.0-dev"
           }
         };
+
+      case "ping":
+        return {};
 
       case "tools/list":
         return this.listTools(request, context);
@@ -402,32 +423,42 @@ export class SidecarMcpServer {
     if (authSession !== undefined) {
       ctx.auth = authSession;
     }
+    ctx.notify = this.createNotifications(context, request);
     const controller = new AbortController();
+    if (request.id !== null && request.id !== undefined) {
+      this.activeRequests.set(request.id, controller);
+    }
     ctx.request = {
       ...ctx.request,
       signal: controller.signal,
     };
 
-    const args = loaded.descriptorProvided
-      ? validateAgainstSchema(
-          loaded.descriptor.inputSchema,
-          params?.arguments ?? {},
-          `Invalid parameters for tool "${name}".`,
-        )
-      : params?.arguments ?? {};
-    const result = await withTimeout(
-      executeTool(loaded.tool, args, ctx),
-      this.options.toolTimeoutMs,
-      controller,
-    );
-    if (loaded.descriptorProvided) {
-      validateAgainstSchema(
-        loaded.descriptor.outputSchema,
-        result.structuredContent,
-        `Invalid structuredContent returned by tool "${name}".`,
+    try {
+      const args = loaded.descriptorProvided
+        ? validateAgainstSchema(
+            loaded.descriptor.inputSchema,
+            params?.arguments ?? {},
+            `Invalid parameters for tool "${name}".`,
+          )
+        : params?.arguments ?? {};
+      const result = await withTimeout(
+        executeTool(loaded.tool, args, ctx),
+        this.options.toolTimeoutMs,
+        controller,
       );
+      if (loaded.descriptorProvided) {
+        validateAgainstSchema(
+          loaded.descriptor.outputSchema,
+          result.structuredContent,
+          `Invalid structuredContent returned by tool "${name}".`,
+        );
+      }
+      return result;
+    } finally {
+      if (request.id !== null && request.id !== undefined) {
+        this.activeRequests.delete(request.id);
+      }
     }
-    return result;
   }
 
   /** Authenticates the whole HTTP MCP request when auth.ts is configured. */
@@ -499,6 +530,7 @@ export class SidecarMcpServer {
       if (context.authSession !== undefined) {
         toolContext.auth = context.authSession;
       }
+      toolContext.notify = this.createNotifications(context, request);
       return executeResource(resource.resource, toResourceContext(toolContext), {
         uri,
         mimeType: resource.descriptor.mimeType,
@@ -526,6 +558,7 @@ export class SidecarMcpServer {
     if (!this.resources.has(uri)) {
       throw new JsonRpcError(-32002, `Resource not found: "${uri}".`, { uri });
     }
+    this.subscribedResourceUris.add(uri);
     return {};
   }
 
@@ -538,6 +571,7 @@ export class SidecarMcpServer {
     if (!this.resources.has(uri)) {
       throw new JsonRpcError(-32002, `Resource not found: "${uri}".`, { uri });
     }
+    this.subscribedResourceUris.delete(uri);
     return {};
   }
 
@@ -562,14 +596,48 @@ export class SidecarMcpServer {
     if (context.authSession !== undefined) {
       toolContext.auth = context.authSession;
     }
+    toolContext.notify = this.createNotifications(context, request);
     return executePrompt(loaded.prompt, params?.arguments ?? {}, toPromptContext(toolContext));
   }
 
+  /** Creates notification helpers scoped by advertised server capabilities. */
+  private createNotifications(
+    context: SidecarHandleContext,
+    request: JsonRpcRequest,
+  ): RuntimeNotifications {
+    const configured = this.options.capabilities ?? {};
+    return createRuntimeNotifications(
+      context.notifications,
+      readProgressToken(request),
+      {
+        toolsListChanged: Boolean(configured.tools?.listChanged),
+        resourcesListChanged: Boolean(configured.resources?.listChanged),
+        promptsListChanged: Boolean(configured.prompts?.listChanged),
+        isResourceSubscribed: (uri) => this.subscribedResourceUris.has(uri),
+      },
+    );
+  }
+
   /** Accepts notifications without side effects for client compatibility. */
-  private async handleNotification(_request: JsonRpcRequest): Promise<void> {
-    // Notifications intentionally do not produce responses. The v0 server does
-    // not need notification side effects yet, but accepting them makes MCP
-    // clients less brittle during initialization.
+  private async handleNotification(request: JsonRpcRequest): Promise<void> {
+    if (request.method === "notifications/cancelled") {
+      this.cancelRequest(request);
+    }
+  }
+
+  /** Applies a client cancellation notification to an active request. */
+  private cancelRequest(request: JsonRpcRequest): void {
+    const params = request.params as { requestId?: unknown; reason?: unknown } | undefined;
+    const requestId = params?.requestId;
+    if (typeof requestId !== "string" && typeof requestId !== "number") {
+      return;
+    }
+    const controller = this.activeRequests.get(requestId);
+    if (!controller || controller.signal.aborted) {
+      return;
+    }
+    const reason = typeof params?.reason === "string" ? params.reason : "Request cancelled.";
+    controller.abort(new RequestCancelledError(reason));
   }
 }
 
@@ -580,9 +648,10 @@ export function createSidecarMcpServer(options: SidecarMcpServerOptions): Sideca
 
 /** Creates a Node HTTP server exposing the MCP dispatcher at one endpoint. */
 export function createSidecarHttpServer(options: SidecarMcpServerOptions & { path?: string; proxy?: SidecarProxy }) {
-  const mcp = createSidecarMcpServer(options);
   const endpoint = options.path ?? "/mcp";
   const maxBodyBytes = options.maxBodyBytes ?? 1_000_000;
+  const streamHub = createSseHub();
+  const mcp = createSidecarMcpServer(options);
 
   return createServer(async (request, response) => {
     if (isRejectedOrigin(request, options.allowedOrigins)) {
@@ -610,12 +679,41 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
     }
 
     if (request.method === "GET" && pathname === endpoint) {
-      response.writeHead(405, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: "sse_not_supported" }));
+      try {
+        validateProtocolVersion(request);
+        validateGetHeaders(request);
+        const fetchRequest = toFetchRequest(request, options.publicUrl ?? options.auth?.resource);
+        if (options.auth) {
+          const authSession = await authorizeHttpRequest(options.auth, fetchRequest, response);
+          if (authSession === AUTH_RESPONSE_SENT) {
+            return;
+          }
+        }
+        streamHub.open(response);
+      } catch (error) {
+        const status = error instanceof JsonRpcHttpError ? error.status : 400;
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            jsonrpc: JSONRPC_VERSION,
+            id: null,
+            error: normalizeHttpError(error)
+          })
+        );
+      }
       return;
     }
 
-    if (request.method !== "POST" || pathname !== endpoint) {
+    if (pathname === endpoint && request.method !== "POST") {
+      response.writeHead(405, {
+        "allow": "GET, POST",
+        "content-type": "application/json",
+      });
+      response.end(JSON.stringify({ error: "method_not_allowed" }));
+      return;
+    }
+
+    if (pathname !== endpoint) {
       response.writeHead(404, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "not_found" }));
       return;
@@ -644,9 +742,24 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
         return;
       }
 
+      if (rpcRequest.id !== undefined && hasProgressToken(rpcRequest)) {
+        const stream = createSseStream(response, { supportsRequestProgress: true });
+        const payload = await mcp.handle(rpcRequest, {
+          request: fetchRequest,
+          authSession,
+          notifications: stream,
+        });
+        if (payload) {
+          stream.sendJson(payload);
+        }
+        stream.end();
+        return;
+      }
+
       const payload = await mcp.handle(rpcRequest, {
         request: fetchRequest,
         authSession,
+        notifications: streamHub,
       }) ?? null;
       const responses = payload === null ? [] : [payload];
       if (!responses.length) {
@@ -763,6 +876,14 @@ class JsonRpcHttpError extends JsonRpcError {
   }
 }
 
+/** Internal sentinel used when a client cancels an active request. */
+class RequestCancelledError extends Error {
+  constructor(message = "Request cancelled.") {
+    super(message);
+    this.name = "RequestCancelledError";
+  }
+}
+
 const AUTH_RESPONSE_SENT = Symbol("sidecar.auth.response-sent");
 
 /** Performs HTTP request-level auth and writes 401/403 directly. */
@@ -828,7 +949,57 @@ function createDefaultContext(request: JsonRpcRequest): ToolContext {
         memory.delete(key);
       }
     },
+    notify: noopNotifications,
     env: process.env
+  };
+}
+
+const noopNotifications: RuntimeNotifications = {
+  async progress() {},
+  async toolsChanged() {},
+  async resourcesChanged() {},
+  async promptsChanged() {},
+  async resourceUpdated() {},
+};
+
+/** Creates typed notification helpers for one runtime invocation. */
+function createRuntimeNotifications(
+  sink: McpNotificationSink | undefined,
+  progressToken: ProgressToken | undefined,
+  options: RuntimeNotificationOptions,
+): RuntimeNotifications {
+  return {
+    async progress(update) {
+      if (!sink?.supportsRequestProgress || progressToken === undefined) {
+        return;
+      }
+      sink.send("notifications/progress", stripUndefined({
+        progressToken,
+        progress: update.progress,
+        total: update.total,
+        message: update.message,
+      }));
+    },
+    async toolsChanged() {
+      if (options.toolsListChanged) {
+        sink?.send("notifications/tools/list_changed");
+      }
+    },
+    async resourcesChanged() {
+      if (options.resourcesListChanged) {
+        sink?.send("notifications/resources/list_changed");
+      }
+    },
+    async promptsChanged() {
+      if (options.promptsListChanged) {
+        sink?.send("notifications/prompts/list_changed");
+      }
+    },
+    async resourceUpdated(uri) {
+      if (options.isResourceSubscribed(uri)) {
+        sink?.send("notifications/resources/updated", { uri });
+      }
+    },
   };
 }
 
@@ -840,6 +1011,7 @@ function toResourceContext(ctx: ToolContext): ResourceContext {
     services: ctx.services,
     log: ctx.log,
     storage: ctx.storage,
+    notify: ctx.notify,
     env: ctx.env,
   };
 }
@@ -852,6 +1024,7 @@ function toPromptContext(ctx: ToolContext): PromptContext {
     services: ctx.services,
     log: ctx.log,
     storage: ctx.storage,
+    notify: ctx.notify,
     env: ctx.env,
   };
 }
@@ -876,6 +1049,31 @@ function readUriParam(request: JsonRpcRequest, method: string): string {
     throw new JsonRpcError(-32602, `${method} requires params.uri.`);
   }
   return uri;
+}
+
+/** Reads an MCP progress token from request params metadata. */
+function readProgressToken(request: JsonRpcRequest): ProgressToken | undefined {
+  const params = request.params;
+  if (!params || typeof params !== "object") {
+    return undefined;
+  }
+  const meta = (params as { _meta?: unknown })._meta;
+  if (!meta || typeof meta !== "object") {
+    return undefined;
+  }
+  const progressToken = (meta as { progressToken?: unknown }).progressToken;
+  if (typeof progressToken === "string") {
+    return progressToken;
+  }
+  if (typeof progressToken === "number" && Number.isInteger(progressToken)) {
+    return progressToken;
+  }
+  return undefined;
+}
+
+/** Returns true when a request is asking for out-of-band request progress. */
+function hasProgressToken(request: JsonRpcRequest): boolean {
+  return readProgressToken(request) !== undefined;
 }
 
 /** Selects a global or operation-specific pagination override. */
@@ -1000,24 +1198,57 @@ function validatePostHeaders(request: IncomingMessage): void {
   }
 }
 
+/** Enforces Streamable HTTP GET content negotiation before opening SSE. */
+function validateGetHeaders(request: IncomingMessage): void {
+  const accept = request.headers.accept;
+  const acceptValue = Array.isArray(accept) ? accept.join(",") : accept;
+  if (!acceptValue || !acceptValue.toLowerCase().includes("text/event-stream")) {
+    throw new JsonRpcHttpError(
+      406,
+      -32600,
+      "GET Accept must include text/event-stream.",
+    );
+  }
+}
+
 /** Adds a timeout and abort signal to tool execution. */
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number | undefined,
   controller: AbortController,
 ): Promise<T> {
+  let abortListener: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    abortListener = () => {
+      reject(abortReason(controller.signal.reason));
+    };
+    if (controller.signal.aborted) {
+      abortListener();
+      return;
+    }
+    controller.signal.addEventListener("abort", abortListener, { once: true });
+  });
+
   if (!timeoutMs || timeoutMs <= 0) {
-    return promise;
+    try {
+      return await Promise.race([promise, abortPromise]);
+    } finally {
+      if (abortListener) {
+        controller.signal.removeEventListener("abort", abortListener);
+      }
+    }
   }
 
   let timeout: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
       promise,
+      abortPromise,
       new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
-          controller.abort();
-          reject(new JsonRpcError(-32000, "Tool execution timed out."));
+          const error = new JsonRpcError(-32000, "Tool execution timed out.");
+          controller.abort(error);
+          reject(error);
         }, timeoutMs);
       }),
     ]);
@@ -1025,7 +1256,18 @@ async function withTimeout<T>(
     if (timeout) {
       clearTimeout(timeout);
     }
+    if (abortListener) {
+      controller.signal.removeEventListener("abort", abortListener);
+    }
   }
+}
+
+/** Converts an AbortSignal reason into the error Sidecar should surface. */
+function abortReason(reason: unknown): Error {
+  if (reason instanceof Error) {
+    return reason;
+  }
+  return new RequestCancelledError();
 }
 
 /** Validates simple JSON Schema values used by compiler-generated descriptors. */
@@ -1090,11 +1332,21 @@ function schemaFailure(schema: JsonSchema, value: unknown, path: string): string
         if (failure) return failure;
       }
     }
+    const allowed = new Set(Object.keys(schema.properties ?? {}));
     if (schema.additionalProperties === false) {
-      const allowed = new Set(Object.keys(schema.properties ?? {}));
       const extra = Object.keys(record).find((key) => !allowed.has(key));
       if (extra) {
         return `${path}.${extra} is not allowed.`;
+      }
+    } else if (
+      schema.additionalProperties &&
+      typeof schema.additionalProperties === "object"
+    ) {
+      for (const [key, entry] of Object.entries(record)) {
+        if (!allowed.has(key)) {
+          const failure = schemaFailure(schema.additionalProperties, entry, `${path}.${key}`);
+          if (failure) return failure;
+        }
       }
     }
   }

@@ -12,7 +12,7 @@ The Notion wrapper exposed a missing framework pattern: Sidecar is the MCP resou
 
 ## 3. Capability Honesty
 
-Sidecar should only advertise MCP capabilities it actually supports end to end. In particular, `listChanged`, `resources.subscribe`, and notification-related capabilities need scrutiny because Streamable HTTP notification behavior is more involved than simple POST/JSON responses.
+Sidecar should only advertise MCP capabilities it actually supports end to end. Streamable HTTP now supports GET SSE, POST SSE for request progress, list-change notifications, resource update notifications, and `notifications/cancelled`; continue auditing advanced optional capabilities before advertising them by default, especially per-client resource subscription behavior and draft/advanced MCP capabilities.
 
 ## 4. Schema Correctness
 
@@ -20,7 +20,7 @@ TypeScript schema inference is improving, but it remains heuristic. Provider-spe
 
 ## 5. Build/Dev Output Audit
 
-Run a formal conformance audit against actual built/dev wire responses: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get`, auth failures, pagination, and widget resources. Compare output to the MCP spec, not only to Sidecar tests.
+Run a formal conformance audit against actual built/dev wire responses: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `prompts/list`, `prompts/get`, auth failures, pagination, notifications, and widget resources. Compare output to the MCP spec, not only to Sidecar tests.
 
 ## 6. Claude Plugin Output
 

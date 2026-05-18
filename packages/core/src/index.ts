@@ -272,6 +272,7 @@ export type ResourceContext<Auth = unknown, Services = unknown> = {
   services: Services;
   log: Logger;
   storage: ScopedStorage;
+  notify: RuntimeNotifications;
   env: Readonly<Record<string, string | undefined>>;
 };
 
@@ -390,6 +391,7 @@ export type PromptContext<Auth = unknown, Services = unknown> = {
   services: Services;
   log: Logger;
   storage: ScopedStorage;
+  notify: RuntimeNotifications;
   env: Readonly<Record<string, string | undefined>>;
 };
 
@@ -630,6 +632,33 @@ export type ScopedStorage = {
   delete(key: string): Promise<void>;
 };
 
+/** Opaque MCP progress token supplied by a client in request `_meta`. */
+export type ProgressToken = string | number;
+
+/** Progress update payload emitted as `notifications/progress`. */
+export type ToolProgressUpdate = {
+  /** Monotonically increasing progress value for the active request. */
+  progress: number;
+  /** Optional total value when the total work is known. */
+  total?: number;
+  /** Optional short human-readable progress message. */
+  message?: string;
+};
+
+/** Typed notification helpers exposed to runtime code. */
+export type RuntimeNotifications = {
+  /** Emits `notifications/progress` when the client supplied a progress token. */
+  progress(update: ToolProgressUpdate): MaybePromise<void>;
+  /** Emits `notifications/tools/list_changed` on an available server SSE stream. */
+  toolsChanged(): MaybePromise<void>;
+  /** Emits `notifications/resources/list_changed` on an available server SSE stream. */
+  resourcesChanged(): MaybePromise<void>;
+  /** Emits `notifications/prompts/list_changed` on an available server SSE stream. */
+  promptsChanged(): MaybePromise<void>;
+  /** Emits `notifications/resources/updated` for one resource URI. */
+  resourceUpdated(uri: string): MaybePromise<void>;
+};
+
 /** Request metadata supplied to each tool invocation. */
 export type ToolRequestContext = {
   id: string;
@@ -647,6 +676,7 @@ export type ToolContext<Auth = unknown, Services = unknown, Tools = unknown> = {
   log: Logger;
   trace: Trace;
   storage: ScopedStorage;
+  notify: RuntimeNotifications;
   env: Readonly<Record<string, string | undefined>>;
 };
 
