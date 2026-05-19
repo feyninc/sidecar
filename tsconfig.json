@@ -47,6 +47,6 @@
       "@openai/apps-sdk-ui/*": ["node_modules/@openai/apps-sdk-ui/dist/types/*"]
     }
   },
-  "include": ["packages/**/*.ts", "packages/**/*.tsx", "examples/**/*.ts", "tsup.config.ts", "vitest.config.ts"],
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "examples/simple/**/*.ts", "tsup.config.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "out", "dist"]
 }

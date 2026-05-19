@@ -7,10 +7,10 @@
     "dev": "sidecar dev",
     "dev:https": "sidecar dev --tunnel",
     "build": "sidecar build --plugins",
-    "prebuild:vercel": "npm --prefix ../.. run build",
     "build:vercel": "sidecar build --host vercel --out out/vercel --plugins",
     "check": "sidecar check",
-    "inspect": "sidecar inspect"
+    "inspect": "sidecar inspect",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
