@@ -88,17 +88,16 @@ SIDECAR_PUBLIC_URL=https://sidecar-notion.vercel.app
 
 WorkOS MCP auth requires Connect configuration in the WorkOS dashboard:
 
-1. Enable Client ID Metadata Document (CIMD). Enable Dynamic Client
-   Registration (DCR) too for MCP clients that have not adopted CIMD yet.
+1. Enable Client ID Metadata Document (CIMD). Dynamic Client Registration
+   (DCR) is optional for clients that have not adopted CIMD yet.
 2. Add `https://sidecar-notion.vercel.app/mcp` as a Resource Indicator.
 3. Use the AuthKit domain shown in WorkOS, for example
    `your-subdomain.authkit.app`, as `WORKOS_AUTHKIT_DOMAIN`.
 
-`auth.ts` verifies AuthKit access tokens against the AuthKit JWKS endpoint and
-requires the token audience to match `SIDECAR_MCP_URL`. Tool execution reads
-the user's Notion MCP token from WorkOS Vault with an object name derived from
-the WorkOS user id and a Vault key context containing `user_id` and
-`data_type=notion_mcp_token`.
+`auth.ts` verifies AuthKit access tokens against the AuthKit issuer and JWKS
+endpoint. Tool execution reads the user's Notion MCP token from WorkOS Vault
+with an object name derived from the WorkOS user id and a Vault key context
+containing `user_id` and `data_type=notion_mcp_token`.
 
 When a user has no stored Notion token, the tool result includes a Notion OAuth
 link. That flow uses Notion's MCP OAuth discovery, dynamic client registration,

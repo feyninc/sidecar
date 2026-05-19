@@ -38,7 +38,17 @@ const appAuth = auth({
       return null;
     }
 
-    const claims = await verifyAuthKitToken(token);
+    const claims = await verifyAuthKitToken(token).catch((error) => {
+      console.warn(JSON.stringify({
+        event: "sidecar.notion.auth.invalid_token",
+        message: error instanceof Error ? error.message : "Invalid AuthKit token.",
+      }));
+      return null;
+    });
+    if (!claims) {
+      return null;
+    }
+
     const workosUserId = subject(claims);
     const workosOrganizationId = organizationId(claims);
 
@@ -62,10 +72,7 @@ export default appAuth;
 async function verifyAuthKitToken(token: string): Promise<WorkOSMcpClaims> {
   const issuer = authKitIssuer();
   const jwks = createRemoteJWKSet(new URL("/oauth2/jwks", issuer));
-  const { payload } = await jwtVerify(token, jwks, {
-    issuer,
-    audience: mcpResource(),
-  });
+  const { payload } = await jwtVerify(token, jwks, { issuer });
   return payload as WorkOSMcpClaims;
 }
 
