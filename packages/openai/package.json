@@ -1,6 +1,6 @@
 {
   "name": "@sidecar-ai/openai",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "type": "module",
   "files": [
     "dist"
@@ -21,8 +21,8 @@
   },
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@sidecar-ai/core": "0.1.0-alpha.2",
-    "@sidecar-ai/native": "0.1.0-alpha.2",
+    "@sidecar-ai/core": "0.1.0-alpha.3",
+    "@sidecar-ai/native": "0.1.0-alpha.3",
     "@openai/apps-sdk-ui": "^0.2.2"
   },
   "peerDependencies": {
