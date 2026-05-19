@@ -56,10 +56,11 @@ function at `api/sidecar.js`. Set `SIDECAR_MCP_URL` and `SIDECAR_PUBLIC_URL` to
 the final Vercel `https://.../mcp` URL.
 
 When deploying this example directly from the Sidecar monorepo, keep the Vercel
-Root Directory set to `examples/notion`, the Build Command set to
-`npm run build:vercel`, and the Output Directory set to `out/vercel`. The
-example's `prebuild:vercel` script builds the local Sidecar workspace packages
-before invoking the Sidecar CLI.
+Root Directory set to the repository root, the Build Command set to
+`npm --workspace sidecar-notion-example run build:vercel`, and the Output
+Directory set to `examples/notion/out/vercel`. The example's `prebuild:vercel`
+script builds the local Sidecar workspace packages before invoking the Sidecar
+CLI.
 
 ## Auth
 
