@@ -25,7 +25,7 @@ export async function writeGeneratedTypes(
     .join(",\n");
   const toolTypes = appCallableTools
     .map(
-      (entry, index) =>
+      (_entry, index) =>
         `  ${methodNames[index]}(params: ToolParams<typeof tool${index}>): Promise<ToolOutput<typeof tool${index}>>;`,
     )
     .join("\n");

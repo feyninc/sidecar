@@ -44,7 +44,7 @@ export async function collectProjectDiagnostics(
   for (const entry of tools) {
     const toolPath = path.join(rootDir, entry.sourceFile);
     const toolSource = await readFile(toolPath, "utf8");
-    diagnostics.push(...diagnoseToolSource(rootDir, entry, toolSource, hasAuthConfig));
+    diagnostics.push(...diagnoseToolSource(entry, toolSource, hasAuthConfig));
 
     if (entry.widget) {
       const widgetPath = path.join(rootDir, entry.widget.sourceFile);
@@ -81,7 +81,6 @@ export function formatDiagnostic(diagnostic: SidecarDiagnostic): string {
 
 /** Emits warnings for one reserved `tool.ts` file. */
 function diagnoseToolSource(
-  rootDir: string,
   entry: SidecarToolManifestEntry,
   source: string,
   hasAuthConfig: boolean,

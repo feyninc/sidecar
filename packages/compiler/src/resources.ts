@@ -2,7 +2,6 @@
 import {
   createResourceDescriptor,
   type McpIcon,
-  type McpResourceDescriptor,
   type ResourceAnnotations,
 } from "@sidecar-ai/core";
 import { readdir } from "node:fs/promises";

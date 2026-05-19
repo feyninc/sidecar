@@ -241,12 +241,6 @@ function readOptionalTarget(argv: string[]): SidecarTarget | undefined {
   throw new Error(`Unsupported Sidecar target "${target}". Expected mcp, chatgpt, or claude.`);
 }
 
-/** Reads and validates the host runtime artifact profile. */
-function readHost(argv: string[]): SidecarHost {
-  const host = readOptionalHost(argv) ?? detectHostFromEnvironment() ?? "node";
-  return host;
-}
-
 /** Reads an optional host runtime artifact profile. */
 function readOptionalHost(argv: string[]): SidecarHost | undefined {
   const host = readOption(argv, "--host");

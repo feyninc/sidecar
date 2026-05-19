@@ -12,7 +12,6 @@ import {
   RadioGroup,
   SegmentedControl,
   Select,
-  SelectControl,
   TextField,
   TextLink,
   createPrimitiveComponents,

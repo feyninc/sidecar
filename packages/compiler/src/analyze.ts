@@ -700,10 +700,3 @@ function readStringArrayProperty(
     .filter(Node.isStringLiteral)
     .map((element) => element.getLiteralText());
 }
-
-/** Drops undefined properties from small parsed option objects. */
-function stripUndefined<T extends Record<string, unknown>>(value: T): T {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) => entry !== undefined),
-  ) as T;
-}
