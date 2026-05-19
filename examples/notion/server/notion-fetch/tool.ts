@@ -1,7 +1,7 @@
 /** Wraps Notion MCP `notion-fetch`. */
 import { tool, toolResult, type ToolContext } from "sidecar-ai";
 import type { NotionSession } from "../../auth.js";
-import { callNotionTool } from "../../lib/notion.js";
+import { callNotionTool } from "../../lib/official-mcp-client.js";
 
 type FetchParams = {
   /** Notion page, database, data source URL, raw UUID, or collection://... id. */

@@ -1,4 +1,9 @@
-/** Shared upstream MCP client helpers for the Notion example. */
+/**
+ * Official hosted Notion MCP client used by the Sidecar Notion example.
+ *
+ * Sidecar remains the MCP server exposed to Claude/ChatGPT. This module is the
+ * internal MCP client that delegates execution to `https://mcp.notion.com/mcp`.
+ */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
@@ -8,6 +13,7 @@ import {
   type ToolContext
 } from "sidecar-ai";
 import type { NotionSession } from "../auth.js";
+import { createNotionAuthorizationUrl, readUsableNotionToken } from "./notion-oauth.js";
 
 const DEFAULT_NOTION_MCP_URL = "https://mcp.notion.com/mcp";
 
@@ -59,15 +65,20 @@ export type CallNotionToolOptions = {
 };
 
 /**
- * Calls the hosted Notion MCP using the official MCP TypeScript SDK.
+ * Calls the official hosted Notion MCP using the official MCP TypeScript SDK.
  *
  * The Sidecar tool remains simple: it validates/normalizes its own input and
- * delegates execution to the upstream Streamable HTTP server with the user's
- * Notion OAuth token.
+ * delegates execution to Notion's Streamable HTTP server with the user's
+ * refreshed Notion OAuth token from WorkOS Vault.
  */
 export async function callNotionTool(
   options: CallNotionToolOptions,
 ): Promise<StructuredToolResultInput<NotionToolOutput, { notion: Record<string, unknown> }>> {
+  const notionToken = await readUsableNotionToken(options.ctx.auth);
+  if (!notionToken) {
+    return await missingNotionLinkResult(options);
+  }
+
   const upstreamUrl = notionMcpUrl();
   const client = new Client({
     name: "sidecar-notion",
@@ -76,7 +87,7 @@ export async function callNotionTool(
   const transport = new StreamableHTTPClientTransport(upstreamUrl, {
     requestInit: {
       headers: {
-        Authorization: `Bearer ${options.ctx.auth.notionAccessToken}`,
+        Authorization: `Bearer ${notionToken.accessToken}`,
         "User-Agent": "Sidecar-Notion-Wrapper/0.1"
       }
     }
@@ -126,6 +137,52 @@ export async function callNotionTool(
     };
   } finally {
     await client.close().catch(() => undefined);
+  }
+}
+
+/** Returns a model-visible error when the WorkOS user has not linked Notion. */
+async function missingNotionLinkResult(
+  options: CallNotionToolOptions,
+): Promise<StructuredToolResultInput<NotionToolOutput, { notion: Record<string, unknown> }>> {
+  const linkUrl = await createLinkUrl(options);
+  const message = linkUrl
+    ? "This WorkOS user is authenticated, but Notion is not linked yet. Open the link to authorize Notion, then retry the tool call."
+    : "This WorkOS user is authenticated, but Notion is not linked and Sidecar could not create a link URL. Check WorkOS Vault and public URL configuration.";
+  const content = linkUrl ? `${message}\n\n${linkUrl}` : message;
+  return {
+    structuredContent: {
+      tool: options.toolName,
+      ok: false,
+      text: content,
+      preview: {
+        kind: "metadata",
+        title: options.title,
+        summary: "Notion is not linked for this authenticated user.",
+        content,
+        url: linkUrl
+      },
+      upstream: {
+        isError: true
+      }
+    },
+    content,
+    meta: {
+      notion: {
+        linked: false,
+        workosUserId: options.ctx.auth.workosUserId,
+        linkUrl
+      }
+    },
+    isError: true
+  };
+}
+
+/** Creates a Notion OAuth link, returning undefined when configuration is incomplete. */
+async function createLinkUrl(options: CallNotionToolOptions): Promise<string | undefined> {
+  try {
+    return await createNotionAuthorizationUrl(options.ctx.auth);
+  } catch {
+    return undefined;
   }
 }
 

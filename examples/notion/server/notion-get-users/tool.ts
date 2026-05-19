@@ -1,7 +1,7 @@
 /** Wraps Notion MCP `notion-get-users`. */
 import { tool, toolResult, type ToolContext } from "sidecar-ai";
 import type { NotionSession } from "../../auth.js";
-import { callNotionTool } from "../../lib/notion.js";
+import { callNotionTool } from "../../lib/official-mcp-client.js";
 
 type GetUsersParams = {
   /** Optional search query matching name or email. */

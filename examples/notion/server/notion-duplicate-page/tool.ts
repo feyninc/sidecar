@@ -1,7 +1,7 @@
 /** Wraps Notion MCP `notion-duplicate-page`. */
 import { tool, toolResult, type ToolContext } from "sidecar-ai";
 import type { NotionSession } from "../../auth.js";
-import { callNotionTool } from "../../lib/notion.js";
+import { callNotionTool } from "../../lib/official-mcp-client.js";
 
 type DuplicatePageParams = {
   /** Page id to duplicate. */

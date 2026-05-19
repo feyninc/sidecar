@@ -13,7 +13,7 @@ import {
   Surface,
   Text
 } from "@sidecar-ai/native/components";
-import type { NotionToolOutput } from "../lib/notion.js";
+import type { NotionToolOutput } from "../lib/official-mcp-client.js";
 
 /** Renders the structured result emitted by the Notion tools. */
 export default function NotionToolResultWidget() {

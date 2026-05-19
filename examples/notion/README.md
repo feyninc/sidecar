@@ -6,7 +6,8 @@ server and adds native React widgets for the tool results.
 ## What It Shows
 
 - 1:1 Sidecar tool folders for the public Notion MCP tool names.
-- OAuth pass-through auth using Notion's hosted authorization server.
+- WorkOS AuthKit as the MCP authorization server.
+- WorkOS Vault storage for each user's upstream Notion MCP token.
 - Streamable HTTP calls to `https://mcp.notion.com/mcp` with the official MCP
   TypeScript SDK.
 - Native widgets for search, fetch, read/query, metadata, and write results.
@@ -31,24 +32,27 @@ workspace data unless you understand the exposure.
 
 ## Auth
 
-Hosted Notion MCP requires user OAuth. It does not support a static bearer token
-for fully automated remote use.
+Hosted Notion MCP requires a Notion-audience OAuth token. This example keeps
+Sidecar spec-compliant by making this MCP server the resource server and using
+WorkOS AuthKit as its authorization server. It stores the separate upstream
+Notion MCP token in WorkOS Vault, keyed by the authenticated WorkOS user id.
 
-This example is intentionally a token pass-through proxy:
+Configure:
 
-1. `auth.ts` advertises Notion's MCP resource,
-   `https://mcp.notion.com/mcp`, and Notion's authorization server.
-2. The MCP client completes Notion OAuth and receives a Notion-audience bearer
-   token.
-3. Sidecar accepts that bearer token and forwards it to
-   `https://mcp.notion.com/mcp` for each upstream tool call.
+```sh
+WORKOS_AUTHKIT_ISSUER=https://<subdomain>.authkit.app
+WORKOS_CLIENT_ID=client_...
+WORKOS_API_KEY_NOTION=sk_...
+```
 
-That keeps this example from storing or brokering Notion credentials, but it is
-not the normal Sidecar auth pattern. Standard MCP authorization expects the MCP
-server receiving a token to be the resource server the token was issued for, and
-forbids passing a client token through to another resource server. Use this
-example for private experiments and framework/UI validation, not as a general
-auth architecture.
+`auth.ts` verifies AuthKit access tokens against
+`WORKOS_AUTHKIT_ISSUER/oauth2/jwks`. Tool execution reads the user's Notion MCP
+token from WorkOS Vault with an object name derived from the WorkOS user id and
+a Vault key context containing `user_id` and `data_type=notion_mcp_token`.
 
-Because this example must keep Notion's OAuth resource target, `sidecar dev
---tunnel` does not rewrite the advertised auth resource to the tunnel URL.
+When a user has no stored Notion token, the tool result includes a Notion OAuth
+link. That flow uses Notion's MCP OAuth discovery, dynamic client registration,
+PKCE, and the local callback route at `/notion/oauth/callback`. The callback
+stores the Notion access token and refresh token in WorkOS Vault. Access tokens
+are refreshed from Vault before upstream tool calls when they are close to
+expiry.

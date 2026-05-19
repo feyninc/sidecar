@@ -1,7 +1,7 @@
 /** Wraps Notion MCP `notion-create-database`. */
 import { tool, toolResult, type ToolContext } from "sidecar-ai";
 import type { NotionSession } from "../../auth.js";
-import { callNotionTool } from "../../lib/notion.js";
+import { callNotionTool } from "../../lib/official-mcp-client.js";
 
 type CreateDatabaseParams = {
   /** SQL DDL CREATE TABLE statement defining the database schema. */

@@ -8,7 +8,7 @@ This file tracks framework issues that should stay visible before Sidecar is tre
 
 ## 2. Downstream Auth / Upstream MCP Wrapping
 
-The Notion wrapper exposed a missing framework pattern: Sidecar is the MCP resource server, but examples may need to link to an upstream MCP/API service with its own OAuth. Token pass-through is not spec-compliant and is rejected by Claude custom connectors, so Sidecar needs a clean auth broker/token-store story for real wrappers.
+The Notion wrapper exposed a missing framework pattern: Sidecar is the MCP resource server, but examples may need to link to an upstream MCP/API service with its own OAuth. Token pass-through is not spec-compliant and is rejected by Claude custom connectors. The Notion example now uses WorkOS AuthKit for the MCP resource-server token, Notion's official MCP OAuth flow for upstream tokens, and WorkOS Vault for per-user token storage; this still needs live hosted testing against Claude/ChatGPT.
 
 ## 3. Capability Honesty
 

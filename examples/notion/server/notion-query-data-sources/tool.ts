@@ -1,7 +1,7 @@
 /** Wraps Notion MCP `notion-query-data-sources`. */
 import { tool, toolResult, type ToolContext } from "sidecar-ai";
 import type { NotionSession } from "../../auth.js";
-import { callNotionTool } from "../../lib/notion.js";
+import { callNotionTool } from "../../lib/official-mcp-client.js";
 
 type QueryDataSourcesParams = {
   /** Query payload in SQL mode or view mode. Fetch the database first to get collection:// URLs. */

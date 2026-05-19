@@ -1,7 +1,7 @@
 /** Wraps Notion MCP `notion-search`. */
 import { tool, toolResult, type ToolContext } from "sidecar-ai";
 import type { NotionSession } from "../../auth.js";
-import { callNotionTool } from "../../lib/notion.js";
+import { callNotionTool } from "../../lib/official-mcp-client.js";
 
 type SearchParams = {
   /** Semantic search query. Use one question or lookup per call. */
