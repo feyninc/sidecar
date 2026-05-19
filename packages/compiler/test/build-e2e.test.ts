@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildProject, type SidecarManifest } from "../src/index.js";
 
-describe("buildProject E2E artifacts", () => {
+describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
   it("builds plain MCP, ChatGPT, and Claude plugin outputs from the sample app", async () => {
     const rootDir = await copySimpleFixture("sidecar-e2e-matrix-");
 

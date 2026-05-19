@@ -1,6 +1,6 @@
 {
   "name": "@sidecar-ai/cli",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0-alpha.4",
   "type": "module",
   "files": [
     "dist"
@@ -16,10 +16,10 @@
   },
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@sidecar-ai/auth": "0.1.0-alpha.3",
-    "@sidecar-ai/compiler": "0.1.0-alpha.3",
-    "@sidecar-ai/core": "0.1.0-alpha.3",
-    "@sidecar-ai/server": "0.1.0-alpha.3",
+    "@sidecar-ai/auth": "0.1.0-alpha.4",
+    "@sidecar-ai/compiler": "0.1.0-alpha.4",
+    "@sidecar-ai/core": "0.1.0-alpha.4",
+    "@sidecar-ai/server": "0.1.0-alpha.4",
     "tsx": "^4.22.0"
   },
   "publishConfig": {
