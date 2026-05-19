@@ -140,6 +140,77 @@ export async function callNotionTool(
   }
 }
 
+/** Creates a user-facing Notion OAuth link for the authenticated WorkOS user. */
+export async function createNotionAuthorizationToolResult(
+  ctx: ToolContext<NotionSession>,
+): Promise<StructuredToolResultInput<NotionToolOutput, { notion: Record<string, unknown> }>> {
+  const existingToken = await readUsableNotionToken(ctx.auth);
+  if (existingToken) {
+    const content = "Notion is already linked for this authenticated Sidecar user. You can call the Notion tools now.";
+    return {
+      structuredContent: {
+        tool: "authorize",
+        ok: true,
+        text: content,
+        preview: {
+          kind: "metadata",
+          title: "Notion linked",
+          summary: "A Notion MCP token is already stored for this user.",
+          content
+        },
+        upstream: {
+          isError: false
+        }
+      },
+      content,
+      meta: {
+        notion: {
+          linked: true,
+          workosUserId: ctx.auth.workosUserId
+        }
+      }
+    };
+  }
+
+  const linkUrl = await createLinkUrl({ ctx });
+  if (!linkUrl) {
+    return missingNotionConfigurationResult(ctx);
+  }
+
+  const content = [
+    "Open this link to authorize Notion for the current Sidecar user:",
+    "",
+    linkUrl,
+    "",
+    "After authorizing Notion, retry the Notion request."
+  ].join("\n");
+  return {
+    structuredContent: {
+      tool: "authorize",
+      ok: true,
+      text: content,
+      preview: {
+        kind: "metadata",
+        title: "Authorize Notion",
+        summary: "Open the OAuth link, authorize Notion, then retry the Notion tool call.",
+        content,
+        url: linkUrl
+      },
+      upstream: {
+        isError: false
+      }
+    },
+    content,
+    meta: {
+      notion: {
+        linked: false,
+        workosUserId: ctx.auth.workosUserId,
+        linkUrl
+      }
+    }
+  };
+}
+
 /** Returns a model-visible error when the WorkOS user has not linked Notion. */
 async function missingNotionLinkResult(
   options: CallNotionToolOptions,
@@ -159,7 +230,7 @@ async function missingNotionLinkResult(
         title: options.title,
         summary: "Notion is not linked for this authenticated user.",
         content,
-        url: linkUrl
+        ...(linkUrl ? { url: linkUrl } : {})
       },
       upstream: {
         isError: true
@@ -170,7 +241,38 @@ async function missingNotionLinkResult(
       notion: {
         linked: false,
         workosUserId: options.ctx.auth.workosUserId,
-        linkUrl
+        ...(linkUrl ? { linkUrl } : {})
+      }
+    },
+    isError: true
+  };
+}
+
+/** Returns a typed tool error when Notion OAuth link generation is unavailable. */
+function missingNotionConfigurationResult(
+  ctx: ToolContext<NotionSession>,
+): StructuredToolResultInput<NotionToolOutput, { notion: Record<string, unknown> }> {
+  const content = "Sidecar could not create a Notion authorization link. Check the public URL, WorkOS Vault, and Notion MCP OAuth configuration.";
+  return {
+    structuredContent: {
+      tool: "authorize",
+      ok: false,
+      text: content,
+      preview: {
+        kind: "metadata",
+        title: "Notion authorization unavailable",
+        summary: "The Notion OAuth link could not be created.",
+        content
+      },
+      upstream: {
+        isError: true
+      }
+    },
+    content,
+    meta: {
+      notion: {
+        linked: false,
+        workosUserId: ctx.auth.workosUserId
       }
     },
     isError: true
@@ -178,7 +280,7 @@ async function missingNotionLinkResult(
 }
 
 /** Creates a Notion OAuth link, returning undefined when configuration is incomplete. */
-async function createLinkUrl(options: CallNotionToolOptions): Promise<string | undefined> {
+async function createLinkUrl(options: Pick<CallNotionToolOptions, "ctx">): Promise<string | undefined> {
   try {
     return await createNotionAuthorizationUrl(options.ctx.auth);
   } catch {
@@ -253,13 +355,15 @@ function buildPreview(input: {
   const content = input.kind === "write"
     ? writePreviewContent(input.args) ?? input.text
     : input.text;
+  const url = firstNotionUrl(input.args) ?? firstNotionUrl(input.text);
+  const stats = previewStats(input.args);
   return {
     kind: input.kind,
     title: input.title,
     summary: previewSummary(input.toolName, input.args, input.text),
     content: content.trim() || "No preview content returned.",
-    url: firstNotionUrl(input.args) ?? firstNotionUrl(input.text),
-    stats: previewStats(input.args)
+    ...(url ? { url } : {}),
+    ...(stats ? { stats } : {})
   };
 }
 

@@ -21,10 +21,11 @@ test("builds the Notion MCP as a standalone published-Sidecar consumer", { timeo
     );
     assert.equal(manifest.host, "vercel");
     assert.equal(manifest.target, "mcp");
-    assert.equal(manifest.tools.length, 18);
+    assert.equal(manifest.tools.length, 19);
     assert.deepEqual(
       manifest.tools.map((tool) => tool.id).sort(),
       [
+        "authorize",
         "notion-create-comment",
         "notion-create-database",
         "notion-create-pages",

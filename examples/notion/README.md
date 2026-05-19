@@ -6,6 +6,8 @@ server and adds native React widgets for the tool results.
 ## What It Shows
 
 - 1:1 Sidecar tool folders for the public Notion MCP tool names.
+- An explicit `authorize` tool that returns the user's Notion OAuth link before
+  they run other Notion tools.
 - WorkOS AuthKit as the MCP authorization server.
 - WorkOS Vault storage for each user's upstream Notion MCP token.
 - Streamable HTTP calls to `https://mcp.notion.com/mcp` with the official MCP
@@ -99,9 +101,11 @@ endpoint. Tool execution reads the user's Notion MCP token from WorkOS Vault
 with an object name derived from the WorkOS user id and a Vault key context
 containing `user_id` and `data_type=notion_mcp_token`.
 
-When a user has no stored Notion token, the tool result includes a Notion OAuth
-link. That flow uses Notion's MCP OAuth discovery, dynamic client registration,
-PKCE, and the local callback route at `/notion/oauth/callback`. The callback
-stores the Notion access token and refresh token in WorkOS Vault. Access tokens
-are refreshed from Vault before upstream tool calls when they are close to
-expiry.
+When a user has no stored Notion token, ask the model to run `authorize` first.
+That tool returns a Notion OAuth link for the current authenticated WorkOS user.
+If the user calls another Notion tool before linking, the tool result also
+includes the same authorization link. The flow uses Notion's MCP OAuth
+discovery, dynamic client registration, PKCE, and the local callback route at
+`/notion/oauth/callback`. The callback stores the Notion access token and
+refresh token in WorkOS Vault. Access tokens are refreshed from Vault before
+upstream tool calls when they are close to expiry.
