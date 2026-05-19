@@ -144,6 +144,12 @@ export type SidecarHandleContext = {
   notifications?: McpNotificationSink;
 };
 
+/** Node-style HTTP request handler used by servers and serverless adapters. */
+export type SidecarHttpRequestHandler = (
+  request: IncomingMessage,
+  response: ServerResponse,
+) => Promise<void>;
+
 export type { McpNotificationMessage, McpNotificationSink } from "./sse.js";
 
 type RuntimeNotificationOptions = {
@@ -648,12 +654,19 @@ export function createSidecarMcpServer(options: SidecarMcpServerOptions): Sideca
 
 /** Creates a Node HTTP server exposing the MCP dispatcher at one endpoint. */
 export function createSidecarHttpServer(options: SidecarMcpServerOptions & { path?: string; proxy?: SidecarProxy }) {
+  return createServer(createSidecarHttpHandler(options));
+}
+
+/** Creates a Node request handler exposing the MCP dispatcher at one endpoint. */
+export function createSidecarHttpHandler(
+  options: SidecarMcpServerOptions & { path?: string; proxy?: SidecarProxy },
+): SidecarHttpRequestHandler {
   const endpoint = options.path ?? "/mcp";
   const maxBodyBytes = options.maxBodyBytes ?? 1_000_000;
   const streamHub = createSseHub();
   const mcp = createSidecarMcpServer(options);
 
-  return createServer(async (request, response) => {
+  return async (request, response) => {
     if (isRejectedOrigin(request, options.allowedOrigins)) {
       response.writeHead(403, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "forbidden_origin" }));
@@ -785,7 +798,7 @@ export function createSidecarHttpServer(options: SidecarMcpServerOptions & { pat
         })
       );
     }
-  });
+  };
 }
 
 const DEFAULT_ALLOWED_ORIGINS = [

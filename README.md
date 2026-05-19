@@ -313,9 +313,11 @@ Build targets select the matching files:
 sidecar build --target mcp
 sidecar build --target chatgpt
 sidecar build --target claude --plugins
+sidecar build --target mcp --host vercel --out out/mcp-vercel
 ```
 
 `mcp` uses only standard MCP behavior. `chatgpt` and `claude` add platform-specific output where supported.
+`--host` selects the hosting artifact shape. `node` emits a standalone Node server; `vercel` emits the same MCP handler behind a Vercel Function shim.
 
 ## Auth And Proxy
 
@@ -471,6 +473,7 @@ sidecar dev --port 3101
 sidecar dev --tunnel
 sidecar check --strict
 sidecar build --target mcp
+sidecar build --target mcp --host vercel --out out/mcp-vercel
 sidecar build --target chatgpt
 sidecar build --target claude --plugins
 ```
@@ -484,6 +487,13 @@ out/
   mcp/
     package.json
     server/index.js
+    manifest.sidecar.json
+    public/widgets/...
+  mcp-vercel/
+    package.json
+    api/sidecar.js
+    server/index.js
+    vercel.json
     manifest.sidecar.json
     public/widgets/...
   chatgpt/
@@ -504,7 +514,7 @@ out/
     agents/
 ```
 
-Each MCP target includes a hostable Node server. Start it from the target output:
+By default, each MCP target includes a hostable Node server. Start it from the target output:
 
 ```sh
 cd out/mcp
@@ -512,6 +522,14 @@ SIDECAR_MCP_URL=https://your-host.example.com/mcp npm start
 ```
 
 The generated server listens on `PORT` or `SIDECAR_PORT` and serves Streamable HTTP at `/mcp`. Claude plugin packages reference the hosted MCP URL instead of bundling the server. After hosting the MCP server, update the generated `claude-plugin/.mcp.json` URL from the placeholder to your real HTTPS MCP endpoint before sharing or installing the plugin.
+
+For Vercel, build a Vercel host artifact:
+
+```sh
+sidecar build --target mcp --host vercel --out out/mcp-vercel
+```
+
+Deploy `out/mcp-vercel`. The generated `vercel.json` rewrites requests to `api/sidecar.js`, which exports the same MCP request handler used by the Node server. Set `SIDECAR_MCP_URL` to the final public `https://.../mcp` URL in Vercel.
 
 ## Developing Sidecar Itself
 

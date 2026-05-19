@@ -1,9 +1,11 @@
 /** End-to-end artifact tests for real Sidecar project builds. */
 import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildProject, type SidecarManifest } from "../src/index.js";
 
@@ -30,8 +32,11 @@ describe("buildProject E2E artifacts", () => {
       const chatgptManifest = await readJson<SidecarManifest>(path.join(rootDir, "out/chatgpt/manifest.sidecar.json"));
       const claudeManifest = await readJson<SidecarManifest>(path.join(rootDir, "out/claude/manifest.sidecar.json"));
       expect(mcpManifest.target).toBe("mcp");
+      expect(mcpManifest.host).toBe("node");
       expect(chatgptManifest.target).toBe("chatgpt");
+      expect(chatgptManifest.host).toBe("node");
       expect(claudeManifest.target).toBe("claude");
+      expect(claudeManifest.host).toBe("node");
       expect(mcpManifest.resources[0]?.descriptor).toMatchObject({
         uri: "sidecar://resources/company-handbook",
         mimeType: "text/markdown",
@@ -72,7 +77,7 @@ describe("buildProject E2E artifacts", () => {
       await expect(readFile(path.join(rootDir, "out/mcp/package.json"), "utf8"))
         .resolves.toContain("\"start\": \"node server/index.js\"");
       await expect(readFile(path.join(rootDir, "out/mcp/server/index.js"), "utf8"))
-        .resolves.toContain("createSidecarHttpServer");
+        .resolves.toContain("createSidecarHttpHandler");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.claude-plugin/plugin.json"), "utf8"))
         .resolves.toContain("\"name\": \"simple-sidecar-example\"");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.mcp.json"), "utf8"))
@@ -84,6 +89,62 @@ describe("buildProject E2E artifacts", () => {
       await expect(readFile(path.join(rootDir, ".sidecar/generated/tools.ts"), "utf8"))
         .resolves.toContain("addNumbers");
     } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits a Vercel host artifact that exposes the same MCP handler", async () => {
+    const rootDir = await copySimpleFixture("sidecar-e2e-vercel-server-");
+    const port = await getFreePort();
+    const mcpUrl = `http://127.0.0.1:${port}/mcp`;
+    let server: ReturnType<typeof createHttpServer> | undefined;
+    const previousMcpUrl = process.env.SIDECAR_MCP_URL;
+    const previousDemoToken = process.env.SIDECAR_DEMO_TOKEN;
+
+    try {
+      const manifest = await buildProject({ rootDir, host: "vercel", outDir: "out/vercel", target: "mcp" });
+      expect(manifest.host).toBe("vercel");
+
+      await expect(readFile(path.join(rootDir, "out/vercel/server/index.js"), "utf8"))
+        .resolves.toContain("createSidecarHttpHandler");
+      await expect(readFile(path.join(rootDir, "out/vercel/api/sidecar.js"), "utf8"))
+        .resolves.toContain("../server/index.js");
+      await expect(readFile(path.join(rootDir, "out/vercel/vercel.json"), "utf8"))
+        .resolves.toContain("\"destination\": \"/api/sidecar\"");
+
+      process.env.SIDECAR_MCP_URL = mcpUrl;
+      process.env.SIDECAR_DEMO_TOKEN = "secret";
+      const apiModule = await import(`${pathToFileURL(path.join(rootDir, "out/vercel/api/sidecar.js")).href}?${Date.now()}`);
+      const handler = apiModule.default;
+      if (typeof handler !== "function") {
+        throw new Error("Generated Vercel entrypoint did not export a default handler.");
+      }
+
+      server = createHttpServer((request, response) => {
+        Promise.resolve(handler(request, response)).catch((error: unknown) => {
+          response.statusCode = 500;
+          response.end(error instanceof Error ? error.message : String(error));
+        });
+      });
+      await listenOnPort(server, port);
+
+      const initialize = await postMcp(mcpUrl, "secret", {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "sidecar-test", version: "0.0.0" },
+        },
+      });
+      expect(initialize.result.serverInfo.name).toBe("Simple Sidecar Example");
+    } finally {
+      restoreEnv("SIDECAR_MCP_URL", previousMcpUrl);
+      restoreEnv("SIDECAR_DEMO_TOKEN", previousDemoToken);
+      if (server) {
+        await closeHttpServer(server);
+      }
       await rm(rootDir, { recursive: true, force: true });
     }
   });
@@ -342,6 +403,39 @@ async function getFreePort(): Promise<number> {
       server.close(() => resolve(port));
     });
   });
+}
+
+/** Starts an HTTP server on localhost for generated handler tests. */
+async function listenOnPort(server: ReturnType<typeof createHttpServer>, port: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+/** Closes a test HTTP server. */
+async function closeHttpServer(server: ReturnType<typeof createHttpServer>): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error?: Error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+/** Restores a process env var after in-process generated module tests. */
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
 }
 
 /** Polls an HTTP URL until the generated server is accepting requests. */

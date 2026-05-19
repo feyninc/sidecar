@@ -23,7 +23,9 @@ import {
   collectProjectDiagnostics,
   formatDiagnostic,
   SERVER_ENTRYPOINT,
+  VERCEL_ENTRYPOINT,
   type SidecarDiagnostic,
+  type SidecarHost,
   type SidecarManifest,
   type SidecarTarget,
   type SidecarToolManifestEntry,
@@ -42,10 +44,11 @@ export async function main(argv: string[]): Promise<void> {
   switch (command) {
     case "build": {
       const target = readTarget(argv);
+      const host = readHost(argv);
       const outDir = readOption(argv, "--out") ?? `out/${target}`;
       const plugins = argv.includes("--plugins");
       const strict = argv.includes("--strict");
-      const manifest = await buildProject({ rootDir, outDir, plugins, strict, target });
+      const manifest = await buildProject({ rootDir, host, outDir, plugins, strict, target });
       printDiagnostics(manifest.diagnostics ?? []);
       if (strict && manifest.diagnostics?.length) {
         exit(1);
@@ -55,7 +58,12 @@ export async function main(argv: string[]): Promise<void> {
           `${manifest.resources.length} resource${manifest.resources.length === 1 ? "" : "s"}, and ` +
           `${manifest.prompts.length} prompt${manifest.prompts.length === 1 ? "" : "s"} to ${outDir}.`,
       );
-      console.log(`Hostable MCP server: ${path.join(outDir, SERVER_ENTRYPOINT)}`);
+      console.log(`Host runtime: ${host}`);
+      if (host === "vercel") {
+        console.log(`Vercel MCP function: ${path.join(outDir, VERCEL_ENTRYPOINT)}`);
+      } else {
+        console.log(`Hostable MCP server: ${path.join(outDir, SERVER_ENTRYPOINT)}`);
+      }
       if (plugins) {
         console.log("Built claude-plugin package.");
       }
@@ -197,7 +205,7 @@ export async function main(argv: string[]): Promise<void> {
       console.log(`Sidecar
 
 Usage:
-  sidecar build [--cwd <dir>] [--target mcp|chatgpt|claude] [--out <dir>] [--plugins] [--strict]
+  sidecar build [--cwd <dir>] [--target mcp|chatgpt|claude] [--host node|vercel] [--out <dir>] [--plugins] [--strict]
   sidecar check [--cwd <dir>] [--target mcp|chatgpt|claude] [--strict]
   sidecar dev [--cwd <dir>] [--target mcp|chatgpt|claude] [--port <port>] [--tunnel [cloudflared|wrangler]]
   sidecar inspect [--cwd <dir>] [--target mcp|chatgpt|claude]
@@ -213,6 +221,15 @@ function readTarget(argv: string[]): SidecarTarget {
     return target;
   }
   throw new Error(`Unsupported Sidecar target "${target}". Expected mcp, chatgpt, or claude.`);
+}
+
+/** Reads and validates the host runtime artifact profile. */
+function readHost(argv: string[]): SidecarHost {
+  const host = readOption(argv, "--host") ?? "node";
+  if (host === "node" || host === "vercel") {
+    return host;
+  }
+  throw new Error(`Unsupported Sidecar host "${host}". Expected node or vercel.`);
 }
 
 /** Options for the component parity preview command. */

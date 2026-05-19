@@ -16,6 +16,9 @@ import type { SidecarDiagnostic } from "./diagnostics.js";
 /** Build target profile selected by reserved platform file suffixes. */
 export type SidecarTarget = "mcp" | "chatgpt" | "claude";
 
+/** Host runtime artifact emitted for a build output. */
+export type SidecarHost = "node" | "vercel";
+
 /** Platform suffix chosen for a reserved tool or widget file. */
 export type SidecarSourceVariant = "shared" | "openai" | "anthropic";
 
@@ -105,6 +108,7 @@ export type SidecarCompilerConfig = {
 export type SidecarManifest = {
   version: 1;
   target: SidecarTarget;
+  host: SidecarHost;
   rootDir: string;
   generatedAt: string;
   config: SidecarCompilerConfig;
@@ -118,6 +122,7 @@ export type SidecarManifest = {
 /** Options accepted by `buildProject()`. */
 export type BuildProjectOptions = {
   rootDir: string;
+  host?: SidecarHost;
   outDir?: string;
   plugins?: boolean;
   strict?: boolean;

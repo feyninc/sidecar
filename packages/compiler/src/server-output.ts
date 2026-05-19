@@ -1,13 +1,16 @@
 /** Hostable Node server artifact generation for Sidecar builds. */
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { build as esbuild } from "esbuild";
-import type { ProjectIdentity, SidecarManifest } from "./types.js";
+import type { ProjectIdentity, SidecarHost, SidecarManifest } from "./types.js";
 import { toImportSpecifier } from "./utils.js";
 
 /** Relative location of the generated server entrypoint inside a build output. */
 export const SERVER_ENTRYPOINT = "server/index.js";
+
+/** Relative location of the optional Vercel request-handler shim. */
+export const VERCEL_ENTRYPOINT = "api/sidecar.js";
 
 /** Emits a bundled Node MCP server that can be started with `node server/index.js`. */
 export async function buildServerOutput(
@@ -15,6 +18,7 @@ export async function buildServerOutput(
   outDir: string,
   manifest: SidecarManifest,
   identity: ProjectIdentity,
+  host: SidecarHost = "node",
 ): Promise<void> {
   const cacheDir = path.join(rootDir, ".sidecar", "cache", "server");
   await mkdir(cacheDir, { recursive: true });
@@ -27,6 +31,9 @@ export async function buildServerOutput(
   await esbuild({
     absWorkingDir: rootDir,
     alias: sidecarBundleAliases(rootDir),
+    banner: {
+      js: `import { createRequire as __sidecarCreateRequire } from "node:module";\nconst require = __sidecarCreateRequire(import.meta.url);`,
+    },
     bundle: true,
     entryPoints: [entryFile],
     format: "esm",
@@ -43,6 +50,14 @@ export async function buildServerOutput(
   });
 
   await writeFile(path.join(outDir, "package.json"), renderServerPackage(identity));
+  if (host === "vercel") {
+    await mkdir(path.join(outDir, "api"), { recursive: true });
+    await writeFile(path.join(outDir, VERCEL_ENTRYPOINT), renderVercelEntrypoint());
+    await writeFile(path.join(outDir, "vercel.json"), renderVercelConfig());
+  } else {
+    await rm(path.join(outDir, "api"), { recursive: true, force: true });
+    await rm(path.join(outDir, "vercel.json"), { force: true });
+  }
 }
 
 /** Renders the temporary TypeScript entrypoint that esbuild bundles. */
@@ -58,8 +73,10 @@ function renderServerEntry(
   const prompts = manifest.prompts;
 
   const imports = [
-    `import { readFileSync } from "node:fs";`,
-    `import { createSidecarHttpServer } from "@sidecar-ai/server";`,
+    `import { readFileSync, realpathSync } from "node:fs";`,
+    `import { createServer } from "node:http";`,
+    `import { pathToFileURL } from "node:url";`,
+    `import { createSidecarHttpHandler } from "@sidecar-ai/server";`,
     `import { isSidecarAuth } from "@sidecar-ai/auth";`,
     `import { isSidecarPrompt, isSidecarResource, isSidecarTool } from "@sidecar-ai/core";`,
     `import { isSidecarProxy } from "@sidecar-ai/server/proxy";`,
@@ -99,7 +116,7 @@ if (auth && !process.env.SIDECAR_MCP_URL) {
   console.warn("Sidecar auth is enabled. Set SIDECAR_MCP_URL to the public https://.../mcp URL before hosting.");
 }
 
-const server = createSidecarHttpServer({
+export const handler = createSidecarHttpHandler({
   name: identity.name,
   version: identity.version,
   path: process.env.SIDECAR_MCP_PATH ?? "/mcp",
@@ -127,15 +144,21 @@ ${prompts.map((entry, index) => `    loadPrompt(${JSON.stringify(entry.sourceFil
   },
 });
 
-const port = readPort();
-const host = process.env.SIDECAR_HOST ?? process.env.HOST ?? "0.0.0.0";
-server.listen(port, host, () => {
-  const localHost = host === "0.0.0.0" ? "127.0.0.1" : host;
-  console.log(\`MCP running on Streamable HTTP at http://\${localHost}:\${port}\${process.env.SIDECAR_MCP_PATH ?? "/mcp"}\`);
-});
+export default handler;
 
-process.on("SIGTERM", () => shutdown());
-process.on("SIGINT", () => shutdown());
+export const server = createServer(handler);
+
+if (isDirectRun()) {
+  const port = readPort();
+  const host = process.env.SIDECAR_HOST ?? process.env.HOST ?? "0.0.0.0";
+  server.listen(port, host, () => {
+    const localHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+    console.log(\`MCP running on Streamable HTTP at http://\${localHost}:\${port}\${process.env.SIDECAR_MCP_PATH ?? "/mcp"}\`);
+  });
+
+  process.on("SIGTERM", () => shutdown());
+  process.on("SIGINT", () => shutdown());
+}
 
 function loadTool(sourceFile, value, descriptor) {
   const tool = unwrapRuntimeDefault(value);
@@ -206,6 +229,15 @@ function readPort() {
   return port;
 }
 
+function isDirectRun() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+
+  return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+}
+
 function shutdown() {
   server.close(() => process.exit(0));
 }
@@ -239,6 +271,30 @@ function renderServerPackage(identity: ProjectIdentity): string {
     },
     engines: {
       node: ">=20",
+    },
+  }, null, 2)}\n`;
+}
+
+/** Emits a Vercel function shim that reuses the generated Node request handler. */
+function renderVercelEntrypoint(): string {
+  return `export { default } from "../server/index.js";
+`;
+}
+
+/** Emits Vercel routing that sends MCP and proxy routes to the Sidecar handler. */
+function renderVercelConfig(): string {
+  return `${JSON.stringify({
+    rewrites: [
+      {
+        source: "/(.*)",
+        destination: "/api/sidecar",
+      },
+    ],
+    functions: {
+      "api/sidecar.js": {
+        includeFiles: "public/**",
+        maxDuration: 300,
+      },
     },
   }, null, 2)}\n`;
 }

@@ -19,6 +19,7 @@ export async function buildProject(
 ): Promise<SidecarManifest> {
   const rootDir = path.resolve(options.rootDir);
   const target = options.target ?? "mcp";
+  const host = options.host ?? "node";
   const config = analyzeProjectConfig(rootDir);
   const tools = await analyzeProjectTools(rootDir, { target });
   const resources = await analyzeProjectResources(rootDir);
@@ -42,6 +43,7 @@ export async function buildProject(
   const manifest: SidecarManifest = {
     version: 1,
     target,
+    host,
     rootDir: ".",
     generatedAt: new Date().toISOString(),
     config,
@@ -59,7 +61,7 @@ export async function buildProject(
   );
   await writeFile(path.join(outDir, "README.md"), renderMcpReadme(manifest));
   await writeGeneratedTypes(rootDir, tools);
-  await buildServerOutput(rootDir, outDir, manifest, identity);
+  await buildServerOutput(rootDir, outDir, manifest, identity, host);
   if (options.plugins) {
     await buildPluginPackages(rootDir, path.dirname(outDir), manifest);
   }
@@ -105,9 +107,19 @@ ${resources || "No resources detected."}
 
 ${prompts || "No prompts detected."}
 
-## Run The Server
+${manifest.host === "vercel" ? renderVercelReadmeSection() : renderNodeReadmeSection()}
 
-This output includes a hostable MCP server. Start it with:
+## Local HTTPS Testing
+
+Run \`sidecar dev --tunnel\` from the project root to start the local MCP server on Streamable HTTP and print a validated HTTPS MCP URL that can be added to ChatGPT, Claude, or a Claude plugin install. Temporary quick tunnels are public and best-effort; use a configured tunnel/domain or deployed preview for repeatable testing.
+`;
+}
+
+/** Renders generated README instructions for standalone Node output. */
+function renderNodeReadmeSection(): string {
+  return `## Run The Server
+
+This output includes a standalone Node MCP server. Start it with:
 
 \`\`\`sh
 npm start
@@ -120,9 +132,13 @@ node server/index.js
 \`\`\`
 
 Set \`PORT\` or \`SIDECAR_PORT\` to choose the listen port. Hosted/authenticated MCPs should set \`SIDECAR_MCP_URL\` to the public \`https://.../mcp\` URL before starting.
+`;
+}
 
-## Local HTTPS Testing
+/** Renders generated README instructions for Vercel output. */
+function renderVercelReadmeSection(): string {
+  return `## Deploy To Vercel
 
-Run \`sidecar dev --tunnel\` from the project root to start the local MCP server on Streamable HTTP and print a validated HTTPS MCP URL that can be added to ChatGPT, Claude, or a Claude plugin install. Temporary quick tunnels are public and best-effort; use a configured tunnel/domain or deployed preview for repeatable testing.
+This output includes a Vercel Function shim at \`api/sidecar.js\` and a \`vercel.json\` rewrite that sends Streamable HTTP traffic to \`/mcp\`. Deploy this output directory with Vercel and set \`SIDECAR_MCP_URL\` to the public \`https://.../mcp\` URL.
 `;
 }

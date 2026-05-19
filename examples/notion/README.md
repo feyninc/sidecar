@@ -43,6 +43,18 @@ server. On your host, set `PORT`, `SIDECAR_MCP_URL`, and `SIDECAR_PUBLIC_URL`
 through the platform environment settings. Use `https://your-host.example.com/mcp`
 as the connector URL.
 
+For Vercel:
+
+```sh
+npm run build:vercel
+cd out/vercel
+vercel deploy --prod
+```
+
+The generated `out/vercel/vercel.json` routes requests to the Sidecar MCP
+function at `api/sidecar.js`. Set `SIDECAR_MCP_URL` and `SIDECAR_PUBLIC_URL` to
+the final Vercel `https://.../mcp` URL.
+
 ## Auth
 
 Hosted Notion MCP requires a Notion-audience OAuth token. This example keeps
