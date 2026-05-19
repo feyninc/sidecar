@@ -6,17 +6,18 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const testOutRoot = path.join(rootDir, "out", "test");
-const outDir = path.join(testOutRoot, "vercel");
+const vercelOutDir = path.join(rootDir, ".vercel", "output");
+const functionDir = path.join(vercelOutDir, "functions", "api", "sidecar.func");
 
 test("builds the Notion MCP as a standalone published-Sidecar consumer", { timeout: 60_000 }, async () => {
-  await rm(testOutRoot, { recursive: true, force: true });
+  await rm(vercelOutDir, { recursive: true, force: true });
+  await rm(path.join(rootDir, "out", "claude-plugin"), { recursive: true, force: true });
 
   try {
-    await sidecar(["build", "--host", "vercel", "--out", "out/test/vercel", "--plugins"]);
+    await npm(["run", "build"], { VERCEL: "1" });
 
     const manifest = JSON.parse(
-      await readFile(path.join(outDir, "manifest.sidecar.json"), "utf8"),
+      await readFile(path.join(functionDir, "manifest.sidecar.json"), "utf8"),
     );
     assert.equal(manifest.host, "vercel");
     assert.equal(manifest.target, "mcp");
@@ -55,32 +56,27 @@ test("builds the Notion MCP as a standalone published-Sidecar consumer", { timeo
     assert.ok(update?.widget?.outputFile);
     assert.equal(update?.descriptor.annotations?.destructiveHint, true);
     assert.match(
-      await readFile(path.join(outDir, update.widget.outputFile), "utf8"),
+      await readFile(path.join(functionDir, update.widget.outputFile), "utf8"),
       /notion-document-peek/,
     );
-    assert.match(await readFile(path.join(outDir, "api", "sidecar.js"), "utf8"), /server\/index\.js/);
-    assert.match(await readFile(path.join(outDir, "vercel.json"), "utf8"), /api\/sidecar/);
+    assert.match(await readFile(path.join(functionDir, "index.js"), "utf8"), /server\/index\.js/);
+    assert.match(await readFile(path.join(functionDir, ".vc-config.json"), "utf8"), /nodejs22\.x/);
+    assert.match(await readFile(path.join(vercelOutDir, "config.json"), "utf8"), /api\/sidecar/);
     assert.match(
-      await readFile(path.join(testOutRoot, "claude-plugin", ".mcp.json"), "utf8"),
+      await readFile(path.join(rootDir, "out", "claude-plugin", ".mcp.json"), "utf8"),
       /\$\{SIDECAR_MCP_URL\}/,
     );
   } finally {
-    await rm(testOutRoot, { recursive: true, force: true });
+    await rm(vercelOutDir, { recursive: true, force: true });
+    await rm(path.join(rootDir, "out", "claude-plugin"), { recursive: true, force: true });
   }
 });
 
-async function sidecar(args) {
-  const bin = path.join(
-    rootDir,
-    "node_modules",
-    ".bin",
-    process.platform === "win32" ? "sidecar.cmd" : "sidecar",
-  );
-
+async function npm(args, env = {}) {
   await new Promise((resolve, reject) => {
-    const child = spawn(bin, args, {
+    const child = spawn(process.platform === "win32" ? "npm.cmd" : "npm", args, {
       cwd: rootDir,
-      env: process.env,
+      env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout = [];
@@ -96,7 +92,7 @@ async function sidecar(args) {
       }
       reject(
         new Error(
-          `sidecar ${args.join(" ")} failed with exit code ${code}\n${Buffer.concat(stdout).toString("utf8")}${Buffer.concat(stderr).toString("utf8")}`,
+          `npm ${args.join(" ")} failed with exit code ${code}\n${Buffer.concat(stdout).toString("utf8")}${Buffer.concat(stderr).toString("utf8")}`,
         ),
       );
     });

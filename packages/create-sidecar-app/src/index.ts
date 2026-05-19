@@ -50,7 +50,7 @@ function parseArgs(argv: string[]): CreateOptions {
 
 /** Writes the starter project files. */
 async function writeProject(rootDir: string, appName: string, force: boolean): Promise<void> {
-  const sidecarVersion = "0.1.0-alpha.1";
+  const sidecarVersion = "0.1.0-alpha.5";
   await mkdir(rootDir, { recursive: true });
   await Promise.all([
     writeFileIfNew(
@@ -63,7 +63,7 @@ async function writeProject(rootDir: string, appName: string, force: boolean): P
           scripts: {
             dev: "sidecar dev",
             "dev:https": "sidecar dev --tunnel",
-            build: "sidecar build --plugins",
+            build: "sidecar build",
             check: "sidecar check",
             inspect: "sidecar inspect",
           },
@@ -160,6 +160,9 @@ export default defineConfig({
   name: ${JSON.stringify(displayName)},
   version: "0.1.0",
   description: "A Sidecar MCP app.",
+  build: {
+    plugins: true
+  },
   pagination: {
     pageSize: 10
   }

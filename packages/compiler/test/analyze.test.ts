@@ -47,6 +47,7 @@ describe("analyzeProjectTools", () => {
     const resources = await analyzeProjectResources(rootDir);
     const prompts = await analyzeProjectPrompts(rootDir);
 
+    expect(config.build.plugins).toBe(true);
     expect(config.pagination.pageSize).toBe(10);
     expect(resources).toHaveLength(1);
     expect(resources[0]).toMatchObject({

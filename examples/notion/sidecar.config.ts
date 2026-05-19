@@ -6,6 +6,9 @@ export default defineConfig({
   version: "0.1.0-alpha.1",
   description:
     "A Sidecar example that exposes the hosted Notion MCP tools with native UI previews.",
+  build: {
+    plugins: true
+  },
   resources: {
     listChanged: false,
     subscribe: false

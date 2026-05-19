@@ -105,16 +105,19 @@ describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
       const manifest = await buildProject({ rootDir, host: "vercel", outDir: "out/vercel", target: "mcp" });
       expect(manifest.host).toBe("vercel");
 
-      await expect(readFile(path.join(rootDir, "out/vercel/server/index.js"), "utf8"))
+      const functionDir = path.join(rootDir, "out/vercel/functions/api/sidecar.func");
+      await expect(readFile(path.join(functionDir, "server/index.js"), "utf8"))
         .resolves.toContain("createSidecarHttpHandler");
-      await expect(readFile(path.join(rootDir, "out/vercel/api/sidecar.js"), "utf8"))
-        .resolves.toContain("../server/index.js");
-      await expect(readFile(path.join(rootDir, "out/vercel/vercel.json"), "utf8"))
-        .resolves.toContain("\"destination\": \"/api/sidecar\"");
+      await expect(readFile(path.join(functionDir, "index.js"), "utf8"))
+        .resolves.toContain("./server/index.js");
+      await expect(readFile(path.join(functionDir, ".vc-config.json"), "utf8"))
+        .resolves.toContain("\"runtime\": \"nodejs22.x\"");
+      await expect(readFile(path.join(rootDir, "out/vercel/config.json"), "utf8"))
+        .resolves.toContain("\"dest\": \"/api/sidecar\"");
 
       process.env.SIDECAR_MCP_URL = mcpUrl;
       process.env.SIDECAR_DEMO_TOKEN = "secret";
-      const apiModule = await import(`${pathToFileURL(path.join(rootDir, "out/vercel/api/sidecar.js")).href}?${Date.now()}`);
+      const apiModule = await import(`${pathToFileURL(path.join(functionDir, "index.js")).href}?${Date.now()}`);
       const handler = apiModule.default;
       if (typeof handler !== "function") {
         throw new Error("Generated Vercel entrypoint did not export a default handler.");

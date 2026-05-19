@@ -74,13 +74,17 @@ export default defineConfig({
   name: "Expense Review",
   version: "0.1.0",
   description: "Review expense reports with MCP tools and widgets.",
+  build: {
+    target: "mcp",
+    plugins: true
+  },
   pagination: {
     pageSize: 10
   }
 });
 ```
 
-Sidecar uses `sidecar.config.ts` for app identity, generated manifests, plugin metadata, and MCP capability settings.
+Sidecar uses `sidecar.config.ts` for app identity, generated manifests, plugin metadata, build defaults, and MCP capability settings. CLI flags override config values, so `sidecar build --target claude` still works for one-off builds.
 
 ## Tools
 
@@ -313,11 +317,13 @@ Build targets select the matching files:
 sidecar build --target mcp
 sidecar build --target chatgpt
 sidecar build --target claude --plugins
-sidecar build --target mcp --host vercel --out out/mcp-vercel
+sidecar build --target mcp --host vercel
 ```
 
+Set `build.target` in `sidecar.config.ts` when one platform is the normal app target, then `sidecar build` is enough.
+
 `mcp` uses only standard MCP behavior. `chatgpt` and `claude` add platform-specific output where supported.
-`--host` selects the hosting artifact shape. `node` emits a standalone Node server; `vercel` emits the same MCP handler behind a Vercel Function shim.
+`--host` selects the hosting artifact shape. `node` emits a standalone Node server; `vercel` emits Vercel Build Output API files at `.vercel/output`. When `VERCEL=1` is present, `sidecar build` selects the Vercel host automatically.
 
 ## Auth And Proxy
 
@@ -472,8 +478,9 @@ Direct CLI usage:
 sidecar dev --port 3101
 sidecar dev --tunnel
 sidecar check --strict
+sidecar build
 sidecar build --target mcp
-sidecar build --target mcp --host vercel --out out/mcp-vercel
+sidecar build --target mcp --host vercel
 sidecar build --target chatgpt
 sidecar build --target claude --plugins
 ```
@@ -487,13 +494,6 @@ out/
   mcp/
     package.json
     server/index.js
-    manifest.sidecar.json
-    public/widgets/...
-  mcp-vercel/
-    package.json
-    api/sidecar.js
-    server/index.js
-    vercel.json
     manifest.sidecar.json
     public/widgets/...
   chatgpt/
@@ -512,6 +512,14 @@ out/
     commands/
     hooks/
     agents/
+.vercel/
+  output/
+    config.json
+    functions/api/sidecar.func/
+      .vc-config.json
+      index.js
+      server/index.js
+      manifest.sidecar.json
 ```
 
 By default, each MCP target includes a hostable Node server. Start it from the target output:
@@ -523,13 +531,13 @@ SIDECAR_MCP_URL=https://your-host.example.com/mcp npm start
 
 The generated server listens on `PORT` or `SIDECAR_PORT` and serves Streamable HTTP at `/mcp`. Claude plugin packages reference the hosted MCP URL instead of bundling the server. After hosting the MCP server, update the generated `claude-plugin/.mcp.json` URL from the placeholder to your real HTTPS MCP endpoint before sharing or installing the plugin.
 
-For Vercel, build a Vercel host artifact:
+For Vercel, no custom build or output setting is required. Use the normal package build script:
 
 ```sh
-sidecar build --target mcp --host vercel --out out/mcp-vercel
+npm run build
 ```
 
-Deploy `out/mcp-vercel`. The generated `vercel.json` rewrites requests to `api/sidecar.js`, which exports the same MCP request handler used by the Node server. Set `SIDECAR_MCP_URL` to the final public `https://.../mcp` URL in Vercel.
+Vercel sets `VERCEL=1`, so `sidecar build` automatically emits `.vercel/output` using Vercel's Build Output API. In a monorepo, set only the Vercel Root Directory to the Sidecar app folder. Set `SIDECAR_MCP_URL` to the final public `https://.../mcp` URL in Vercel.
 
 ## Developing Sidecar Itself
 

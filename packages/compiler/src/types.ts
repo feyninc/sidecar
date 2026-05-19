@@ -1,5 +1,7 @@
 /** Manifest and option types shared across the Sidecar compiler modules. */
 import type {
+  BuildHost,
+  BuildTarget,
   JsonSchema,
   McpPromptDescriptor,
   McpResourceDescriptor,
@@ -14,10 +16,10 @@ import type {
 import type { SidecarDiagnostic } from "./diagnostics.js";
 
 /** Build target profile selected by reserved platform file suffixes. */
-export type SidecarTarget = "mcp" | "chatgpt" | "claude";
+export type SidecarTarget = BuildTarget;
 
 /** Host runtime artifact emitted for a build output. */
-export type SidecarHost = "node" | "vercel";
+export type SidecarHost = BuildHost;
 
 /** Platform suffix chosen for a reserved tool or widget file. */
 export type SidecarSourceVariant = "shared" | "openai" | "anthropic";
@@ -88,6 +90,12 @@ export type SidecarPromptManifestEntry = {
 
 /** Serializable project config subset recorded in build manifests. */
 export type SidecarCompilerConfig = {
+  build: {
+    target?: SidecarTarget;
+    host?: SidecarHost;
+    outDir?: string;
+    plugins?: boolean;
+  };
   resources: {
     subscribe: boolean;
     listChanged: boolean;

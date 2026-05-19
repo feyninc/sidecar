@@ -26,6 +26,12 @@ export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
   }
 
   return {
+    build: {
+      target: readTargetNested(definition, "build", "target"),
+      host: readHostNested(definition, "build", "host"),
+      outDir: readStringNested(definition, "build", "outDir"),
+      plugins: readBooleanNested(definition, "build", "plugins"),
+    },
     resources: {
       subscribe: readBooleanNested(definition, "resources", "subscribe") ?? false,
       listChanged: readBooleanNested(definition, "resources", "listChanged") ?? false,
@@ -46,6 +52,7 @@ export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
 /** Returns compiler defaults when config is absent. */
 export function defaultCompilerConfig(): SidecarCompilerConfig {
   return {
+    build: {},
     resources: {
       subscribe: false,
       listChanged: false,
@@ -61,6 +68,48 @@ export function defaultCompilerConfig(): SidecarCompilerConfig {
       hasOverride: false,
     },
   };
+}
+
+/** Reads a build target nested object property. */
+function readTargetNested(
+  definition: ObjectLiteralExpression,
+  section: string,
+  propertyName: string,
+): "mcp" | "chatgpt" | "claude" | undefined {
+  const value = readStringNested(definition, section, propertyName);
+  return value === "mcp" || value === "chatgpt" || value === "claude"
+    ? value
+    : undefined;
+}
+
+/** Reads a build host nested object property. */
+function readHostNested(
+  definition: ObjectLiteralExpression,
+  section: string,
+  propertyName: string,
+): "node" | "vercel" | undefined {
+  const value = readStringNested(definition, section, propertyName);
+  return value === "node" || value === "vercel" ? value : undefined;
+}
+
+/** Reads a string nested object property. */
+function readStringNested(
+  definition: ObjectLiteralExpression,
+  section: string,
+  propertyName: string,
+): string | undefined {
+  const object = readObjectProperty(definition, section);
+  if (!object) {
+    return undefined;
+  }
+  const property = object.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+  const initializer = unwrapExpression(property.getInitializer());
+  return initializer && Node.isStringLiteral(initializer)
+    ? initializer.getLiteralText()
+    : undefined;
 }
 
 /** Reads a boolean nested object property. */

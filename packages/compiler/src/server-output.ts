@@ -9,8 +9,14 @@ import { toImportSpecifier } from "./utils.js";
 /** Relative location of the generated server entrypoint inside a build output. */
 export const SERVER_ENTRYPOINT = "server/index.js";
 
-/** Relative location of the optional Vercel request-handler shim. */
-export const VERCEL_ENTRYPOINT = "api/sidecar.js";
+/** Relative location of the Vercel Build Output API function directory. */
+export const VERCEL_FUNCTION_DIR = "functions/api/sidecar.func";
+
+/** Relative location of the Vercel Build Output API function entrypoint. */
+export const VERCEL_ENTRYPOINT = `${VERCEL_FUNCTION_DIR}/index.js`;
+
+/** File name Vercel invokes inside the Build Output API function directory. */
+const VERCEL_HANDLER_FILE = "index.js";
 
 /** Emits a bundled Node MCP server that can be started with `node server/index.js`. */
 export async function buildServerOutput(
@@ -19,6 +25,7 @@ export async function buildServerOutput(
   manifest: SidecarManifest,
   identity: ProjectIdentity,
   host: SidecarHost = "node",
+  options: { vercelOutputDir?: string } = {},
 ): Promise<void> {
   const cacheDir = path.join(rootDir, ".sidecar", "cache", "server");
   await mkdir(cacheDir, { recursive: true });
@@ -51,9 +58,13 @@ export async function buildServerOutput(
 
   await writeFile(path.join(outDir, "package.json"), renderServerPackage(identity));
   if (host === "vercel") {
-    await mkdir(path.join(outDir, "api"), { recursive: true });
-    await writeFile(path.join(outDir, VERCEL_ENTRYPOINT), renderVercelEntrypoint());
-    await writeFile(path.join(outDir, "vercel.json"), renderVercelConfig());
+    const vercelOutputDir = options.vercelOutputDir ?? outDir;
+    await rm(path.join(vercelOutputDir, "api"), { recursive: true, force: true });
+    await rm(path.join(vercelOutputDir, "vercel.json"), { force: true });
+    await writeFile(path.join(outDir, VERCEL_HANDLER_FILE), renderVercelEntrypoint());
+    await writeFile(path.join(outDir, ".vc-config.json"), renderVercelFunctionConfig());
+    await mkdir(vercelOutputDir, { recursive: true });
+    await writeFile(path.join(vercelOutputDir, "config.json"), renderVercelOutputConfig());
   } else {
     await rm(path.join(outDir, "api"), { recursive: true, force: true });
     await rm(path.join(outDir, "vercel.json"), { force: true });
@@ -277,25 +288,32 @@ function renderServerPackage(identity: ProjectIdentity): string {
 
 /** Emits a Vercel function shim that reuses the generated Node request handler. */
 function renderVercelEntrypoint(): string {
-  return `export { default } from "../server/index.js";
+  return `export { default } from "./server/index.js";
 `;
 }
 
-/** Emits Vercel routing that sends MCP and proxy routes to the Sidecar handler. */
-function renderVercelConfig(): string {
+/** Emits Build Output API metadata for the Vercel Node.js function. */
+function renderVercelFunctionConfig(): string {
   return `${JSON.stringify({
-    rewrites: [
+    runtime: "nodejs22.x",
+    handler: VERCEL_HANDLER_FILE,
+    launcherType: "Nodejs",
+    shouldAddHelpers: true,
+    supportsResponseStreaming: true,
+    maxDuration: 300,
+  }, null, 2)}\n`;
+}
+
+/** Emits Vercel Build Output API routing to the generated MCP function. */
+function renderVercelOutputConfig(): string {
+  return `${JSON.stringify({
+    version: 3,
+    routes: [
       {
-        source: "/(.*)",
-        destination: "/api/sidecar",
+        src: "/(.*)",
+        dest: "/api/sidecar",
       },
     ],
-    functions: {
-      "api/sidecar.js": {
-        includeFiles: "public/**",
-        maxDuration: 300,
-      },
-    },
   }, null, 2)}\n`;
 }
 

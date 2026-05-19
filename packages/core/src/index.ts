@@ -27,6 +27,8 @@ export type SidecarConfig = {
   version: string;
   /** Short app description used by hosts and generated install docs. */
   description: string;
+  /** Build defaults used when CLI flags do not override them. */
+  build?: BuildConfig;
   /** Server-level MCP resource capabilities. */
   resources?: ResourceCapabilityConfig;
   /** Server-level MCP prompt capabilities. */
@@ -35,6 +37,24 @@ export type SidecarConfig = {
   tools?: ToolCapabilityConfig;
   /** Cursor pagination defaults for MCP list operations. */
   pagination?: PaginationConfig;
+};
+
+/** Build target profile selected by reserved platform file suffixes. */
+export type BuildTarget = "mcp" | "chatgpt" | "claude";
+
+/** Host runtime artifact emitted for a build output. */
+export type BuildHost = "node" | "vercel";
+
+/** Project-level build defaults. CLI flags always take precedence. */
+export type BuildConfig = {
+  /** Default target profile for `sidecar build`. */
+  target?: BuildTarget;
+  /** Default host artifact for `sidecar build`. Vercel also auto-selects this when `VERCEL=1`. */
+  host?: BuildHost;
+  /** Default output directory. Leave unset for host-specific defaults. */
+  outDir?: string;
+  /** Whether `sidecar build` should emit installable plugin packages by default. */
+  plugins?: boolean;
 };
 
 /** MCP list operations that support cursor pagination. */

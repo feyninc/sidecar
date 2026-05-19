@@ -45,15 +45,20 @@ as the connector URL.
 
 For Vercel:
 
+Connect the repo to Vercel. For a normal standalone Sidecar app, no build command
+or output directory override is needed: Vercel runs `npm run build`, Sidecar sees
+`VERCEL=1`, and the build emits `.vercel/output`.
+
+Because this example lives in a monorepo, set only the Vercel Root Directory to
+`examples/notion`. Leave Build Command and Output Directory empty. Set
+`SIDECAR_MCP_URL` and `SIDECAR_PUBLIC_URL` to the final Vercel
+`https://.../mcp` URL.
+
+To create the same Vercel artifact locally:
+
 ```sh
 npm run build:vercel
-cd out/vercel
-vercel deploy --prod
 ```
-
-The generated `out/vercel/vercel.json` routes requests to the Sidecar MCP
-function at `api/sidecar.js`. Set `SIDECAR_MCP_URL` and `SIDECAR_PUBLIC_URL` to
-the final Vercel `https://.../mcp` URL.
 
 Run the example smoke test with:
 
@@ -61,10 +66,7 @@ Run the example smoke test with:
 npm test
 ```
 
-When deploying this example directly from the Sidecar monorepo, keep the Vercel
-Root Directory set to `examples/notion`, the Build Command set to
-`npm run build:vercel`, and the Output Directory set to `out/vercel`. This
-example is intentionally not a root npm workspace, so Vercel installs
+This example is intentionally not a root npm workspace, so Vercel installs
 `sidecar-ai` from npm the same way a separate consumer project would.
 
 ## Auth

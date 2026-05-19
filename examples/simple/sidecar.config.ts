@@ -5,6 +5,9 @@ export default defineConfig({
   name: "Simple Sidecar Example",
   version: "0.1.0-alpha.1",
   description: "A small Sidecar project used to exercise tool discovery.",
+  build: {
+    plugins: true
+  },
   resources: {
     listChanged: false,
     subscribe: false

@@ -43,28 +43,29 @@ export async function main(argv: string[]): Promise<void> {
 
   switch (command) {
     case "build": {
-      const target = readTarget(argv);
-      const host = readHost(argv);
-      const outDir = readOption(argv, "--out") ?? `out/${target}`;
-      const plugins = argv.includes("--plugins");
+      const target = readOptionalTarget(argv);
+      const host = readOptionalHost(argv) ?? detectHostFromEnvironment();
+      const outDir = readOption(argv, "--out");
+      const plugins = readOptionalPlugins(argv);
       const strict = argv.includes("--strict");
       const manifest = await buildProject({ rootDir, host, outDir, plugins, strict, target });
+      const resolvedOutDir = outDir ?? manifest.config.build.outDir ?? defaultBuildOutDir(manifest.host, manifest.target);
       printDiagnostics(manifest.diagnostics ?? []);
       if (strict && manifest.diagnostics?.length) {
         exit(1);
       }
       console.log(
-        `Built ${manifest.tools.length} ${target} tool${manifest.tools.length === 1 ? "" : "s"}, ` +
+        `Built ${manifest.tools.length} ${manifest.target} tool${manifest.tools.length === 1 ? "" : "s"}, ` +
           `${manifest.resources.length} resource${manifest.resources.length === 1 ? "" : "s"}, and ` +
-          `${manifest.prompts.length} prompt${manifest.prompts.length === 1 ? "" : "s"} to ${outDir}.`,
+          `${manifest.prompts.length} prompt${manifest.prompts.length === 1 ? "" : "s"} to ${resolvedOutDir}.`,
       );
-      console.log(`Host runtime: ${host}`);
-      if (host === "vercel") {
-        console.log(`Vercel MCP function: ${path.join(outDir, VERCEL_ENTRYPOINT)}`);
+      console.log(`Host runtime: ${manifest.host}`);
+      if (manifest.host === "vercel") {
+        console.log(`Vercel MCP function: ${path.join(resolvedOutDir, VERCEL_ENTRYPOINT)}`);
       } else {
-        console.log(`Hostable MCP server: ${path.join(outDir, SERVER_ENTRYPOINT)}`);
+        console.log(`Hostable MCP server: ${path.join(resolvedOutDir, SERVER_ENTRYPOINT)}`);
       }
-      if (plugins) {
+      if (plugins ?? manifest.config.build.plugins) {
         console.log("Built claude-plugin package.");
       }
       return;
@@ -205,7 +206,7 @@ export async function main(argv: string[]): Promise<void> {
       console.log(`Sidecar
 
 Usage:
-  sidecar build [--cwd <dir>] [--target mcp|chatgpt|claude] [--host node|vercel] [--out <dir>] [--plugins] [--strict]
+  sidecar build [--cwd <dir>] [--target mcp|chatgpt|claude] [--host node|vercel] [--out <dir>] [--plugins|--no-plugins] [--strict]
   sidecar check [--cwd <dir>] [--target mcp|chatgpt|claude] [--strict]
   sidecar dev [--cwd <dir>] [--target mcp|chatgpt|claude] [--port <port>] [--tunnel [cloudflared|wrangler]]
   sidecar inspect [--cwd <dir>] [--target mcp|chatgpt|claude]
@@ -214,9 +215,26 @@ Usage:
   }
 }
 
+/** Returns the conventional output directory for a host target. */
+function defaultBuildOutDir(host: SidecarHost, target: SidecarTarget): string {
+  if (host === "vercel") {
+    return ".vercel/output";
+  }
+  return `out/${target}`;
+}
+
 /** Reads and validates the build target profile. */
 function readTarget(argv: string[]): SidecarTarget {
-  const target = readOption(argv, "--target") ?? "mcp";
+  const target = readOptionalTarget(argv) ?? "mcp";
+  return target;
+}
+
+/** Reads an optional build target profile. */
+function readOptionalTarget(argv: string[]): SidecarTarget | undefined {
+  const target = readOption(argv, "--target");
+  if (!target) {
+    return undefined;
+  }
   if (target === "mcp" || target === "chatgpt" || target === "claude") {
     return target;
   }
@@ -225,11 +243,39 @@ function readTarget(argv: string[]): SidecarTarget {
 
 /** Reads and validates the host runtime artifact profile. */
 function readHost(argv: string[]): SidecarHost {
-  const host = readOption(argv, "--host") ?? "node";
+  const host = readOptionalHost(argv) ?? detectHostFromEnvironment() ?? "node";
+  return host;
+}
+
+/** Reads an optional host runtime artifact profile. */
+function readOptionalHost(argv: string[]): SidecarHost | undefined {
+  const host = readOption(argv, "--host");
+  if (!host) {
+    return undefined;
+  }
   if (host === "node" || host === "vercel") {
     return host;
   }
   throw new Error(`Unsupported Sidecar host "${host}". Expected node or vercel.`);
+}
+
+/** Infers a hosting artifact when a deployment platform exposes a reliable build env. */
+function detectHostFromEnvironment(): SidecarHost | undefined {
+  if (process.env.VERCEL === "1") {
+    return "vercel";
+  }
+  return undefined;
+}
+
+/** Reads an optional plugin build override. */
+function readOptionalPlugins(argv: string[]): boolean | undefined {
+  if (argv.includes("--plugins")) {
+    return true;
+  }
+  if (argv.includes("--no-plugins")) {
+    return false;
+  }
+  return undefined;
 }
 
 /** Options for the component parity preview command. */

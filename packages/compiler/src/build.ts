@@ -9,7 +9,7 @@ import { loadProjectIdentity } from "./identity.js";
 import { buildPluginPackages } from "./plugins.js";
 import { analyzeProjectPrompts } from "./prompts.js";
 import { analyzeProjectResources } from "./resources.js";
-import { buildServerOutput } from "./server-output.js";
+import { VERCEL_FUNCTION_DIR, buildServerOutput } from "./server-output.js";
 import type { BuildProjectOptions, SidecarManifest, SidecarResourceTemplateManifestEntry } from "./types.js";
 import { buildWidgets } from "./widgets.js";
 
@@ -18,9 +18,10 @@ export async function buildProject(
   options: BuildProjectOptions,
 ): Promise<SidecarManifest> {
   const rootDir = path.resolve(options.rootDir);
-  const target = options.target ?? "mcp";
-  const host = options.host ?? "node";
   const config = analyzeProjectConfig(rootDir);
+  const target = options.target ?? config.build.target ?? "mcp";
+  const host = options.host ?? config.build.host ?? "node";
+  const plugins = options.plugins ?? config.build.plugins ?? false;
   const tools = await analyzeProjectTools(rootDir, { target });
   const resources = await analyzeProjectResources(rootDir);
   const resourceTemplates: SidecarResourceTemplateManifestEntry[] = [];
@@ -37,8 +38,9 @@ export async function buildProject(
     throw new Error(errors.map(formatDiagnostic).join("\n"));
   }
 
-  const outDir = resolveInsideRoot(rootDir, options.outDir ?? "out/mcp");
-  await buildWidgets(rootDir, outDir, tools);
+  const outDir = resolveInsideRoot(rootDir, options.outDir ?? config.build.outDir ?? defaultBuildOutDir(host, target));
+  const runtimeOutDir = resolveRuntimeOutputDir(outDir, host);
+  await buildWidgets(rootDir, runtimeOutDir, tools);
 
   const manifest: SidecarManifest = {
     version: 1,
@@ -54,19 +56,50 @@ export async function buildProject(
     diagnostics,
   };
 
-  await mkdir(outDir, { recursive: true });
+  await mkdir(runtimeOutDir, { recursive: true });
   await writeFile(
-    path.join(outDir, "manifest.sidecar.json"),
+    path.join(runtimeOutDir, "manifest.sidecar.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
-  await writeFile(path.join(outDir, "README.md"), renderMcpReadme(manifest));
+  await writeFile(path.join(runtimeOutDir, "README.md"), renderMcpReadme(manifest));
   await writeGeneratedTypes(rootDir, tools);
-  await buildServerOutput(rootDir, outDir, manifest, identity, host);
-  if (options.plugins) {
-    await buildPluginPackages(rootDir, path.dirname(outDir), manifest);
+  await buildServerOutput(rootDir, runtimeOutDir, manifest, identity, host, {
+    vercelOutputDir: outDir,
+  });
+  if (plugins) {
+    await buildPluginPackages(rootDir, resolvePluginOutputBase(rootDir, outDir, host), manifest);
   }
 
   return manifest;
+}
+
+/** Returns the conventional output directory for a host target. */
+function defaultBuildOutDir(host: string, target: string): string {
+  if (host === "vercel") {
+    return ".vercel/output";
+  }
+  return `out/${target}`;
+}
+
+/** Chooses where runtime-private files live for the selected host. */
+function resolveRuntimeOutputDir(outDir: string, host: string): string {
+  if (host === "vercel") {
+    return path.join(outDir, VERCEL_FUNCTION_DIR);
+  }
+  return outDir;
+}
+
+/** Chooses where installable plugin packages should be written. */
+function resolvePluginOutputBase(rootDir: string, outDir: string, host: string): string {
+  if (host === "vercel" && isVercelBuildOutputDir(outDir)) {
+    return path.join(rootDir, "out");
+  }
+  return path.dirname(outDir);
+}
+
+/** Returns true for Vercel's required Build Output API directory. */
+function isVercelBuildOutputDir(outDir: string): boolean {
+  return path.basename(outDir) === "output" && path.basename(path.dirname(outDir)) === ".vercel";
 }
 
 /** Resolves build output paths while preventing writes outside the project. */
@@ -139,6 +172,6 @@ Set \`PORT\` or \`SIDECAR_PORT\` to choose the listen port. Hosted/authenticated
 function renderVercelReadmeSection(): string {
   return `## Deploy To Vercel
 
-This output includes a Vercel Function shim at \`api/sidecar.js\` and a \`vercel.json\` rewrite that sends Streamable HTTP traffic to \`/mcp\`. Deploy this output directory with Vercel and set \`SIDECAR_MCP_URL\` to the public \`https://.../mcp\` URL.
+This output uses Vercel's Build Output API. The MCP function is emitted at \`${VERCEL_FUNCTION_DIR}\`, and \`config.json\` routes Streamable HTTP traffic to it. Set \`SIDECAR_MCP_URL\` to the public \`https://.../mcp\` URL in Vercel.
 `;
 }
