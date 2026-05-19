@@ -1,4 +1,5 @@
 /** Tests for MCP JSON-RPC dispatch and auth enforcement. */
+import { createServer } from "node:http";
 import { describe, expect, it } from "vitest";
 import {
   createPromptDescriptor,
@@ -724,8 +725,67 @@ describe("SidecarMcpServer", () => {
 
       expect(response.status).toBe(401);
       expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
+
+      const loosePost = await fetch(`${baseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json"
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/list"
+        })
+      });
+      expect(loosePost.status).toBe(401);
+      expect(loosePost.headers.get("www-authenticate")).toContain("resource_metadata=");
+
+      const looseGet = await fetch(`${baseUrl}/mcp`, {
+        headers: {
+          accept: "application/json"
+        }
+      });
+      expect(looseGet.status).toBe(401);
+      expect(looseGet.headers.get("www-authenticate")).toContain("resource_metadata=");
     } finally {
       await close(http);
+    }
+  });
+
+  it("proxies authorization server metadata for MCP compatibility", async () => {
+    const upstream = createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        issuer: "http://127.0.0.1/auth",
+        authorization_endpoint: "http://127.0.0.1/auth/oauth2/authorize",
+        token_endpoint: "http://127.0.0.1/auth/oauth2/token"
+      }));
+    });
+    const upstreamUrl = await listen(upstream);
+    const appAuth = auth({
+      resource: "http://127.0.0.1:0/mcp",
+      authorizationServers: [upstreamUrl],
+      scopes: {},
+      session() {
+        return null;
+      }
+    });
+    const http = createSidecarHttpServer({
+      auth: appAuth,
+      tools: []
+    });
+    const baseUrl = await listen(http);
+
+    try {
+      const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        authorization_endpoint: "http://127.0.0.1/auth/oauth2/authorize"
+      });
+    } finally {
+      await close(http);
+      await close(upstream);
     }
   });
 

@@ -62,7 +62,10 @@ export default appAuth;
 async function verifyAuthKitToken(token: string): Promise<WorkOSMcpClaims> {
   const issuer = authKitIssuer();
   const jwks = createRemoteJWKSet(new URL("/oauth2/jwks", issuer));
-  const { payload } = await jwtVerify(token, jwks, { issuer });
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer,
+    audience: mcpResource(),
+  });
   return payload as WorkOSMcpClaims;
 }
 

@@ -667,6 +667,12 @@ export function createSidecarHttpHandler(
   const mcp = createSidecarMcpServer(options);
 
   return async (request, response) => {
+    const pathname = request.url?.split("?")[0];
+    const requestLog = createHttpRequestLog(request, pathname);
+    response.once("finish", () => {
+      logHttpRequest(requestLog, response.statusCode);
+    });
+
     if (isRejectedOrigin(request, options.allowedOrigins)) {
       response.writeHead(403, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "forbidden_origin" }));
@@ -680,7 +686,6 @@ export function createSidecarHttpHandler(
       return;
     }
 
-    const pathname = request.url?.split("?")[0];
     if (
       options.auth &&
       request.method === "GET" &&
@@ -691,10 +696,17 @@ export function createSidecarHttpHandler(
       return;
     }
 
+    if (
+      options.auth &&
+      request.method === "GET" &&
+      pathname === "/.well-known/oauth-authorization-server"
+    ) {
+      await proxyAuthorizationServerMetadata(options.auth, response);
+      return;
+    }
+
     if (request.method === "GET" && pathname === endpoint) {
       try {
-        validateProtocolVersion(request);
-        validateGetHeaders(request);
         const fetchRequest = toFetchRequest(request, options.publicUrl ?? options.auth?.resource);
         if (options.auth) {
           const authSession = await authorizeHttpRequest(options.auth, fetchRequest, response);
@@ -702,6 +714,8 @@ export function createSidecarHttpHandler(
             return;
           }
         }
+        validateProtocolVersion(request);
+        validateGetHeaders(request);
         streamHub.open(response);
       } catch (error) {
         const status = error instanceof JsonRpcHttpError ? error.status : 400;
@@ -733,6 +747,14 @@ export function createSidecarHttpHandler(
     }
 
     try {
+      const fetchRequest = toFetchRequest(request, options.publicUrl ?? options.auth?.resource);
+      const authSession = options.auth
+        ? await authorizeHttpRequest(options.auth, fetchRequest, response)
+        : undefined;
+      if (options.auth && authSession === AUTH_RESPONSE_SENT) {
+        return;
+      }
+
       validateProtocolVersion(request);
       validatePostHeaders(request);
 
@@ -747,14 +769,6 @@ export function createSidecarHttpHandler(
       }
 
       const rpcRequest = assertJsonRpcRequest(body);
-      const fetchRequest = toFetchRequest(request, options.publicUrl ?? options.auth?.resource);
-      const authSession = options.auth
-        ? await authorizeHttpRequest(options.auth, fetchRequest, response)
-        : undefined;
-      if (options.auth && authSession === AUTH_RESPONSE_SENT) {
-        return;
-      }
-
       if (rpcRequest.id !== undefined && hasProgressToken(rpcRequest)) {
         const stream = createSseStream(response, { supportsRequestProgress: true });
         const payload = await mcp.handle(rpcRequest, {
@@ -869,6 +883,105 @@ function isProtectedResourceMetadataPath(
     pathname === "/.well-known/oauth-protected-resource" ||
     pathname === `/.well-known/oauth-protected-resource${endpoint}`
   );
+}
+
+type HttpRequestLog = {
+  method?: string;
+  path?: string;
+  host?: string;
+  accept?: string;
+  contentType?: string;
+  contentLength?: string;
+  mcpProtocolVersion?: string;
+  origin?: string;
+  userAgent?: string;
+  authorization: "present" | "absent";
+  cookie: "present" | "absent";
+};
+
+/** Captures sanitized request metadata for MCP deployment debugging. */
+function createHttpRequestLog(
+  request: IncomingMessage,
+  pathname: string | undefined,
+): HttpRequestLog {
+  return {
+    method: request.method,
+    path: pathname,
+    host: truncateHeader(singleHeader(request.headers.host)),
+    accept: truncateHeader(singleHeader(request.headers.accept)),
+    contentType: truncateHeader(singleHeader(request.headers["content-type"])),
+    contentLength: truncateHeader(singleHeader(request.headers["content-length"])),
+    mcpProtocolVersion: truncateHeader(singleHeader(request.headers["mcp-protocol-version"])),
+    origin: truncateHeader(singleHeader(request.headers.origin)),
+    userAgent: truncateHeader(singleHeader(request.headers["user-agent"])),
+    authorization: request.headers.authorization ? "present" : "absent",
+    cookie: request.headers.cookie ? "present" : "absent",
+  };
+}
+
+/** Emits one JSON log line for failed requests, or all requests when debugging is enabled. */
+function logHttpRequest(metadata: HttpRequestLog, status: number): void {
+  const debug = process.env.SIDECAR_DEBUG === "1" || process.env.SIDECAR_LOG_LEVEL === "debug";
+  if (!debug && status < 400) {
+    return;
+  }
+
+  const message = JSON.stringify({
+    event: "sidecar.mcp.http",
+    status,
+    ...stripUndefined(metadata),
+  });
+  if (status >= 500) {
+    console.error(message);
+  } else if (status >= 400) {
+    console.warn(message);
+  } else {
+    console.info(message);
+  }
+}
+
+/** Returns a single request-header value without exposing multi-value details. */
+function singleHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value.join(", ") : value;
+}
+
+/** Keeps diagnostic header values readable in provider logs. */
+function truncateHeader(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value.length > 240 ? `${value.slice(0, 237)}...` : value;
+}
+
+/** Serves AuthKit-style compatibility metadata for older MCP clients. */
+async function proxyAuthorizationServerMetadata(
+  auth: SidecarAuth,
+  response: ServerResponse,
+): Promise<void> {
+  const [authorizationServer] = auth.authorizationServers;
+  if (!authorizationServer) {
+    response.writeHead(404, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: "authorization_server_not_configured" }));
+    return;
+  }
+
+  try {
+    const url = new URL("/.well-known/oauth-authorization-server", authorizationServer);
+    const upstream = await fetch(url, { headers: { accept: "application/json" } });
+    const body = await upstream.text();
+    response.writeHead(upstream.ok ? 200 : 502, {
+      "content-type": upstream.headers.get("content-type") ?? "application/json",
+    });
+    response.end(body);
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "sidecar.mcp.authorization_metadata_proxy_failed",
+      authorizationServer,
+      message: error instanceof Error ? error.message : "Unknown error",
+    }));
+    response.writeHead(502, { "content-type": "application/json" });
+    response.end(JSON.stringify({ error: "authorization_metadata_unavailable" }));
+  }
 }
 
 export * from "./proxy.js";

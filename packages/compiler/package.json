@@ -1,6 +1,6 @@
 {
   "name": "@sidecar-ai/compiler",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "type": "module",
   "files": [
     "dist"
@@ -13,7 +13,7 @@
   },
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@sidecar-ai/core": "0.1.0-alpha.5",
+    "@sidecar-ai/core": "0.1.0-alpha.6",
     "@tailwindcss/postcss": "^4.3.0",
     "autoprefixer": "^10.5.0",
     "esbuild": "^0.28.0",
