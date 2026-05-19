@@ -50,7 +50,7 @@ function parseArgs(argv: string[]): CreateOptions {
 
 /** Writes the starter project files. */
 async function writeProject(rootDir: string, appName: string, force: boolean): Promise<void> {
-  const sidecarVersion = "0.1.0-alpha.5";
+  const sidecarVersion = "0.1.0-alpha.7";
   await mkdir(rootDir, { recursive: true });
   await Promise.all([
     writeFileIfNew(

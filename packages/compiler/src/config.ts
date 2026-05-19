@@ -9,6 +9,7 @@ import { resolveDefaultExportCall, unwrapExpression } from "./ast.js";
 import { createProject } from "./project.js";
 import type { SidecarCompilerConfig } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
+import type { WidgetBuildConfig, WidgetEsbuildConfig } from "@sidecar-ai/core";
 
 /** Reads the serializable subset of `sidecar.config.ts` without executing app code. */
 export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
@@ -31,6 +32,7 @@ export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
       host: readHostNested(definition, "build", "host"),
       outDir: readStringNested(definition, "build", "outDir"),
       plugins: readBooleanNested(definition, "build", "plugins"),
+      widgets: readWidgetBuildConfig(definition),
     },
     resources: {
       subscribe: readBooleanNested(definition, "resources", "subscribe") ?? false,
@@ -47,6 +49,56 @@ export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
       hasOverride: hasProperty(readObjectProperty(definition, "pagination"), "override"),
     },
   };
+}
+
+/** Reads static widget bundler options from `build.widgets`. */
+function readWidgetBuildConfig(
+  definition: ObjectLiteralExpression,
+): WidgetBuildConfig | undefined {
+  const widgets = readObjectProperty(readObjectProperty(definition, "build"), "widgets");
+  if (!widgets) {
+    return undefined;
+  }
+
+  const config: WidgetBuildConfig = {};
+  const configure = readStringProperty(widgets, "configure");
+  const esbuild = readWidgetEsbuildConfig(widgets);
+  if (configure) config.configure = configure;
+  if (esbuild) config.esbuild = esbuild;
+  return Object.keys(config).length ? config : undefined;
+}
+
+/** Reads the serializable esbuild option subset from `build.widgets.esbuild`. */
+function readWidgetEsbuildConfig(
+  widgets: ObjectLiteralExpression,
+): WidgetEsbuildConfig | undefined {
+  const esbuild = readObjectProperty(widgets, "esbuild");
+  if (!esbuild) {
+    return undefined;
+  }
+
+  const config: WidgetEsbuildConfig = {};
+  const alias = readStringRecordProperty(esbuild, "alias");
+  const define = readStringRecordProperty(esbuild, "define");
+  const external = readStringArrayProperty(esbuild, "external");
+  const loader = readStringRecordProperty(esbuild, "loader");
+  const conditions = readStringArrayProperty(esbuild, "conditions");
+  const mainFields = readStringArrayProperty(esbuild, "mainFields");
+  const jsx = readStringProperty(esbuild, "jsx");
+  const jsxImportSource = readStringProperty(esbuild, "jsxImportSource");
+
+  if (alias) config.alias = alias;
+  if (define) config.define = define;
+  if (external) config.external = external;
+  if (loader) config.loader = loader;
+  if (conditions) config.conditions = conditions;
+  if (mainFields) config.mainFields = mainFields;
+  if (jsx === "automatic" || jsx === "transform" || jsx === "preserve") {
+    config.jsx = jsx;
+  }
+  if (jsxImportSource) config.jsxImportSource = jsxImportSource;
+
+  return Object.keys(config).length ? config : undefined;
 }
 
 /** Returns compiler defaults when config is absent. */
@@ -102,14 +154,7 @@ function readStringNested(
   if (!object) {
     return undefined;
   }
-  const property = object.getProperty(propertyName);
-  if (!property || !Node.isPropertyAssignment(property)) {
-    return undefined;
-  }
-  const initializer = unwrapExpression(property.getInitializer());
-  return initializer && Node.isStringLiteral(initializer)
-    ? initializer.getLiteralText()
-    : undefined;
+  return readStringProperty(object, propertyName);
 }
 
 /** Reads a boolean nested object property. */
@@ -157,9 +202,12 @@ function readNumberNested(
 
 /** Reads a nested object literal property. */
 function readObjectProperty(
-  definition: ObjectLiteralExpression,
+  definition: ObjectLiteralExpression | undefined,
   propertyName: string,
 ): ObjectLiteralExpression | undefined {
+  if (!definition) {
+    return undefined;
+  }
   const property = definition.getProperty(propertyName);
   if (!property || !Node.isPropertyAssignment(property)) {
     return undefined;
@@ -168,6 +216,70 @@ function readObjectProperty(
   return initializer && Node.isObjectLiteralExpression(initializer)
     ? initializer
     : undefined;
+}
+
+/** Reads one string property from an object literal. */
+function readStringProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): string | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+  const initializer = unwrapExpression(property.getInitializer());
+  return initializer && Node.isStringLiteral(initializer)
+    ? initializer.getLiteralText()
+    : undefined;
+}
+
+/** Reads a string array property from an object literal. */
+function readStringArrayProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): string[] | undefined {
+  const property = definition.getProperty(propertyName);
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+  const initializer = unwrapExpression(property.getInitializer());
+  if (!initializer || !Node.isArrayLiteralExpression(initializer)) {
+    return undefined;
+  }
+
+  const values = initializer.getElements().map((element) => {
+    const unwrapped = unwrapExpression(element);
+    return unwrapped && Node.isStringLiteral(unwrapped)
+      ? unwrapped.getLiteralText()
+      : undefined;
+  });
+  return values.every((value): value is string => value !== undefined)
+    ? values
+    : undefined;
+}
+
+/** Reads a string-valued object property from an object literal. */
+function readStringRecordProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): Record<string, string> | undefined {
+  const object = readObjectProperty(definition, propertyName);
+  if (!object) {
+    return undefined;
+  }
+
+  const record: Record<string, string> = {};
+  for (const property of object.getProperties()) {
+    if (!Node.isPropertyAssignment(property)) {
+      return undefined;
+    }
+    const initializer = unwrapExpression(property.getInitializer());
+    if (!initializer || !Node.isStringLiteral(initializer)) {
+      return undefined;
+    }
+    record[property.getName().replace(/^["']|["']$/g, "")] = initializer.getLiteralText();
+  }
+  return record;
 }
 
 /** Returns true when an object literal has the named property. */

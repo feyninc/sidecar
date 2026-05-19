@@ -134,6 +134,34 @@ Every tool returns `toolResult(...)`. Sidecar keeps the MCP result channels expl
 
 `execute` can be sync or async.
 
+If you want runtime validation, attach a Zod schema directly to `execute`:
+
+```ts
+import { z } from "zod";
+import { tool, toolResult, withParams } from "sidecar-ai";
+
+const Params = z.object({
+  query: z.string().min(2).describe("Search query."),
+  limit: z.number().int().min(1).max(20).optional()
+});
+
+export default tool({
+  name: "Search Pages",
+  description: "Search pages by query.",
+  execute: withParams(Params, (params) => {
+    return toolResult({
+      structuredContent: { results: [] },
+      content: `Searched for ${params.query}.`
+    });
+  })
+});
+```
+
+For one tool, use one params source of truth. If `withParams(...)` or `params`
+is present, Sidecar uses that runtime schema for validation and MCP
+`inputSchema`; otherwise it infers `inputSchema` from the TypeScript type on
+`execute`.
+
 ## Widgets
 
 Place `widget.tsx` next to a tool to give it UI.
@@ -171,6 +199,46 @@ export default widget(
 Sidecar bundles widgets into content-hashed `ui://...` resources and emits the MCP Apps metadata needed for hosts to render them. Cache-busting widget URIs are generated automatically when UI output changes.
 
 Widget code is React. The iframe still supports normal CSS, Tailwind, and any React component library you choose.
+
+If a widget needs bundler support beyond the defaults, extend the esbuild
+options from `sidecar.config.ts` while Sidecar still owns the MCP wrapper,
+bridge, native stylesheet, and hashed HTML output:
+
+```ts
+export default defineConfig({
+  name: "Expense Review",
+  version: "0.1.0",
+  description: "Review expense reports with MCP tools and widgets.",
+  build: {
+    widgets: {
+      configure: "./sidecar.widgets.ts",
+      esbuild: {
+        alias: {
+          "@assets": "./assets"
+        },
+        loader: {
+          ".svg": "text",
+          ".mdx": "text"
+        }
+      }
+    }
+  }
+});
+```
+
+```ts
+// sidecar.widgets.ts
+import { defineWidgetBundler } from "sidecar-ai";
+
+export default defineWidgetBundler(({ esbuildOptions }) => ({
+  esbuildOptions: {
+    define: {
+      ...esbuildOptions.define,
+      "process.env.WIDGET_MODE": JSON.stringify("preview")
+    }
+  }
+}));
+```
 
 ## Resources
 

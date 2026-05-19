@@ -7,6 +7,7 @@ import {
   type ToolAnnotations,
   type ToolAuthPolicy,
   type ToolVisibility,
+  type JsonSchema,
 } from "@sidecar-ai/core";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
@@ -25,6 +26,7 @@ import { resolveDefaultExportCall, unwrapExpression } from "./ast.js";
 import { CompilerError } from "./errors.js";
 import { createProject } from "./project.js";
 import { getOutputSchema, getParamsSchema } from "./schema.js";
+import { readRuntimeToolInputSchema } from "./runtime-schema.js";
 import type { SidecarToolManifestEntry } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
 import { findWidget, mergeWidgetMeta, readWidgetOptions, widgetMeta, widgetResourceMeta } from "./widgets.js";
@@ -45,11 +47,18 @@ export async function analyzeProjectTools(
 
   const project = createProject(rootDir);
   const authScopes = readAuthScopeCatalog(project, rootDir);
-  return toolFiles.map((candidate) =>
-    analyzeToolFile(project.addSourceFileAtPath(candidate.filePath), rootDir, {
+  const sources = toolFiles.map((candidate) => ({
+    candidate,
+    sourceFile: project.addSourceFileAtPath(candidate.filePath),
+  }));
+  const runtimeInputSchemas = await readRuntimeInputSchemas(rootDir, sources);
+
+  return sources.map(({ candidate, sourceFile }) =>
+    analyzeToolFile(sourceFile, rootDir, {
       target,
       variant: candidate.variant,
       authScopes,
+      inputSchema: runtimeInputSchemas.get(candidate.filePath),
     }),
   );
 }
@@ -58,7 +67,12 @@ export async function analyzeProjectTools(
 export function analyzeToolFile(
   sourceFile: SourceFile,
   rootDir: string,
-  options: { target?: SidecarTarget; variant?: SidecarSourceVariant; authScopes?: AuthScopeCatalog } = {},
+  options: {
+    target?: SidecarTarget;
+    variant?: SidecarSourceVariant;
+    authScopes?: AuthScopeCatalog;
+    inputSchema?: JsonSchema;
+  } = {},
 ): SidecarToolManifestEntry {
   const target = options.target ?? "mcp";
   const variant = options.variant ?? "shared";
@@ -78,7 +92,7 @@ export function analyzeToolFile(
   const auth = readAuthPolicy(definition, options.authScopes ?? {});
   const execute = getExecuteFunction(definition, sourceFile);
 
-  const inputSchema = getParamsSchema(definition, execute);
+  const inputSchema = options.inputSchema ?? getParamsSchema(definition, execute);
   const outputSchema = getOutputSchema(definition, execute);
   const descriptor = createToolDescriptor({
     name,
@@ -125,6 +139,35 @@ export function analyzeToolFile(
     widget,
     descriptor,
   };
+}
+
+/** Reads runtime param schemas only for tools that declare a validator. */
+async function readRuntimeInputSchemas(
+  rootDir: string,
+  sources: Array<{ candidate: ToolFileCandidate; sourceFile: SourceFile }>,
+): Promise<Map<string, JsonSchema>> {
+  const schemas = new Map<string, JsonSchema>();
+  await Promise.all(sources.map(async ({ candidate, sourceFile }) => {
+    const definition = findToolDefinition(sourceFile);
+    if (!definitionHasRuntimeParams(definition)) {
+      return;
+    }
+
+    const schema = await readRuntimeToolInputSchema(rootDir, candidate.filePath);
+    if (schema) {
+      schemas.set(candidate.filePath, schema);
+    }
+  }));
+  return schemas;
+}
+
+/** Returns true when a tool declares runtime params directly or through `withParams()`. */
+function definitionHasRuntimeParams(definition: ObjectLiteralExpression): boolean {
+  if (definition.getProperty("params")) {
+    return true;
+  }
+
+  return Boolean(getWithParamsCall(definition));
 }
 
 /** Extracts static auth shape for descriptor security-scheme generation. */
@@ -378,7 +421,7 @@ function getExecuteFunction(
   }
 
   if (Node.isPropertyAssignment(property)) {
-    const initializer = property.getInitializer();
+    const initializer = unwrapExpression(property.getInitializer());
     if (
       initializer &&
       (Node.isArrowFunction(initializer) ||
@@ -386,12 +429,37 @@ function getExecuteFunction(
     ) {
       return initializer;
     }
+
+    const withParamsCall = getWithParamsCall(definition);
+    const wrappedExecute = unwrapExpression(withParamsCall?.getArguments()[1]);
+    if (
+      wrappedExecute &&
+      (Node.isArrowFunction(wrappedExecute) ||
+        Node.isFunctionExpression(wrappedExecute))
+    ) {
+      return wrappedExecute;
+    }
   }
 
   throw new CompilerError(
     sourceFile,
     "execute must be a method, function expression, or arrow function.",
   );
+}
+
+/** Returns the `withParams(schema, execute)` call used as `execute`, if present. */
+function getWithParamsCall(definition: ObjectLiteralExpression): CallExpression | undefined {
+  const property = definition.getProperty("execute");
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  if (!initializer || !Node.isCallExpression(initializer)) {
+    return undefined;
+  }
+
+  return isNamedCall(initializer, "withParams") ? initializer : undefined;
 }
 
 /** Reads a required string property from the tool object. */

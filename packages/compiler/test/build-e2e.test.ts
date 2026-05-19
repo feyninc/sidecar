@@ -250,6 +250,95 @@ describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
     }
   });
 
+  it("applies project widget bundler config and configure hooks", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-e2e-widget-config-"));
+
+    try {
+      await writeFile(
+        path.join(rootDir, "package.json"),
+        `${JSON.stringify({ name: "widget-config-fixture", version: "0.0.0" }, null, 2)}\n`,
+      );
+      await writeFile(
+        path.join(rootDir, "sidecar.config.ts"),
+        `import { defineConfig } from "sidecar-ai";
+
+export default defineConfig({
+  name: "Widget Config Fixture",
+  version: "0.0.0",
+  description: "Tests widget bundler configuration.",
+  build: {
+    widgets: {
+      configure: "./sidecar.widgets.ts",
+      esbuild: {
+        alias: {
+          "@fixture": "./src"
+        },
+        define: {
+          "process.env.STATIC_FLAG": "\\"static-config\\""
+        },
+        loader: {
+          ".txt": "text"
+        }
+      }
+    }
+  }
+});
+`,
+      );
+      await writeFile(
+        path.join(rootDir, "sidecar.widgets.ts"),
+        `export default function configureWidgetBuild(input) {
+  return {
+    esbuildOptions: {
+      define: {
+        ...input.esbuildOptions.define,
+        "process.env.HOOK_FLAG": JSON.stringify("hook-config")
+      }
+    }
+  };
+}
+`,
+      );
+      await mkdir(path.join(rootDir, "src"), { recursive: true });
+      await writeFile(path.join(rootDir, "src", "message.txt"), "loaded-through-custom-loader");
+      await mkdir(path.join(rootDir, "server", "configured-widget"), { recursive: true });
+      await writeFile(
+        path.join(rootDir, "server", "configured-widget", "tool.ts"),
+        `import { tool, toolResult } from "sidecar-ai";
+
+export default tool({
+  name: "Configured Widget",
+  description: "Use this when checking widget bundler config.",
+  execute() {
+    return toolResult({ structuredContent: { ok: true }, content: "ok" });
+  }
+});
+`,
+      );
+      await writeFile(
+        path.join(rootDir, "server", "configured-widget", "widget.tsx"),
+        `import { widget } from "@sidecar-ai/react";
+import message from "@fixture/message.txt";
+
+function ConfiguredWidget() {
+  return <main>{message}:{process.env.STATIC_FLAG}:{process.env.HOOK_FLAG}</main>;
+}
+
+export default widget({ description: "Configured widget." }, ConfiguredWidget);
+`,
+      );
+
+      const manifest = await buildProject({ rootDir, outDir: "out/mcp", target: "mcp" });
+      const widget = manifest.tools[0]?.widget;
+      const html = await readFile(path.join(rootDir, "out/mcp", widget?.outputFile ?? ""), "utf8");
+      expect(html).toContain("loaded-through-custom-loader");
+      expect(html).toContain("static-config");
+      expect(html).toContain("hook-config");
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps build output inside the project root", async () => {
     const rootDir = await copySimpleFixture("sidecar-e2e-outside-root-");
 

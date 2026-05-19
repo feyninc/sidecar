@@ -1,4 +1,4 @@
-/** TypeScript and lightweight Zod-to-JSON-Schema extraction. */
+/** TypeScript-to-JSON-Schema extraction for reserved Sidecar tool files. */
 import { emptyObjectSchema, type JsonSchema } from "@sidecar-ai/core";
 import {
   Node,
@@ -6,7 +6,6 @@ import {
   type FunctionExpression,
   type MethodDeclaration,
   type ObjectLiteralExpression,
-  type PropertyAssignment,
   type Symbol as MorphSymbol,
   type Type,
 } from "ts-morph";
@@ -16,17 +15,9 @@ export type ExecutableNode = MethodDeclaration | ArrowFunction | FunctionExpress
 
 /** Builds the input schema from explicit params or the execute param type. */
 export function getParamsSchema(
-  definition: ObjectLiteralExpression,
+  _definition: ObjectLiteralExpression,
   execute: ExecutableNode,
 ): JsonSchema {
-  const explicitParams = definition.getProperty("params");
-  if (explicitParams && Node.isPropertyAssignment(explicitParams)) {
-    const inferred = getSchemaFromZodProperty(explicitParams);
-    if (inferred) {
-      return inferred;
-    }
-  }
-
   const [params] = execute.getParameters();
   if (!params) {
     return emptyObjectSchema();
@@ -54,98 +45,6 @@ export function getOutputSchema(
   }
 
   return typeToJsonSchema(returnType);
-}
-
-/** Extracts a small JSON Schema subset from `params: z.object(...)`. */
-function getSchemaFromZodProperty(
-  property: PropertyAssignment,
-): JsonSchema | undefined {
-  const initializer = property.getInitializer();
-  if (!initializer) {
-    return undefined;
-  }
-
-  if (
-    Node.isCallExpression(initializer) &&
-    initializer.getExpression().getText().endsWith(".object")
-  ) {
-    const [shape] = initializer.getArguments();
-    if (shape && Node.isObjectLiteralExpression(shape)) {
-      return zodObjectLiteralToSchema(shape);
-    }
-  }
-
-  return undefined;
-}
-
-/** Converts a Zod object literal shape into JSON Schema. */
-function zodObjectLiteralToSchema(shape: ObjectLiteralExpression): JsonSchema {
-  const properties: Record<string, JsonSchema> = {};
-  const required: string[] = [];
-
-  for (const property of shape.getProperties()) {
-    if (!Node.isPropertyAssignment(property)) {
-      continue;
-    }
-
-    const name = property.getName().replace(/^["']|["']$/g, "");
-    const initializer = property.getInitializer();
-    if (!initializer) {
-      continue;
-    }
-
-    const propertySchema = zodExpressionToSchema(initializer);
-    properties[name] = propertySchema.schema;
-    if (!propertySchema.optional) {
-      required.push(name);
-    }
-  }
-
-  return {
-    type: "object",
-    properties,
-    required,
-    additionalProperties: false,
-  };
-}
-
-/** Converts a supported Zod expression into a property schema. */
-function zodExpressionToSchema(expression: Node): {
-  schema: JsonSchema;
-  optional: boolean;
-} {
-  const text = expression.getText();
-  const optional = /\.optional\(\)/.test(text) || /\.default\(/.test(text);
-  const schema: JsonSchema = {};
-
-  if (/z\.string\(\)/.test(text)) {
-    schema.type = "string";
-  } else if (/z\.number\(\)/.test(text)) {
-    schema.type = "number";
-  } else if (/z\.boolean\(\)/.test(text)) {
-    schema.type = "boolean";
-  } else if (/z\.array\(/.test(text)) {
-    schema.type = "array";
-    schema.items = {};
-  } else {
-    schema.type = "object";
-  }
-
-  const min = text.match(/\.min\((\d+)/);
-  const max = text.match(/\.max\((\d+)/);
-  if (schema.type === "string") {
-    if (min) schema.minLength = Number(min[1]);
-    if (max) schema.maxLength = Number(max[1]);
-  } else {
-    if (min) schema.minimum = Number(min[1]);
-    if (max) schema.maximum = Number(max[1]);
-  }
-
-  if (/\.int\(\)/.test(text)) {
-    schema.type = "integer";
-  }
-
-  return { schema, optional };
 }
 
 /** Converts a TypeScript type into a JSON Schema object. */

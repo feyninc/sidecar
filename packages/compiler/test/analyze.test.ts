@@ -1,8 +1,8 @@
 /** Tests for compiler discovery, schema extraction, widgets, and plugin output. */
 import path from "node:path";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   analyzeProjectConfig,
   analyzeProjectPrompts,
@@ -119,6 +119,277 @@ export default tool({
           },
         },
         required: [],
+        additionalProperties: false,
+      });
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("converts runtime Zod params with Zod's JSON Schema converter", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-zod-schema-"));
+
+    try {
+      await linkFixtureNodeModules(rootDir);
+      await writeFixture(
+        path.join(rootDir, "server", "zod-tool", "tool.ts"),
+        `import { z } from "zod";
+import { tool, toolResult, withParams } from "sidecar-ai";
+
+const trimmedString = z
+  .string()
+  .min(2)
+  .max(40)
+  .describe("Search query.");
+
+const mode = z.enum(["workspace", "user"] as const).optional();
+
+const ParamsSchema = z.object({
+  query: trimmedString,
+  mode,
+  tags: z.array(z.string().min(1)).min(1).optional(),
+  email: z.string().email().optional(),
+  slug: z.string().regex(/^foo-[0-9]+$/).optional(),
+  withDefault: z.string().default("workspace"),
+});
+
+export default tool({
+  name: "Zod Tool",
+  description: "Use this when testing Zod schema extraction.",
+  execute: withParams(ParamsSchema, (params) => {
+    return toolResult({
+      structuredContent: { query: params.query },
+      content: "ok"
+    });
+  })
+});
+`,
+      );
+
+      const [entry] = await analyzeProjectTools(rootDir);
+
+      expect(entry?.inputSchema).toMatchObject({
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            minLength: 2,
+            maxLength: 40,
+            description: "Search query.",
+          },
+          mode: {
+            type: "string",
+            enum: ["workspace", "user"],
+          },
+          tags: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "string",
+              minLength: 1,
+            },
+          },
+          email: {
+            type: "string",
+            format: "email",
+          },
+          slug: {
+            type: "string",
+            pattern: "^foo-[0-9]+$",
+          },
+          withDefault: {
+            type: "string",
+            default: "workspace",
+          },
+        },
+        required: ["query"],
+      });
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to execute parameter types when Zod cannot emit JSON Schema", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-zod-custom-schema-"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      await linkFixtureNodeModules(rootDir);
+      await writeFixture(
+        path.join(rootDir, "server", "zod-custom", "tool.ts"),
+        `import { z } from "zod";
+import { tool, toolResult, withParams } from "sidecar-ai";
+
+type Params = {
+  /** Search query after runtime normalization. */
+  query: string;
+};
+
+const ParamsSchema = z.object({
+  query: z.custom<string>((value) => typeof value === "string"),
+});
+
+export default tool({
+  name: "Zod Transform",
+  description: "Use this when testing Zod fallback behavior.",
+  execute: withParams(ParamsSchema, (params: Params) => {
+    return toolResult({
+      structuredContent: { query: params.query },
+      content: "ok"
+    });
+  })
+});
+`,
+      );
+
+      const [entry] = await analyzeProjectTools(rootDir);
+
+      expect(entry?.inputSchema).toMatchObject({
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search query after runtime normalization.",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("falling back to TypeScript parameter inference"));
+    } finally {
+      warn.mockRestore();
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to execute parameter types for non-Zod runtime validators", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-custom-validator-schema-"));
+
+    try {
+      await linkFixtureNodeModules(rootDir);
+      await writeFixture(
+        path.join(rootDir, "server", "custom-validator", "tool.ts"),
+        `import { tool, toolResult } from "sidecar-ai";
+
+const params = {
+  safeParse(value: unknown) {
+    return { success: true as const, data: value as { value: string } };
+  }
+};
+
+export default tool({
+  name: "Custom Validator",
+  description: "Use this when testing custom validators.",
+  params,
+  execute(input: { value: string }) {
+    return toolResult({
+      structuredContent: { value: input.value },
+      content: "ok"
+    });
+  }
+});
+`,
+      );
+
+      const [entry] = await analyzeProjectTools(rootDir);
+      expect(entry?.inputSchema).toMatchObject({
+        type: "object",
+        properties: {
+          value: { type: "string" },
+        },
+        required: ["value"],
+        additionalProperties: false,
+      });
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("supports one MCP server with both Zod params and TypeScript params", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-mixed-schema-"));
+
+    try {
+      await linkFixtureNodeModules(rootDir);
+      await writeFixture(
+        path.join(rootDir, "server", "zod-search", "tool.ts"),
+        `import { z } from "zod";
+import { tool, toolResult, withParams } from "sidecar-ai";
+
+const ParamsSchema = z.object({
+  query: z.string().min(2).describe("Search query."),
+  limit: z.number().int().min(1).max(20).optional(),
+});
+
+export default tool({
+  name: "Zod Search",
+  description: "Use this when searching with runtime validation.",
+  execute: withParams(ParamsSchema, (params) => {
+    return toolResult({
+      structuredContent: { query: params.query },
+      content: "ok"
+    });
+  })
+});
+`,
+      );
+      await writeFixture(
+        path.join(rootDir, "server", "typed-create", "tool.ts"),
+        `import { tool, toolResult } from "sidecar-ai";
+
+type Params = {
+  /** Page title to create. */
+  title: string;
+  /** Parent page id. */
+  parentId?: string;
+};
+
+export default tool({
+  name: "Typed Create",
+  description: "Use this when creating with TypeScript params.",
+  execute(params: Params) {
+    return toolResult({
+      structuredContent: { title: params.title },
+      content: "ok"
+    });
+  }
+});
+`,
+      );
+
+      const tools = await analyzeProjectTools(rootDir);
+      const zodSearch = tools.find((entry) => entry.id === "zod-search");
+      const typedCreate = tools.find((entry) => entry.id === "typed-create");
+
+      expect(zodSearch?.inputSchema).toMatchObject({
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            minLength: 2,
+            description: "Search query.",
+          },
+          limit: {
+            type: "integer",
+            minimum: 1,
+            maximum: 20,
+          },
+        },
+        required: ["query"],
+      });
+      expect(typedCreate?.inputSchema).toMatchObject({
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: "Page title to create.",
+          },
+          parentId: {
+            type: "string",
+            description: "Parent page id.",
+          },
+        },
+        required: ["title"],
         additionalProperties: false,
       });
     } finally {
@@ -594,6 +865,76 @@ export default function Widget() {
 async function writeFixture(filePath: string, contents: string): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, contents);
+}
+
+/** Gives runtime-import fixture tools access to the repo's workspace dependencies. */
+async function linkFixtureNodeModules(rootDir: string): Promise<void> {
+  const nodeModules = path.join(rootDir, "node_modules");
+  await mkdir(nodeModules, { recursive: true });
+
+  await symlinkIfNew(
+    path.join(process.cwd(), "node_modules", "zod"),
+    path.join(nodeModules, "zod"),
+  );
+
+  const sidecarPackage = path.join(nodeModules, "sidecar-ai");
+  await mkdir(sidecarPackage, { recursive: true });
+  await writeFile(
+    path.join(sidecarPackage, "package.json"),
+    JSON.stringify({
+      type: "module",
+      exports: {
+        ".": "./index.js",
+      },
+    }),
+  );
+  await writeFile(
+    path.join(sidecarPackage, "index.js"),
+    `const toolBrand = Symbol.for("sidecar.tool");
+const toolExecuteParamsBrand = Symbol.for("sidecar.withParams");
+const toolResultBrand = Symbol.for("sidecar.toolResult");
+
+export function withParams(params, execute) {
+  Object.defineProperties(execute, {
+    kind: { value: "sidecar.withParams", enumerable: false },
+    params: { value: params, enumerable: false },
+    [toolExecuteParamsBrand]: { value: true, enumerable: false }
+  });
+  return execute;
+}
+
+export function tool(definition) {
+  const executeParams = definition.execute?.[toolExecuteParamsBrand]
+    ? definition.execute.params
+    : undefined;
+  return Object.freeze({
+    ...definition,
+    params: definition.params ?? executeParams,
+    kind: "sidecar.tool",
+    [toolBrand]: true
+  });
+}
+
+export function toolResult(input) {
+  return Object.freeze({
+    ...input,
+    kind: "sidecar.toolResult",
+    [toolResultBrand]: true
+  });
+}
+`,
+  );
+}
+
+/** Creates a symlink unless the destination already exists. */
+async function symlinkIfNew(target: string, destination: string): Promise<void> {
+  try {
+    await symlink(target, destination, "dir");
+  } catch (error) {
+    if ((error as { code?: unknown }).code !== "EEXIST") {
+      throw error;
+    }
+  }
 }
 
 /** Creates a minimal tool fixture with optional visibility metadata. */

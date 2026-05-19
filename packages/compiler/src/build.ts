@@ -40,7 +40,7 @@ export async function buildProject(
 
   const outDir = resolveInsideRoot(rootDir, options.outDir ?? config.build.outDir ?? defaultBuildOutDir(host, target));
   const runtimeOutDir = resolveRuntimeOutputDir(outDir, host);
-  await buildWidgets(rootDir, runtimeOutDir, tools);
+  await buildWidgets(rootDir, runtimeOutDir, tools, config.build.widgets);
 
   const manifest: SidecarManifest = {
     version: 1,

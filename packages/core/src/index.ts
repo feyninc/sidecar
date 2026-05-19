@@ -55,7 +55,74 @@ export type BuildConfig = {
   outDir?: string;
   /** Whether `sidecar build` should emit installable plugin packages by default. */
   plugins?: boolean;
+  /** Optional widget bundler extensions. Sidecar still owns the wrapper and output shape. */
+  widgets?: WidgetBuildConfig;
 };
+
+/** Project-level widget bundler extensions. */
+export type WidgetBuildConfig = {
+  /** Static esbuild option extensions for every widget bundle. */
+  esbuild?: WidgetEsbuildConfig;
+  /** Optional TS/JS module path that default-exports a widget bundler hook. */
+  configure?: string;
+};
+
+/** Serializable esbuild options Sidecar can read statically from config. */
+export type WidgetEsbuildConfig = {
+  /** Package/path aliases merged with Sidecar's own aliases. Relative replacements resolve from the project root. */
+  alias?: Record<string, string>;
+  /** Compile-time constants, usually JSON.stringify(...) values. */
+  define?: Record<string, string>;
+  /** Package names or paths to keep external. */
+  external?: string[];
+  /** Extra esbuild loaders keyed by extension, for example `{ ".svg": "text" }`. */
+  loader?: Record<string, string>;
+  /** Package export conditions. */
+  conditions?: string[];
+  /** Package main fields. */
+  mainFields?: string[];
+  /** JSX transform mode. Defaults to `automatic`. */
+  jsx?: "automatic" | "transform" | "preserve";
+  /** JSX import source used with the automatic runtime. */
+  jsxImportSource?: string;
+};
+
+/** Esbuild-like option bag exposed to `defineWidgetBundler()` without making core depend on esbuild. */
+export type WidgetBundlerEsbuildOptions = WidgetEsbuildConfig & {
+  nodePaths?: string[];
+  plugins?: unknown[];
+  [key: string]: unknown;
+};
+
+/** Widget identity passed to a project-level bundler hook. */
+export type WidgetBundlerHookWidget = {
+  toolId: string;
+  toolName: string;
+  target: BuildTarget;
+  sourceFile: string;
+};
+
+/** Input passed to a project-level bundler hook. */
+export type WidgetBundlerHookInput<Options = WidgetBundlerEsbuildOptions> = {
+  rootDir: string;
+  outDir: string;
+  entryFile: string;
+  widget: WidgetBundlerHookWidget;
+  esbuildOptions: Options;
+};
+
+/** Result returned by a project-level bundler hook. */
+export type WidgetBundlerHookResult<Options = WidgetBundlerEsbuildOptions> =
+  | void
+  | Options
+  | {
+      esbuildOptions?: Options;
+    };
+
+/** Project-level hook for extending widget bundling without replacing Sidecar's wrapper. */
+export type WidgetBundlerHook<Options = WidgetBundlerEsbuildOptions> = (
+  input: WidgetBundlerHookInput<Options>
+) => MaybePromise<WidgetBundlerHookResult<Options>>;
 
 /** MCP list operations that support cursor pagination. */
 export type McpListOperation =
@@ -181,6 +248,9 @@ export type JsonSchema = {
   maximum?: number;
   minLength?: number;
   maxLength?: number;
+  minItems?: number;
+  maxItems?: number;
+  pattern?: string;
   format?: string;
 };
 
@@ -714,6 +784,18 @@ export type ToolExecute<Params, Output, Auth = unknown, Services = unknown, Tool
   ctx: ToolContext<Auth, Services, Tools>
 ) => MaybePromise<ToolResult<Output>>;
 
+/** Tool execute function with a runtime params validator attached. */
+export type ToolExecuteWithParams<
+  Schema extends ZodLikeSchema,
+  Output,
+  Auth = unknown,
+  Services = unknown,
+  Tools = unknown,
+> = ToolExecute<InferParams<Schema>, Output, Auth, Services, Tools> & {
+  readonly kind: "sidecar.withParams";
+  readonly params: Schema;
+};
+
 /** Author-facing definition accepted by `tool()`. */
 export type ToolDefinition<Params = unknown, Output = unknown, Auth = unknown, Services = unknown, Tools = unknown> = {
   /** Human-readable name shown to users and models. */
@@ -768,6 +850,7 @@ export type SkillDefinition = {
 };
 
 const toolBrand = Symbol.for("sidecar.tool");
+const toolExecuteParamsBrand = Symbol.for("sidecar.withParams");
 const toolResultBrand = Symbol.for("sidecar.toolResult");
 const resourceBrand = Symbol.for("sidecar.resource");
 const resourceResultBrand = Symbol.for("sidecar.resourceResult");
@@ -794,6 +877,48 @@ export function defineConfig(config: SidecarConfig): SidecarConfig {
   return Object.freeze({ ...config });
 }
 
+/** Gives TS users completion when authoring `build.widgets.configure` modules. */
+export function defineWidgetBundler<Options = WidgetBundlerEsbuildOptions>(
+  hook: WidgetBundlerHook<Options>,
+): WidgetBundlerHook<Options> {
+  return hook;
+}
+
+/**
+ * Attaches a runtime params validator directly to a tool execute function.
+ *
+ * This is the preferred Zod authoring path: `withParams(schema, execute)` keeps
+ * runtime validation, JSON Schema generation, and TypeScript inference tied to
+ * one schema value.
+ */
+export function withParams<
+  Schema extends ZodLikeSchema,
+  Output,
+  Auth = unknown,
+  Services = unknown,
+  Tools = unknown,
+>(
+  params: Schema,
+  execute: ToolExecute<InferParams<Schema>, Output, Auth, Services, Tools>,
+): ToolExecuteWithParams<Schema, Output, Auth, Services, Tools> {
+  Object.defineProperties(execute, {
+    kind: {
+      value: "sidecar.withParams",
+      enumerable: false,
+    },
+    params: {
+      value: params,
+      enumerable: false,
+    },
+    [toolExecuteParamsBrand]: {
+      value: true,
+      enumerable: false,
+    },
+  });
+
+  return execute as ToolExecuteWithParams<Schema, Output, Auth, Services, Tools>;
+}
+
 /**
  * Declares a Sidecar MCP tool.
  *
@@ -810,8 +935,16 @@ export function tool<Params, Output, Auth = unknown>(
     throw new SidecarDefinitionError(`Tool "${definition.name}" must include a description.`);
   }
 
+  const executeParams = readExecuteParams(definition.execute);
+  if (definition.params && executeParams) {
+    throw new SidecarDefinitionError(
+      `Tool "${definition.name}" declares params twice. Use either params: schema or execute: withParams(schema, fn), not both.`,
+    );
+  }
+
   return Object.freeze({
     ...definition,
+    params: definition.params ?? executeParams,
     kind: "sidecar.tool" as const,
     [toolBrand]: true
   }) as SidecarTool<Params, Output, Auth>;
@@ -825,6 +958,21 @@ export function isSidecarTool(value: unknown): value is SidecarTool {
       ((value as Record<symbol, unknown>)[toolBrand] ||
         (value as { kind?: unknown }).kind === "sidecar.tool"),
   );
+}
+
+/** Reads the validator attached by `withParams()`, if present. */
+function readExecuteParams<Params, Output, Auth, Services, Tools>(
+  execute: ToolExecute<Params, Output, Auth, Services, Tools>,
+): ZodLikeSchema<Params> | undefined {
+  if (
+    !execute ||
+    typeof execute !== "function" ||
+    !((execute as unknown as Record<symbol, unknown>)[toolExecuteParamsBrand])
+  ) {
+    return undefined;
+  }
+
+  return (execute as ToolExecuteWithParams<ZodLikeSchema<Params>, unknown>).params;
 }
 
 /**
@@ -950,9 +1098,9 @@ function createToolResult<
   Meta extends Record<string, unknown> = Record<string, unknown>,
 >(input: ToolResultInput<Structured, Meta>): ToolResult<Structured, Meta> {
   const resultEnvelope = stripUndefined({
-    structuredContent: input.structuredContent,
+    structuredContent: stripJsonUndefined(input.structuredContent),
     content: normalizeRequiredContent(input.content),
-    _meta: input.meta,
+    _meta: stripJsonUndefined(input.meta) as Meta | undefined,
     isError: input.isError
   }) as unknown as ToolResult<Structured, Meta>;
 
@@ -1016,9 +1164,9 @@ export function normalizeToolResult(value: unknown): McpToolResult {
   }
 
   return stripUndefined({
-    structuredContent: value.structuredContent,
+    structuredContent: stripJsonUndefined(value.structuredContent),
     content: value.content ?? [],
-    _meta: value._meta,
+    _meta: stripJsonUndefined(value._meta) as Record<string, unknown> | undefined,
     isError: value.isError
   });
 }
@@ -1567,4 +1715,27 @@ function normalizePromptResult(value: PromptResultInput, defaultDescription?: st
 /** Removes `undefined` keys so JSON serialization matches MCP expectations. */
 function stripUndefined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
+}
+
+/** Recursively removes undefined values from JSON-like result channels. */
+function stripJsonUndefined(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stripJsonUndefined(entry))
+      .filter((entry) => entry !== undefined);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, entry]) => [key, stripJsonUndefined(entry)] as const)
+      .filter(([, entry]) => entry !== undefined),
+  );
 }

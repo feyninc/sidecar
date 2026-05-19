@@ -220,7 +220,7 @@ function unwrapRuntimeDefault(value) {
     value &&
     typeof value === "object" &&
     "default" in value &&
-    Object.keys(value).length === 1
+    Object.keys(value).every((key) => key === "default" || key === "__esModule")
   ) {
     return unwrapRuntimeDefault(value.default);
   }

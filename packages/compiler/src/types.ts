@@ -11,6 +11,7 @@ import type {
   ResourceAnnotations,
   ToolAnnotations,
   ToolVisibility,
+  WidgetBuildConfig,
   ToolWidgetOptions,
 } from "@sidecar-ai/core";
 import type { SidecarDiagnostic } from "./diagnostics.js";
@@ -95,6 +96,7 @@ export type SidecarCompilerConfig = {
     host?: SidecarHost;
     outDir?: string;
     plugins?: boolean;
+    widgets?: WidgetBuildConfig;
   };
   resources: {
     subscribe: boolean;

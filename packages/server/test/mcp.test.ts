@@ -1115,6 +1115,73 @@ describe("SidecarMcpServer", () => {
     });
   });
 
+  it("validates output schemas after omitting undefined structured content fields", async () => {
+    const preview = tool({
+      name: "Preview Tool",
+      description: "Use this when checking optional output fields.",
+      execute() {
+        return toolResult({
+          structuredContent: {
+            preview: {
+              title: "Ready",
+              url: undefined,
+            },
+          },
+          content: "Ready.",
+        });
+      },
+    });
+    const server = createSidecarMcpServer({
+      tools: [{
+        tool: preview,
+        descriptor: createToolDescriptor({
+          name: "Preview Tool",
+          id: "preview-tool",
+          description: "Use this when checking optional output fields.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: [],
+            additionalProperties: false,
+          },
+          outputSchema: {
+            type: "object",
+            properties: {
+              preview: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  url: { type: "string" },
+                },
+                required: ["title"],
+                additionalProperties: false,
+              },
+            },
+            required: ["preview"],
+            additionalProperties: false,
+          },
+        }),
+      }],
+    });
+
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "preview-tool", arguments: {} },
+      }),
+    ).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          preview: {
+            title: "Ready",
+          },
+        },
+      },
+    });
+  });
+
   it("validates schema-shaped additionalProperties at runtime", async () => {
     const tagged = tool({
       name: "Tagged Tool",

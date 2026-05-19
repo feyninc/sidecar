@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { build as esbuild } from "esbuild";
+import { pathToFileURL } from "node:url";
+import { build as esbuild, type BuildOptions, type Loader, type Plugin } from "esbuild";
 import postcss from "postcss";
 import {
   Node,
@@ -11,7 +12,7 @@ import {
   type ObjectLiteralExpression,
   type SourceFile,
 } from "ts-morph";
-import type { ChatGptWidgetOptions, ToolWidgetOptions } from "@sidecar-ai/core";
+import type { ChatGptWidgetOptions, ToolWidgetOptions, WidgetBuildConfig, WidgetBundlerHook } from "@sidecar-ai/core";
 import { resolveDefaultExportCall, unwrapExpression } from "./ast.js";
 import { CompilerError } from "./errors.js";
 import type { SidecarSourceVariant, SidecarTarget, SidecarToolManifestEntry, SidecarWidgetManifestEntry } from "./types.js";
@@ -24,6 +25,7 @@ export async function buildWidgets(
   rootDir: string,
   outDir: string,
   tools: SidecarToolManifestEntry[],
+  config: WidgetBuildConfig | undefined = undefined,
 ): Promise<void> {
   const widgets = tools.filter(
     (
@@ -39,6 +41,7 @@ export async function buildWidgets(
   const cacheDir = path.join(rootDir, ".sidecar", "cache", "widgets");
   await mkdir(cacheDir, { recursive: true });
   const appStyle = await prepareAppStyle(rootDir, cacheDir);
+  const configure = await loadWidgetBundlerHook(rootDir, cacheDir, config?.configure);
 
   for (const entry of widgets) {
     const sourceFile = path.join(rootDir, entry.widget.sourceFile);
@@ -61,7 +64,7 @@ createRoot(document.getElementById("root")!).render(
 `,
     );
 
-    const bundled = await esbuild({
+    const baseOptions = enforceWidgetBuildInvariants({
       absWorkingDir: rootDir,
       alias: devSidecarBundleAliases(rootDir),
       bundle: true,
@@ -78,9 +81,29 @@ createRoot(document.getElementById("root")!).render(
       sourcemap: false,
       write: false,
     });
+    const staticOptions = widgetBuildOptionsFromConfig(rootDir, config);
+    const configuredOptions = configure
+      ? await configureWidgetBuild(configure, {
+          rootDir,
+          outDir,
+          entryFile,
+          widget: {
+            toolId: entry.id,
+            toolName: entry.name,
+            target: entry.target,
+            sourceFile: entry.widget.sourceFile,
+          },
+          esbuildOptions: mergeWidgetBuildOptions(baseOptions, staticOptions),
+        })
+      : undefined;
+    const bundled = await esbuild(enforceWidgetBuildInvariants(
+      mergeWidgetBuildOptions(baseOptions, staticOptions, configuredOptions),
+      { rootDir, entryFile },
+    ));
 
-    const javascript = bundled.outputFiles.find((file) => file.path.endsWith(".js"))?.text ?? "";
-    const css = bundled.outputFiles
+    const outputFiles = bundled.outputFiles ?? [];
+    const javascript = outputFiles.find((file) => file.path.endsWith(".js"))?.text ?? "";
+    const css = outputFiles
       .filter((file) => file.path.endsWith(".css"))
       .map((file) => file.text)
       .join("\n");
@@ -98,6 +121,160 @@ createRoot(document.getElementById("root")!).render(
     entry.widget.outputFile = path.relative(outDir, outputFile);
     entry.descriptor._meta = mergeWidgetMeta(entry.descriptor._meta, widgetMeta(resourceUri, entry.widget.options, entry.target));
   }
+}
+
+/** Converts static config into esbuild option extensions. */
+function widgetBuildOptionsFromConfig(
+  rootDir: string,
+  config: WidgetBuildConfig | undefined,
+): BuildOptions | undefined {
+  const esbuildConfig = config?.esbuild;
+  if (!esbuildConfig) {
+    return undefined;
+  }
+
+  return {
+    alias: normalizeAliases(rootDir, esbuildConfig.alias),
+    conditions: esbuildConfig.conditions,
+    define: esbuildConfig.define,
+    external: esbuildConfig.external,
+    jsx: esbuildConfig.jsx,
+    jsxImportSource: esbuildConfig.jsxImportSource,
+    loader: esbuildConfig.loader as Record<string, Loader> | undefined,
+    mainFields: esbuildConfig.mainFields,
+  };
+}
+
+/** Loads a project-level widget bundler hook from TS or JS. */
+async function loadWidgetBundlerHook(
+  rootDir: string,
+  cacheDir: string,
+  hookPath: string | undefined,
+): Promise<WidgetBundlerHook<BuildOptions> | undefined> {
+  if (!hookPath) {
+    return undefined;
+  }
+
+  const sourcePath = path.resolve(rootDir, hookPath);
+  const relative = path.relative(rootDir, sourcePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`Widget bundler hook must stay inside the project root: ${hookPath}`);
+  }
+  if (!existsSync(sourcePath)) {
+    throw new Error(`Widget bundler hook not found: ${hookPath}`);
+  }
+
+  const outputFile = path.join(cacheDir, `widget-bundler.${contentHash(hookPath)}.mjs`);
+  await esbuild({
+    absWorkingDir: rootDir,
+    alias: devSidecarBundleAliases(rootDir),
+    bundle: true,
+    entryPoints: [sourcePath],
+    format: "esm",
+    nodePaths: [
+      path.join(rootDir, "node_modules"),
+      path.join(process.cwd(), "node_modules"),
+    ],
+    outfile: outputFile,
+    packages: "external",
+    platform: "node",
+    target: "node20",
+  });
+
+  const module = (await import(`${pathToFileURL(outputFile).href}?t=${Date.now()}`)) as {
+    default?: unknown;
+  };
+  if (typeof module.default !== "function") {
+    throw new Error(`Widget bundler hook must default-export a function: ${hookPath}`);
+  }
+
+  return module.default as WidgetBundlerHook<BuildOptions>;
+}
+
+/** Runs the project hook and normalizes its supported return shapes. */
+async function configureWidgetBuild(
+  hook: WidgetBundlerHook<BuildOptions>,
+  input: Parameters<WidgetBundlerHook<BuildOptions>>[0],
+): Promise<BuildOptions | undefined> {
+  const result = await hook(input);
+  if (!result) {
+    return undefined;
+  }
+  if (typeof result === "object" && "esbuildOptions" in result) {
+    return result.esbuildOptions;
+  }
+  return result as BuildOptions;
+}
+
+/** Merges esbuild options while preserving additive fields. */
+function mergeWidgetBuildOptions(
+  ...options: Array<BuildOptions | undefined>
+): BuildOptions {
+  const merged: BuildOptions = {};
+  for (const option of options) {
+    if (!option) {
+      continue;
+    }
+
+    const previousAlias = merged.alias;
+    const previousDefine = merged.define;
+    const previousLoader = merged.loader;
+    const previousExternal = merged.external;
+    const previousNodePaths = merged.nodePaths;
+    const previousPlugins = merged.plugins;
+    Object.assign(merged, option);
+    merged.alias = { ...(previousAlias ?? {}), ...(option.alias ?? {}) };
+    merged.define = { ...(previousDefine ?? {}), ...(option.define ?? {}) };
+    merged.loader = { ...(previousLoader ?? {}), ...(option.loader ?? {}) };
+    merged.external = uniqueStrings([...(previousExternal ?? []), ...(option.external ?? [])]);
+    merged.nodePaths = uniqueStrings([...(previousNodePaths ?? []), ...(option.nodePaths ?? [])]);
+    merged.plugins = [...(previousPlugins ?? []), ...(option.plugins ?? [])] as Plugin[];
+  }
+  return merged;
+}
+
+/** Re-applies Sidecar-owned esbuild invariants after project extensions. */
+function enforceWidgetBuildInvariants(
+  options: BuildOptions,
+  required?: { rootDir: string; entryFile: string },
+): BuildOptions {
+  return {
+    ...options,
+    absWorkingDir: required?.rootDir ?? options.absWorkingDir,
+    bundle: true,
+    entryPoints: required ? [required.entryFile] : options.entryPoints,
+    format: "iife",
+    outfile: "widget.js",
+    platform: "browser",
+    write: false,
+  };
+}
+
+/** Resolves relative alias replacements from the app root for predictable builds. */
+function normalizeAliases(
+  rootDir: string,
+  aliases: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!aliases) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(aliases).map(([key, value]) => [
+      key,
+      value.startsWith(".") ? path.resolve(rootDir, value) : value,
+    ]),
+  );
+}
+
+/** Deduplicates esbuild string-array options. */
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+/** Creates a short stable hash for cache file names. */
+function contentHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
 /** Provides source aliases when bundling repo-local examples before dist exists. */

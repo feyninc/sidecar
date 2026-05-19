@@ -13,6 +13,7 @@ import {
   resourceResult,
   tool,
   toolResult,
+  withParams,
   type ToolContext,
 } from "../src/index.js";
 
@@ -53,6 +54,111 @@ describe("tool", () => {
       structuredContent: { status: "ready" },
       content: [{ type: "text", text: "The report is ready." }],
       _meta: { "com.example/trace": "abc" }
+    });
+  });
+
+  it("uses withParams validators attached to execute functions", async () => {
+    const params = {
+      safeParse(value: unknown) {
+        const input = value as { q?: unknown };
+        return typeof input.q === "string" && input.q.length > 0
+          ? { success: true as const, data: { q: input.q } }
+          : { success: false as const, error: new Error("q is required") };
+      },
+    };
+
+    const search = tool({
+      name: "Search Pages",
+      description: "Use this when searching pages.",
+      execute: withParams(params, (input) =>
+        toolResult({
+          structuredContent: { q: input.q },
+          content: input.q,
+        }),
+      ),
+    });
+
+    await expect(executeTool(search, { q: "docs" }, testContext())).resolves.toMatchObject({
+      structuredContent: { q: "docs" },
+      content: [{ type: "text", text: "docs" }],
+    });
+    await expect(executeTool(search, {}, testContext())).rejects.toMatchObject({
+      code: "invalid_tool_params",
+    });
+  });
+
+  it("rejects tools that declare params both directly and through withParams", () => {
+    const params = {
+      safeParse(value: unknown) {
+        return { success: true as const, data: value as { q: string } };
+      },
+    };
+    const otherParams = {
+      safeParse(value: unknown) {
+        return { success: true as const, data: value as { q: string } };
+      },
+    };
+
+    expect(() =>
+      tool({
+        name: "Double Params",
+        description: "Use this when testing invalid schema declarations.",
+        params,
+        execute: withParams(otherParams, (input) =>
+          toolResult({
+            structuredContent: { q: input.q },
+            content: input.q,
+          }),
+        ),
+      }),
+    ).toThrow(/declares params twice/);
+  });
+
+  it("removes undefined values from structured content and meta before MCP output", async () => {
+    const preview = tool({
+      name: "Preview Optional Data",
+      description: "Use this when checking JSON result normalization.",
+      execute() {
+        return toolResult({
+          structuredContent: {
+            preview: {
+              title: "Ready",
+              url: undefined,
+              nested: {
+                kept: true,
+                omitted: undefined,
+              },
+            },
+            rows: [{ value: 1, skip: undefined }, undefined, { value: 2 }],
+          },
+          content: "ready",
+          meta: {
+            trace: undefined,
+            widget: {
+              mode: "preview",
+              missing: undefined,
+            },
+          },
+        });
+      },
+    });
+
+    await expect(executeTool(preview, {}, testContext())).resolves.toEqual({
+      structuredContent: {
+        preview: {
+          title: "Ready",
+          nested: {
+            kept: true,
+          },
+        },
+        rows: [{ value: 1 }, { value: 2 }],
+      },
+      content: [{ type: "text", text: "ready" }],
+      _meta: {
+        widget: {
+          mode: "preview",
+        },
+      },
     });
   });
 

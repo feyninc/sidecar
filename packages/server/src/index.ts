@@ -1481,6 +1481,12 @@ function schemaFailure(schema: JsonSchema, value: unknown, path: string): string
     if (!Array.isArray(value)) {
       return `${path} must be an array.`;
     }
+    if (schema.minItems !== undefined && value.length < schema.minItems) {
+      return `${path} must contain at least ${schema.minItems} items.`;
+    }
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      return `${path} must contain at most ${schema.maxItems} items.`;
+    }
     if (schema.items) {
       for (const [index, entry] of value.entries()) {
         const failure = schemaFailure(schema.items, entry, `${path}[${index}]`);
@@ -1495,6 +1501,9 @@ function schemaFailure(schema: JsonSchema, value: unknown, path: string): string
     }
     if (schema.maxLength !== undefined && value.length > schema.maxLength) {
       return `${path} is longer than ${schema.maxLength}.`;
+    }
+    if (schema.pattern !== undefined && !(new RegExp(schema.pattern).test(value))) {
+      return `${path} must match pattern ${schema.pattern}.`;
     }
   }
   if (typeof value === "number") {
