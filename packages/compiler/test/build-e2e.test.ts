@@ -1,5 +1,7 @@
 /** End-to-end artifact tests for real Sidecar project builds. */
+import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -67,6 +69,10 @@ describe("buildProject E2E artifacts", () => {
 
       await expect(readFile(path.join(rootDir, "out/mcp/README.md"), "utf8"))
         .resolves.toContain("MCP URL");
+      await expect(readFile(path.join(rootDir, "out/mcp/package.json"), "utf8"))
+        .resolves.toContain("\"start\": \"node server/index.js\"");
+      await expect(readFile(path.join(rootDir, "out/mcp/server/index.js"), "utf8"))
+        .resolves.toContain("createSidecarHttpServer");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.claude-plugin/plugin.json"), "utf8"))
         .resolves.toContain("\"name\": \"simple-sidecar-example\"");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.mcp.json"), "utf8"))
@@ -78,6 +84,81 @@ describe("buildProject E2E artifacts", () => {
       await expect(readFile(path.join(rootDir, ".sidecar/generated/tools.ts"), "utf8"))
         .resolves.toContain("addNumbers");
     } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits a runnable Node Streamable HTTP server", async () => {
+    const rootDir = await copySimpleFixture("sidecar-e2e-runnable-server-");
+    const port = await getFreePort();
+    let child: ReturnType<typeof spawn> | undefined;
+
+    try {
+      const manifest = await buildProject({ rootDir, outDir: "out/mcp", target: "mcp" });
+      const mcpUrl = `http://127.0.0.1:${port}/mcp`;
+      const serverFile = path.join(rootDir, "out/mcp/server/index.js");
+      child = spawn(process.execPath, [serverFile], {
+        cwd: path.join(rootDir, "out/mcp"),
+        env: {
+          ...process.env,
+          PORT: String(port),
+          SIDECAR_HOST: "127.0.0.1",
+          SIDECAR_MCP_URL: mcpUrl,
+          SIDECAR_DEMO_TOKEN: "secret",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      const stderr: Buffer[] = [];
+      if (!child.stderr) {
+        throw new Error("Generated server process did not expose stderr.");
+      }
+      child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+      await waitForHttp(`${mcpUrl.replace(/\/mcp$/, "")}/.well-known/oauth-protected-resource/mcp`, child, stderr);
+
+      const metadata = await fetch(`${mcpUrl.replace(/\/mcp$/, "")}/.well-known/oauth-protected-resource/mcp`);
+      expect(metadata.status).toBe(200);
+      await expect(metadata.json()).resolves.toMatchObject({
+        resource: mcpUrl,
+        authorization_servers: ["https://auth.example.com"],
+      });
+
+      const initialize = await postMcp(mcpUrl, "secret", {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "sidecar-test", version: "0.0.0" },
+        },
+      });
+      expect(initialize.result.serverInfo).toMatchObject({
+        name: "Simple Sidecar Example",
+        version: "0.1.0-alpha.1",
+      });
+
+      const tools = await postMcp(mcpUrl, "secret", {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/list",
+      });
+      expect(tools.result.tools.map((tool: { name: string }) => tool.name).sort())
+        .toEqual(manifest.tools.map((tool) => tool.id).sort());
+
+      const widgetUri = manifest.tools.find((tool) => tool.id === "add-numbers")?.widget?.resourceUri;
+      const resource = await postMcp(mcpUrl, "secret", {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "resources/read",
+        params: { uri: widgetUri },
+      });
+      expect(resource.result.contents[0].mimeType).toBe("text/html;profile=mcp-app");
+      expect(resource.result.contents[0].text).toContain("SidecarWidgetRoot");
+    } finally {
+      if (child) {
+        child.kill("SIGTERM");
+      }
       await rm(rootDir, { recursive: true, force: true });
     }
   });
@@ -244,4 +325,61 @@ async function copyExampleFixture(exampleName: string, prefix: string): Promise<
 /** Reads a JSON file with a typed return value. */
 async function readJson<T>(filePath: string): Promise<T> {
   return JSON.parse(await readFile(filePath, "utf8")) as T;
+}
+
+/** Reserves an available localhost TCP port for a child process test. */
+async function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createNetServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close(() => reject(new Error("Expected TCP server address.")));
+        return;
+      }
+      const port = address.port;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+/** Polls an HTTP URL until the generated server is accepting requests. */
+async function waitForHttp(
+  url: string,
+  child: ReturnType<typeof spawn>,
+  stderr: Buffer[],
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 10_000) {
+    if (child.exitCode !== null) {
+      throw new Error(`Generated server exited early: ${Buffer.concat(stderr).toString("utf8")}`);
+    }
+    try {
+      const response = await fetch(url);
+      await response.arrayBuffer();
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  throw new Error(`Timed out waiting for generated server: ${Buffer.concat(stderr).toString("utf8")}`);
+}
+
+/** Sends one JSON-RPC request to the generated MCP server. */
+async function postMcp(url: string, token: string, body: unknown): Promise<any> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "accept": "application/json, text/event-stream",
+      "authorization": `Bearer ${token}`,
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-11-25",
+    },
+    body: JSON.stringify(body),
+  });
+
+  expect(response.status).toBe(200);
+  return response.json();
 }

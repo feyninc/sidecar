@@ -5,9 +5,11 @@ import { analyzeProjectTools } from "./analyze.js";
 import { analyzeProjectConfig } from "./config.js";
 import { collectProjectDiagnostics, formatDiagnostic } from "./diagnostics.js";
 import { writeGeneratedTypes } from "./generated.js";
+import { loadProjectIdentity } from "./identity.js";
 import { buildPluginPackages } from "./plugins.js";
 import { analyzeProjectPrompts } from "./prompts.js";
 import { analyzeProjectResources } from "./resources.js";
+import { buildServerOutput } from "./server-output.js";
 import type { BuildProjectOptions, SidecarManifest, SidecarResourceTemplateManifestEntry } from "./types.js";
 import { buildWidgets } from "./widgets.js";
 
@@ -22,6 +24,7 @@ export async function buildProject(
   const resources = await analyzeProjectResources(rootDir);
   const resourceTemplates: SidecarResourceTemplateManifestEntry[] = [];
   const prompts = await analyzeProjectPrompts(rootDir);
+  const identity = await loadProjectIdentity(rootDir);
   const diagnostics = await collectProjectDiagnostics(rootDir, {
     tools,
     resources,
@@ -56,6 +59,7 @@ export async function buildProject(
   );
   await writeFile(path.join(outDir, "README.md"), renderMcpReadme(manifest));
   await writeGeneratedTypes(rootDir, tools);
+  await buildServerOutput(rootDir, outDir, manifest, identity);
   if (options.plugins) {
     await buildPluginPackages(rootDir, path.dirname(outDir), manifest);
   }
@@ -100,6 +104,22 @@ ${resources || "No resources detected."}
 ## Prompts
 
 ${prompts || "No prompts detected."}
+
+## Run The Server
+
+This output includes a hostable MCP server. Start it with:
+
+\`\`\`sh
+npm start
+\`\`\`
+
+or:
+
+\`\`\`sh
+node server/index.js
+\`\`\`
+
+Set \`PORT\` or \`SIDECAR_PORT\` to choose the listen port. Hosted/authenticated MCPs should set \`SIDECAR_MCP_URL\` to the public \`https://.../mcp\` URL before starting.
 
 ## Local HTTPS Testing
 

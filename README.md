@@ -482,12 +482,18 @@ sidecar build --target claude --plugins
 ```txt
 out/
   mcp/
+    package.json
+    server/index.js
     manifest.sidecar.json
     public/widgets/...
   chatgpt/
+    package.json
+    server/index.js
     manifest.sidecar.json
     public/widgets/...
   claude/
+    package.json
+    server/index.js
     manifest.sidecar.json
   claude-plugin/
     .claude-plugin/plugin.json
@@ -498,7 +504,14 @@ out/
     agents/
 ```
 
-The MCP server itself still needs to be hosted somewhere. Claude plugin packages reference the hosted MCP URL instead of bundling the server. After hosting the MCP server, update the generated `claude-plugin/.mcp.json` URL from the placeholder to your real HTTPS MCP endpoint before sharing or installing the plugin.
+Each MCP target includes a hostable Node server. Start it from the target output:
+
+```sh
+cd out/mcp
+SIDECAR_MCP_URL=https://your-host.example.com/mcp npm start
+```
+
+The generated server listens on `PORT` or `SIDECAR_PORT` and serves Streamable HTTP at `/mcp`. Claude plugin packages reference the hosted MCP URL instead of bundling the server. After hosting the MCP server, update the generated `claude-plugin/.mcp.json` URL from the placeholder to your real HTTPS MCP endpoint before sharing or installing the plugin.
 
 ## Developing Sidecar Itself
 

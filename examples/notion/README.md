@@ -30,6 +30,19 @@ npm run dev:https
 The tunnel URL is public while it is running. Do not use it with sensitive
 workspace data unless you understand the exposure.
 
+## Build And Host
+
+```sh
+npm run build
+cd out/mcp
+SIDECAR_MCP_URL=https://your-host.example.com/mcp npm start
+```
+
+The generated `out/mcp/server/index.js` is a hostable Node Streamable HTTP MCP
+server. On your host, set `PORT`, `SIDECAR_MCP_URL`, and `SIDECAR_PUBLIC_URL`
+through the platform environment settings. Use `https://your-host.example.com/mcp`
+as the connector URL.
+
 ## Auth
 
 Hosted Notion MCP requires a Notion-audience OAuth token. This example keeps

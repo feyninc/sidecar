@@ -22,6 +22,7 @@ import {
   buildProject,
   collectProjectDiagnostics,
   formatDiagnostic,
+  SERVER_ENTRYPOINT,
   type SidecarDiagnostic,
   type SidecarManifest,
   type SidecarTarget,
@@ -54,6 +55,7 @@ export async function main(argv: string[]): Promise<void> {
           `${manifest.resources.length} resource${manifest.resources.length === 1 ? "" : "s"}, and ` +
           `${manifest.prompts.length} prompt${manifest.prompts.length === 1 ? "" : "s"} to ${outDir}.`,
       );
+      console.log(`Hostable MCP server: ${path.join(outDir, SERVER_ENTRYPOINT)}`);
       if (plugins) {
         console.log("Built claude-plugin package.");
       }
