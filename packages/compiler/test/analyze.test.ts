@@ -1,6 +1,6 @@
 /** Tests for compiler discovery, schema extraction, widgets, and plugin output. */
 import path from "node:path";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -127,10 +127,9 @@ export default tool({
   });
 
   it("converts runtime Zod params with Zod's JSON Schema converter", async () => {
-    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-zod-schema-"));
+    const rootDir = await createRuntimeImportFixture("sidecar-zod-schema-");
 
     try {
-      await linkFixtureNodeModules(rootDir);
       await writeFixture(
         path.join(rootDir, "server", "zod-tool", "tool.ts"),
         `import { z } from "zod";
@@ -211,11 +210,10 @@ export default tool({
   });
 
   it("falls back to execute parameter types when Zod cannot emit JSON Schema", async () => {
-    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-zod-custom-schema-"));
+    const rootDir = await createRuntimeImportFixture("sidecar-zod-custom-schema-");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     try {
-      await linkFixtureNodeModules(rootDir);
       await writeFixture(
         path.join(rootDir, "server", "zod-custom", "tool.ts"),
         `import { z } from "zod";
@@ -264,10 +262,9 @@ export default tool({
   });
 
   it("falls back to execute parameter types for non-Zod runtime validators", async () => {
-    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-custom-validator-schema-"));
+    const rootDir = await createRuntimeImportFixture("sidecar-custom-validator-schema-");
 
     try {
-      await linkFixtureNodeModules(rootDir);
       await writeFixture(
         path.join(rootDir, "server", "custom-validator", "tool.ts"),
         `import { tool, toolResult } from "sidecar-ai";
@@ -307,10 +304,9 @@ export default tool({
   });
 
   it("supports one MCP server with both Zod params and TypeScript params", async () => {
-    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-mixed-schema-"));
+    const rootDir = await createRuntimeImportFixture("sidecar-mixed-schema-");
 
     try {
-      await linkFixtureNodeModules(rootDir);
       await writeFixture(
         path.join(rootDir, "server", "zod-search", "tool.ts"),
         `import { z } from "zod";
@@ -867,15 +863,22 @@ async function writeFixture(filePath: string, contents: string): Promise<void> {
   await writeFile(filePath, contents);
 }
 
-/** Gives runtime-import fixture tools access to the repo's workspace dependencies. */
+/**
+ * Creates a runtime-import fixture inside the repo so Node resolves workspace
+ * dependencies through the normal parent directory lookup.
+ */
+async function createRuntimeImportFixture(prefix: string): Promise<string> {
+  const fixtureRoot = path.join(process.cwd(), ".tmp", "compiler-fixtures");
+  await mkdir(fixtureRoot, { recursive: true });
+  const rootDir = await mkdtemp(path.join(fixtureRoot, prefix));
+  await linkFixtureNodeModules(rootDir);
+  return rootDir;
+}
+
+/** Gives runtime-import fixture tools a lightweight sidecar-ai package shim. */
 async function linkFixtureNodeModules(rootDir: string): Promise<void> {
   const nodeModules = path.join(rootDir, "node_modules");
   await mkdir(nodeModules, { recursive: true });
-
-  await symlinkIfNew(
-    path.join(process.cwd(), "node_modules", "zod"),
-    path.join(nodeModules, "zod"),
-  );
 
   const sidecarPackage = path.join(nodeModules, "sidecar-ai");
   await mkdir(sidecarPackage, { recursive: true });
@@ -924,17 +927,6 @@ export function toolResult(input) {
 }
 `,
   );
-}
-
-/** Creates a symlink unless the destination already exists. */
-async function symlinkIfNew(target: string, destination: string): Promise<void> {
-  try {
-    await symlink(target, destination, "dir");
-  } catch (error) {
-    if ((error as { code?: unknown }).code !== "EEXIST") {
-      throw error;
-    }
-  }
 }
 
 /** Creates a minimal tool fixture with optional visibility metadata. */
