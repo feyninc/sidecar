@@ -65,15 +65,16 @@ Notion MCP token in WorkOS Vault, keyed by the authenticated WorkOS user id.
 Configure:
 
 ```sh
-WORKOS_AUTHKIT_ISSUER=https://<subdomain>.authkit.app
 WORKOS_CLIENT_ID=client_...
 WORKOS_API_KEY_NOTION=sk_...
 ```
 
-`auth.ts` verifies AuthKit access tokens against
-`WORKOS_AUTHKIT_ISSUER/oauth2/jwks`. Tool execution reads the user's Notion MCP
-token from WorkOS Vault with an object name derived from the WorkOS user id and
-a Vault key context containing `user_id` and `data_type=notion_mcp_token`.
+By default, `auth.ts` uses WorkOS AuthKit at `https://signin.workos.com` and
+verifies access tokens against its JWKS endpoint. Set `WORKOS_AUTHKIT_ISSUER`
+or `WORKOS_AUTHKIT_DOMAIN` only if you use a custom AuthKit domain. Tool
+execution reads the user's Notion MCP token from WorkOS Vault with an object
+name derived from the WorkOS user id and a Vault key context containing
+`user_id` and `data_type=notion_mcp_token`.
 
 When a user has no stored Notion token, the tool result includes a Notion OAuth
 link. That flow uses Notion's MCP OAuth discovery, dynamic client registration,

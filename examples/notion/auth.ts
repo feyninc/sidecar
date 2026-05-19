@@ -8,6 +8,8 @@ import "dotenv/config";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { auth, type AuthSession } from "sidecar-ai";
 
+const DEFAULT_AUTHKIT_ISSUER = "https://signin.workos.com";
+
 /** Verified AuthKit claims accepted by this example. */
 export type WorkOSMcpClaims = JWTPayload & {
   scope?: string;
@@ -81,7 +83,7 @@ function authKitIssuer(): string {
     return normalizeIssuer(domain.startsWith("http") ? domain : `https://${domain}`);
   }
 
-  throw new Error("Set WORKOS_AUTHKIT_ISSUER to your https://<subdomain>.authkit.app issuer.");
+  return DEFAULT_AUTHKIT_ISSUER;
 }
 
 /** Ensures issuer strings are URL-like and do not carry a trailing slash. */
