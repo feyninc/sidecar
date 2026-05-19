@@ -1,6 +1,6 @@
 {
   "name": "@sidecar-ai/react",
-  "version": "0.1.0-alpha.0",
+  "version": "0.1.0-alpha.2",
   "type": "module",
   "files": [
     "dist"
@@ -13,8 +13,8 @@
   },
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@sidecar-ai/client": "0.1.0-alpha.0",
-    "@sidecar-ai/core": "0.1.0-alpha.0"
+    "@sidecar-ai/client": "0.1.0-alpha.2",
+    "@sidecar-ai/core": "0.1.0-alpha.2"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
