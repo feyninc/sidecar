@@ -92,8 +92,11 @@ body {
   padding: 2px 16px 4px;
 }
 
-.notion-document-body p {
+.notion-document-body :where(p, ul, ol, blockquote, pre, table) {
   margin: 0 0 1em;
+}
+
+.notion-document-body :where(p, li, blockquote) {
   color: var(--notion-text);
   font-size: var(--font-text-md-size, 16px);
   line-height: 1.62;
@@ -101,8 +104,89 @@ body {
   overflow-wrap: anywhere;
 }
 
-.notion-document-body p:last-child {
+.notion-document-body :where(p, ul, ol, blockquote, pre, table):last-child {
   margin-bottom: 0;
+}
+
+.notion-markdown-heading {
+  margin: 1.15em 0 0.45em;
+  color: var(--notion-text);
+  font-size: var(--font-heading-md-size, 18px);
+  line-height: var(--font-heading-md-line-height, 1.32);
+}
+
+.notion-markdown-heading:first-child {
+  margin-top: 0;
+}
+
+.notion-markdown-heading-primary {
+  font-size: var(--font-heading-lg-size, 20px);
+  line-height: var(--font-heading-lg-line-height, 1.28);
+}
+
+.notion-document-body ul,
+.notion-document-body ol {
+  padding-left: 1.35em;
+}
+
+.notion-document-body li {
+  margin: 0.24em 0;
+}
+
+.notion-document-body li :where(p, ul, ol) {
+  margin-bottom: 0.45em;
+}
+
+.notion-blockquote {
+  border-left: var(--border-width-heavy, 3px) solid var(--notion-border);
+  color: var(--notion-muted);
+  padding-left: 1em;
+}
+
+.notion-inline-code {
+  background: color-mix(in srgb, CanvasText 10%, transparent);
+  border-radius: var(--border-radius-sm, 5px);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.92em;
+  padding: 0.08em 0.28em;
+}
+
+.notion-code-block {
+  background: color-mix(in srgb, CanvasText 8%, transparent);
+  border: var(--border-width-regular, 1px) solid var(--notion-border);
+  border-radius: var(--border-radius-md, 8px);
+  color: var(--notion-text);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--font-text-sm-size, 14px);
+  line-height: 1.55;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.notion-code-block .notion-inline-code {
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+
+.notion-markdown-table {
+  border-collapse: collapse;
+  font-size: var(--font-text-sm-size, 14px);
+  line-height: 1.45;
+  width: 100%;
+}
+
+.notion-markdown-table :where(th, td) {
+  border-bottom: var(--border-width-regular, 1px) solid var(--notion-border);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.notion-markdown-table th {
+  color: var(--notion-muted);
+  font-weight: 600;
 }
 
 .notion-more-row,

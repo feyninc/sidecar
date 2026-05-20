@@ -1,5 +1,6 @@
 /** Reusable native UI for wrapped Notion MCP tool results. */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type AnchorHTMLAttributes } from "react";
+import { Markdown, type MarkdownComponent } from "@openai/apps-sdk-ui/components/Markdown";
 import { useToolResult } from "@sidecar-ai/react";
 import {
   Badge,
@@ -12,7 +13,8 @@ import {
   KeyValue,
   Stack,
   Surface,
-  Text
+  Text,
+  TextLink
 } from "@sidecar-ai/native/components";
 import type { NotionToolOutput } from "../lib/official-mcp-client.js";
 
@@ -73,9 +75,14 @@ export default function NotionToolResultWidget() {
             <Divider />
 
             <article className="notion-document-body">
-              {paragraphs(visibleContent).map((paragraph, index) => (
-                <p key={index}>{paragraph}</p>
-              ))}
+              <Markdown
+                breakNewLines
+                components={markdownComponents}
+                copyableCodeBlocks={false}
+                skipHtml
+              >
+                {visibleContent || "No preview content returned."}
+              </Markdown>
             </article>
 
             {truncated ? (
@@ -132,15 +139,6 @@ function clampContent(content: string, limit: number): string {
   return `${content.slice(0, limit).trimEnd()}\n\n...`;
 }
 
-/** Preserves Notion line breaks while avoiding a single raw pre block. */
-function paragraphs(content: string): string[] {
-  const values = content
-    .split(/\n{2,}/)
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return values.length ? values : ["No preview content returned."];
-}
-
 /** Names the preview intent in user-facing language. */
 function previewKindLabel(kind: NotionToolOutput["preview"]["kind"] | undefined): string {
   if (kind === "read") return "Page";
@@ -148,4 +146,47 @@ function previewKindLabel(kind: NotionToolOutput["preview"]["kind"] | undefined)
   if (kind === "write") return "Write";
   if (kind === "metadata") return "Setup";
   return "Notion";
+}
+
+const markdownComponents: Record<string, MarkdownComponent> = {
+  h1({ node: _node, ...props }) {
+    return <Heading level={2} className="notion-markdown-heading notion-markdown-heading-primary" {...props} />;
+  },
+  h2({ node: _node, ...props }) {
+    return <Heading level={2} className="notion-markdown-heading" {...props} />;
+  },
+  h3({ node: _node, ...props }) {
+    return <Heading level={3} className="notion-markdown-heading" {...props} />;
+  },
+  h4({ node: _node, ...props }) {
+    return <Heading level={4} className="notion-markdown-heading" {...props} />;
+  },
+  a(props) {
+    const { children, href, node: _node, ...anchorProps } = props as AnchorHTMLAttributes<HTMLAnchorElement> & {
+      node?: Record<string, unknown>;
+    };
+    return (
+      <TextLink href={href} forceExternal {...anchorProps}>
+        {children}
+      </TextLink>
+    );
+  },
+  code({ node: _node, className, ...props }) {
+    return <code className={classNames(className, "notion-inline-code")} {...props} />;
+  },
+  pre({ node: _node, className, ...props }) {
+    return <pre className={classNames(className, "notion-code-block")} {...props} />;
+  },
+  blockquote({ node: _node, className, ...props }) {
+    return <blockquote className={classNames(className, "notion-blockquote")} {...props} />;
+  },
+  table({ node: _node, className, ...props }) {
+    return <table className={classNames(className, "notion-markdown-table")} {...props} />;
+  }
+};
+
+/** Joins optional CSS classes without adding empty tokens. */
+function classNames(...values: Array<string | undefined>): string | undefined {
+  const merged = values.filter(Boolean).join(" ");
+  return merged || undefined;
 }
