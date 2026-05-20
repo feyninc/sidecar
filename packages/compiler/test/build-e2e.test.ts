@@ -26,7 +26,7 @@ describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
       expect(claude.tools.map((tool) => tool.id).sort()).toEqual(["add-numbers", "expenses.review"]);
       expect(mcp.resources.map((resource) => resource.uri)).toEqual(["sidecar://resources/company-handbook"]);
       expect(mcp.prompts.map((prompt) => prompt.name)).toEqual(["review-expense"]);
-      expect(mcp.config.pagination.pageSize).toBe(10);
+      expect(mcp.config.pagination.pageSize).toBe(50);
 
       const mcpManifest = await readJson<SidecarManifest>(path.join(rootDir, "out/mcp/manifest.sidecar.json"));
       const chatgptManifest = await readJson<SidecarManifest>(path.join(rootDir, "out/chatgpt/manifest.sidecar.json"));

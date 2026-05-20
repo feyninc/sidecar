@@ -210,7 +210,7 @@ export function offsetPagination<Item>(
   options: OffsetPaginationOptions<Item>,
 ): PaginationResult<Item> {
   const offset = options.cursor ? decodeOffsetCursor(options.cursor) : 0;
-  const pageSize = options.pageSize > 0 ? Math.floor(options.pageSize) : 10;
+  const pageSize = options.pageSize > 0 ? Math.floor(options.pageSize) : 50;
   const page = options.items.slice(offset, offset + pageSize);
   const nextOffset = offset + page.length;
   return {

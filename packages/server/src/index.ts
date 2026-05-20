@@ -403,7 +403,7 @@ export class SidecarMcpServer {
   /** Returns the server-chosen page size for all built-in list pagination. */
   private pageSize(): number {
     const configured = this.options.pagination?.pageSize;
-    return configured && configured > 0 ? Math.floor(configured) : 10;
+    return configured && configured > 0 ? Math.floor(configured) : 50;
   }
 
   /** Executes a tool after request-level and tool-level auth checks. */

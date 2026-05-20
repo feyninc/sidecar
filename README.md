@@ -79,7 +79,7 @@ export default defineConfig({
     plugins: true
   },
   pagination: {
-    pageSize: 10
+    pageSize: 50
   }
 });
 ```
@@ -300,7 +300,7 @@ Sidecar paginates the MCP list operations that support cursors:
 - `resources/templates/list`
 - `prompts/list`
 
-The default page size is `10`. Override globally or per operation:
+The default page size is `50`. Override globally or per operation:
 
 ```ts
 import { defineConfig, offsetPagination } from "sidecar-ai";
@@ -310,7 +310,7 @@ export default defineConfig({
   version: "0.1.0",
   description: "Acme MCP app.",
   pagination: {
-    pageSize: 10,
+    pageSize: 50,
     override: {
       default({ items, cursor, pageSize }) {
         return offsetPagination({ items, cursor, pageSize });

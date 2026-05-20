@@ -16,6 +16,6 @@ export default defineConfig({
     listChanged: false
   },
   pagination: {
-    pageSize: 10
+    pageSize: 50
   }
 });

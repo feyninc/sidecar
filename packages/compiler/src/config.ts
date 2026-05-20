@@ -45,7 +45,7 @@ export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
       listChanged: readBooleanNested(definition, "tools", "listChanged") ?? false,
     },
     pagination: {
-      pageSize: readNumberNested(definition, "pagination", "pageSize") ?? 10,
+      pageSize: readNumberNested(definition, "pagination", "pageSize") ?? 50,
       hasOverride: hasProperty(readObjectProperty(definition, "pagination"), "override"),
     },
   };
@@ -116,7 +116,7 @@ export function defaultCompilerConfig(): SidecarCompilerConfig {
       listChanged: false,
     },
     pagination: {
-      pageSize: 10,
+      pageSize: 50,
       hasOverride: false,
     },
   };

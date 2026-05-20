@@ -164,7 +164,7 @@ export default defineConfig({
     plugins: true
   },
   pagination: {
-    pageSize: 10
+    pageSize: 50
   }
 });
 `;

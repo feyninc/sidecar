@@ -48,7 +48,7 @@ describe("analyzeProjectTools", () => {
     const prompts = await analyzeProjectPrompts(rootDir);
 
     expect(config.build.plugins).toBe(true);
-    expect(config.pagination.pageSize).toBe(10);
+    expect(config.pagination.pageSize).toBe(50);
     expect(resources).toHaveLength(1);
     expect(resources[0]).toMatchObject({
       uri: "sidecar://resources/company-handbook",
