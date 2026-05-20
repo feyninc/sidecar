@@ -14,13 +14,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@sidecar-ai/anthropic": "0.1.0-alpha.7",
-    "@sidecar-ai/openai": "0.1.0-alpha.7",
+    "@sidecar-ai/anthropic": "0.1.0-alpha.8",
+    "@sidecar-ai/openai": "0.1.0-alpha.8",
     "@workos-inc/node": "^9.3.0",
     "dotenv": "^17.4.2",
     "jose": "^6.2.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "sidecar-ai": "0.1.0-alpha.7"
+    "sidecar-ai": "0.1.0-alpha.8"
   }
 }
