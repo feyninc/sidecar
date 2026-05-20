@@ -1,6 +1,8 @@
 /** Reusable native UI for wrapped Notion MCP tool results. */
 import { useMemo, useState, type AnchorHTMLAttributes } from "react";
-import { Markdown, type MarkdownComponent } from "@openai/apps-sdk-ui/components/Markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import { useToolResult } from "@sidecar-ai/react";
 import {
   Badge,
@@ -75,14 +77,13 @@ export default function NotionToolResultWidget() {
             <Divider />
 
             <article className="notion-document-body">
-              <Markdown
-                breakNewLines
+              <ReactMarkdown
                 components={markdownComponents}
-                copyableCodeBlocks={false}
+                remarkPlugins={[remarkGfm, remarkBreaks]}
                 skipHtml
               >
                 {visibleContent || "No preview content returned."}
-              </Markdown>
+              </ReactMarkdown>
             </article>
 
             {truncated ? (
@@ -148,7 +149,7 @@ function previewKindLabel(kind: NotionToolOutput["preview"]["kind"] | undefined)
   return "Notion";
 }
 
-const markdownComponents: Record<string, MarkdownComponent> = {
+const markdownComponents: Components = {
   h1({ node: _node, ...props }) {
     return <Heading level={2} className="notion-markdown-heading notion-markdown-heading-primary" {...props} />;
   },
