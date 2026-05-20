@@ -1,6 +1,6 @@
 /** Native preview for updated Notion data sources. */
 import { widget } from "@sidecar-ai/react";
-import NotionToolResultWidget from "../../components/NotionToolResultWidget.js";
+import { NotionSchemaWidget } from "../../components/NotionWriteWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionToolResultWidget
+  NotionSchemaWidget
 );

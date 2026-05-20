@@ -1,6 +1,6 @@
 /** Native preview for Notion authorization links. */
 import { widget } from "@sidecar-ai/react";
-import NotionToolResultWidget from "../../components/NotionToolResultWidget.js";
+import { NotionAuthorizeWidget } from "../../components/NotionAuthWidget.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionToolResultWidget
+  NotionAuthorizeWidget
 );

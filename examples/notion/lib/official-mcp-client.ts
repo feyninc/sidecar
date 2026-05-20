@@ -52,14 +52,13 @@ export type NotionPreview = {
   summary: string;
   content: string;
   url?: string;
-  stats?: Record<string, number>;
-  details?: NotionPreviewDetail[];
+  items?: NotionPreviewItem[];
 };
 
-/** Secondary facts displayed outside the primary document preview. */
-export type NotionPreviewDetail = {
-  label: string;
-  value: string;
+/** Lightweight item extracted from Notion text for list-oriented widgets. */
+export type NotionPreviewItem = {
+  title: string;
+  body?: string;
 };
 
 /** Options for one upstream Notion tool call. */
@@ -364,7 +363,6 @@ function buildPreview(input: {
   const content = writeContent ?? parsed.content;
   const title = parsed.title ?? input.title;
   const url = firstNotionUrl(input.args) ?? parsed.url ?? firstNotionUrl(input.text);
-  const stats = previewStats(input.args);
   return {
     kind: input.kind,
     title,
@@ -377,8 +375,7 @@ function buildPreview(input: {
     }),
     content: content.trim() || "No preview content returned.",
     ...(url ? { url } : {}),
-    ...(stats ? { stats } : {}),
-    ...(parsed.details.length ? { details: parsed.details } : {})
+    ...(parsed.items.length ? { items: parsed.items } : {})
   };
 }
 
@@ -456,21 +453,6 @@ function previewSummary(input: {
   return input.parsedSummary ?? input.text.split(/\n+/).find(Boolean)?.slice(0, 180) ?? "Notion returned a response.";
 }
 
-/** Counts user-supplied write units without computing a diff locally. */
-function previewStats(args: NotionToolParams): Record<string, number> | undefined {
-  const stats: Record<string, number> = {};
-  if (Array.isArray(args.pages)) {
-    stats.pages = args.pages.length;
-  }
-  if (Array.isArray(args.content_updates)) {
-    stats.updates = args.content_updates.length;
-  }
-  if (Array.isArray(args.page_or_database_ids)) {
-    stats.items = args.page_or_database_ids.length;
-  }
-  return Object.keys(stats).length ? stats : undefined;
-}
-
 /** Reads a Notion title from the flexible page properties object. */
 function pageTitle(value: unknown): string | undefined {
   if (!isRecord(value)) {
@@ -516,7 +498,7 @@ type ParsedNotionText = {
   summary?: string;
   content: string;
   url?: string;
-  details: NotionPreviewDetail[];
+  items: NotionPreviewItem[];
 };
 
 /** Converts Notion's XML-like MCP text into a widget-safe document preview. */
@@ -536,14 +518,14 @@ function parseNotionResponseText(rawText: string): ParsedNotionText {
   const bodyWithoutMetadata = removeTag(removeTag(body, "ancestor-path"), "properties");
   const content = cleanNotionMarkup(contentBlock ?? bodyWithoutMetadata);
   const summary = firstParagraph(content);
-  const details = previewDetails({ metadata, properties, url });
+  const items = previewItems(content);
 
   return {
     ...(title ? { title } : {}),
     ...(summary ? { summary } : {}),
     content: content || raw || "No preview content returned.",
     ...(url ? { url } : {}),
-    details
+    items
   };
 }
 
@@ -584,40 +566,6 @@ function parseProperties(text: string | undefined): Record<string, unknown> | un
   return parsed;
 }
 
-/** Builds a short ordered detail list for secondary page facts. */
-function previewDetails(input: {
-  metadata?: Record<string, unknown>;
-  properties?: Record<string, unknown>;
-  url?: string;
-}): NotionPreviewDetail[] {
-  const details: NotionPreviewDetail[] = [];
-  const properties = input.properties ?? {};
-  const keys = [
-    "Doc name",
-    "Category",
-    "Created time",
-    "Last edited by",
-    "Created by"
-  ];
-
-  for (const key of keys) {
-    const value = compactPropertyValue(properties[key]);
-    if (value) {
-      details.push({ label: key, value });
-    }
-  }
-
-  const type = compactPropertyValue(input.metadata?.type);
-  if (type) {
-    details.unshift({ label: "Type", value: type });
-  }
-  if (input.url) {
-    details.push({ label: "Source", value: "Notion" });
-  }
-
-  return dedupeDetails(details).slice(0, 6);
-}
-
 /** Turns flexible Notion property values into concise display text. */
 function compactPropertyValue(value: unknown): string | undefined {
   if (typeof value === "string") {
@@ -646,19 +594,6 @@ function compactPropertyValue(value: unknown): string | undefined {
   return undefined;
 }
 
-/** Removes duplicate labels and values while preserving the first occurrence. */
-function dedupeDetails(details: NotionPreviewDetail[]): NotionPreviewDetail[] {
-  const seen = new Set<string>();
-  return details.filter((detail) => {
-    const key = `${detail.label}:${detail.value}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-}
-
 /** Strips Notion's XML-ish wrapper while keeping readable text. */
 function cleanNotionMarkup(text: string): string {
   return decodeEntities(text)
@@ -670,6 +605,39 @@ function cleanNotionMarkup(text: string): string {
     .map((line) => line.trimEnd())
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Extracts simple list items for widgets that should not render a long document. */
+function previewItems(content: string): NotionPreviewItem[] {
+  const sections = content
+    .split(/\n{2,}/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+
+  const candidates = sections.length > 1
+    ? sections
+    : content.split(/\n(?=(?:[-*]|\d+[.)])\s+)/).map((section) => section.trim()).filter(Boolean);
+
+  return candidates
+    .map((section) => {
+      const lines = section.split("\n").map((line) => line.trim()).filter(Boolean);
+      const title = stripListPrefix(lines[0] ?? "");
+      const body = lines.slice(1).join("\n").trim();
+      return {
+        title: title ? truncate(title, 100) : "Untitled Notion result",
+        ...(body ? { body: truncate(body, 260) } : {})
+      };
+    })
+    .filter((item) => item.title || item.body)
+    .slice(0, 12);
+}
+
+/** Removes markdown and numbered-list prefixes from extracted item titles. */
+function stripListPrefix(value: string): string {
+  return value
+    .replace(/^(?:[-*]|\d+[.)])\s+/, "")
+    .replace(/^#+\s+/, "")
     .trim();
 }
 

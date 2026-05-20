@@ -1,6 +1,6 @@
 /** Native preview for Notion comments. */
 import { widget } from "@sidecar-ai/react";
-import NotionToolResultWidget from "../../components/NotionToolResultWidget.js";
+import { NotionCommentsWidget } from "../../components/NotionReadWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionToolResultWidget
+  NotionCommentsWidget
 );

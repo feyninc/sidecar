@@ -12,11 +12,12 @@
   color-scheme: light dark;
   background: transparent;
 
-  --notion-page-max: 72ch;
+  --notion-page-max: 76ch;
   --notion-text: var(--color-text-primary, CanvasText);
   --notion-muted: var(--color-text-tertiary, color-mix(in srgb, CanvasText 62%, transparent));
   --notion-border: var(--color-border-tertiary, color-mix(in srgb, CanvasText 16%, transparent));
-  --notion-panel: var(--color-background-secondary, color-mix(in srgb, Canvas 92%, CanvasText 8%));
+  --notion-panel: var(--color-background-secondary, color-mix(in srgb, Canvas 94%, CanvasText 6%));
+  --notion-panel-strong: var(--color-background-tertiary, color-mix(in srgb, Canvas 88%, CanvasText 12%));
   --notion-radius: var(--border-radius-lg, 10px);
 }
 
@@ -39,14 +40,13 @@ body {
   padding: 16px;
 }
 
-.notion-intro,
-.notion-document-window,
-.notion-details {
+.notion-header,
+.notion-copyable-block,
+.notion-result-list,
+.notion-auth-card,
+.notion-operation-summary,
+.notion-profile-card {
   max-width: var(--notion-page-max);
-}
-
-.notion-meta-row {
-  align-items: center;
 }
 
 .notion-title {
@@ -61,42 +61,54 @@ body {
   margin: 0;
 }
 
-.notion-document-window {
+.notion-copyable-block {
   background: var(--notion-panel);
   border: var(--border-width-regular, 1px) solid var(--notion-border);
   border-radius: var(--notion-radius);
   box-shadow: var(--shadow-hairline, none);
+  padding: 18px;
+  position: relative;
+}
+
+.notion-copy-button {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 1;
+}
+
+.notion-write-sheet {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, CanvasText 7%, transparent) 1px, transparent 1px) 0 0 / 100% 28px,
+    var(--notion-panel);
+  padding-top: 22px;
+}
+
+.notion-schema-block {
+  background: color-mix(in srgb, CanvasText 7%, transparent);
+}
+
+.notion-operation-summary {
+  background: var(--notion-panel);
+  border: var(--border-width-regular, 1px) solid var(--notion-border);
+  border-radius: var(--notion-radius);
+  padding: 14px 16px;
+}
+
+.notion-inline-actions {
+  max-width: var(--notion-page-max);
+}
+
+.notion-markdown {
   overflow: hidden;
+  padding-right: 56px;
 }
 
-.notion-window-bar {
-  align-items: center;
-  padding: 12px 14px 0;
-}
-
-.notion-window-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: var(--border-radius-full, 9999px);
-  background: var(--color-border-primary, color-mix(in srgb, CanvasText 36%, transparent));
-  opacity: 0.72;
-}
-
-.notion-window-label {
-  font-size: var(--font-text-xs-size, 12px);
-  line-height: var(--font-text-xs-line-height, 1.4);
-  margin: 0 0 0 4px;
-}
-
-.notion-document-body {
-  padding: 2px 16px 4px;
-}
-
-.notion-document-body :where(p, ul, ol, blockquote, pre, table) {
+.notion-markdown :where(p, ul, ol, blockquote, pre, table) {
   margin: 0 0 1em;
 }
 
-.notion-document-body :where(p, li, blockquote) {
+.notion-markdown :where(p, li, blockquote) {
   color: var(--notion-text);
   font-size: var(--font-text-md-size, 16px);
   line-height: 1.62;
@@ -104,8 +116,50 @@ body {
   overflow-wrap: anywhere;
 }
 
-.notion-document-body :where(p, ul, ol, blockquote, pre, table):last-child {
+.notion-markdown :where(p, ul, ol, blockquote, pre, table):last-child {
   margin-bottom: 0;
+}
+
+.notion-plain-text {
+  color: var(--notion-text);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--font-text-sm-size, 14px);
+  line-height: 1.55;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding-right: 56px;
+  white-space: pre-wrap;
+}
+
+.notion-result-list {
+  display: grid;
+  gap: 10px;
+}
+
+.notion-result-row,
+.notion-person-row,
+.notion-comment-row {
+  background: var(--notion-panel);
+  border: var(--border-width-regular, 1px) solid var(--notion-border);
+  border-radius: var(--notion-radius);
+  padding: 13px 14px;
+}
+
+.notion-result-row {
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.notion-row-title {
+  font-size: var(--font-heading-sm-size, 15px);
+  line-height: var(--font-heading-sm-line-height, 1.35);
+  margin: 0;
+}
+
+.notion-row-body {
+  font-size: var(--font-text-sm-size, 14px);
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .notion-markdown-heading {
@@ -124,16 +178,16 @@ body {
   line-height: var(--font-heading-lg-line-height, 1.28);
 }
 
-.notion-document-body ul,
-.notion-document-body ol {
+.notion-markdown ul,
+.notion-markdown ol {
   padding-left: 1.35em;
 }
 
-.notion-document-body li {
+.notion-markdown li {
   margin: 0.24em 0;
 }
 
-.notion-document-body li :where(p, ul, ol) {
+.notion-markdown li :where(p, ul, ol) {
   margin-bottom: 0.45em;
 }
 
@@ -189,24 +243,63 @@ body {
   font-weight: 600;
 }
 
-.notion-more-row,
-.notion-actions {
-  align-items: center;
-  justify-content: space-between;
+.notion-comment-row,
+.notion-person-row,
+.notion-profile-card {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
 }
 
-.notion-more-row {
-  border-top: var(--border-width-regular, 1px) solid var(--notion-border);
-  padding: 10px 12px 12px;
+.notion-comment-body {
+  min-width: 0;
 }
 
-.notion-count {
-  font-size: var(--font-text-xs-size, 12px);
+.notion-comment-marker {
+  background: var(--notion-panel-strong);
+  border-radius: var(--border-radius-full, 999px);
+  flex: 0 0 auto;
+  height: 30px;
+  width: 30px;
+}
+
+.notion-comment-submitted {
+  max-width: var(--notion-page-max);
+}
+
+.notion-profile-card {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.notion-auth-shell {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+}
+
+.notion-auth-card {
+  background: var(--notion-panel);
+  border: var(--border-width-regular, 1px) solid var(--notion-border);
+  border-radius: var(--notion-radius);
+  padding: 20px;
+}
+
+.notion-auth-note {
   margin: 0;
 }
 
-.notion-details {
-  color: var(--notion-muted);
+.notion-empty {
+  max-width: var(--notion-page-max);
+}
+
+.notion-skeleton-text {
+  padding-right: 56px;
+}
+
+.notion-avatar-skeleton {
+  border-radius: var(--border-radius-full, 9999px);
 }
 
 @container (max-width: 430px) {
@@ -214,8 +307,14 @@ body {
     padding: 12px;
   }
 
-  .notion-actions {
-    align-items: stretch;
-    flex-direction: column;
+  .notion-copyable-block {
+    padding: 16px 14px;
+  }
+
+  .notion-markdown,
+  .notion-plain-text,
+  .notion-skeleton-text {
+    padding-right: 0;
+    padding-top: 30px;
   }
 }

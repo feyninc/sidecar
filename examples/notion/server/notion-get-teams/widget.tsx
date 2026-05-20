@@ -1,6 +1,6 @@
 /** Native preview for Notion teamspaces. */
 import { widget } from "@sidecar-ai/react";
-import NotionToolResultWidget from "../../components/NotionToolResultWidget.js";
+import { NotionTeamsWidget } from "../../components/NotionDirectoryWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionToolResultWidget
+  NotionTeamsWidget
 );

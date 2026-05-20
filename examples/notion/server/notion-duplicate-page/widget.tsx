@@ -1,6 +1,6 @@
 /** Native preview for duplicated Notion pages. */
 import { widget } from "@sidecar-ai/react";
-import NotionToolResultWidget from "../../components/NotionToolResultWidget.js";
+import { NotionOperationWidget } from "../../components/NotionWriteWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionToolResultWidget
+  NotionOperationWidget
 );
