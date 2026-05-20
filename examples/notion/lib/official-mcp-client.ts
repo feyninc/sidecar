@@ -53,6 +53,13 @@ export type NotionPreview = {
   content: string;
   url?: string;
   stats?: Record<string, number>;
+  details?: NotionPreviewDetail[];
+};
+
+/** Secondary facts displayed outside the primary document preview. */
+export type NotionPreviewDetail = {
+  label: string;
+  value: string;
 };
 
 /** Options for one upstream Notion tool call. */
@@ -352,18 +359,26 @@ function buildPreview(input: {
   args: NotionToolParams;
   text: string;
 }): NotionPreview {
-  const content = input.kind === "write"
-    ? writePreviewContent(input.args) ?? input.text
-    : input.text;
-  const url = firstNotionUrl(input.args) ?? firstNotionUrl(input.text);
+  const parsed = parseNotionResponseText(input.text);
+  const writeContent = input.kind === "write" ? writePreviewContent(input.args) : undefined;
+  const content = writeContent ?? parsed.content;
+  const title = parsed.title ?? input.title;
+  const url = firstNotionUrl(input.args) ?? parsed.url ?? firstNotionUrl(input.text);
   const stats = previewStats(input.args);
   return {
     kind: input.kind,
-    title: input.title,
-    summary: previewSummary(input.toolName, input.args, input.text),
+    title,
+    summary: previewSummary({
+      toolName: input.toolName,
+      args: input.args,
+      text: input.text,
+      previewTitle: title,
+      parsedSummary: parsed.summary
+    }),
     content: content.trim() || "No preview content returned.",
     ...(url ? { url } : {}),
-    ...(stats ? { stats } : {})
+    ...(stats ? { stats } : {}),
+    ...(parsed.details.length ? { details: parsed.details } : {})
   };
 }
 
@@ -419,21 +434,26 @@ function writePreviewContent(args: NotionToolParams): string | undefined {
 }
 
 /** Creates a concise status line for the widget chrome. */
-function previewSummary(
-  toolName: string,
-  args: NotionToolParams,
-  text: string,
-): string {
+function previewSummary(input: {
+  toolName: string;
+  args: NotionToolParams;
+  text: string;
+  previewTitle: string;
+  parsedSummary?: string;
+}): string {
+  const { args, toolName } = input;
   if (toolName === "notion-search" && typeof args.query === "string") {
     return `Search results for "${args.query}".`;
   }
-  if (toolName === "notion-fetch" && typeof args.id === "string") {
-    return `Fetched ${args.id}.`;
+  if (toolName === "notion-fetch") {
+    return input.previewTitle === "Fetched Notion content"
+      ? "Fetched content from Notion."
+      : `Fetched "${input.previewTitle}" from Notion.`;
   }
   if (WRITE_TOOL_IDS.has(toolName)) {
-    return "Notion accepted the write request; review the content preview and upstream response.";
+    return "Notion accepted the write request. Review the submitted content below.";
   }
-  return text.split(/\n+/).find(Boolean)?.slice(0, 180) ?? "Notion returned a response.";
+  return input.parsedSummary ?? input.text.split(/\n+/).find(Boolean)?.slice(0, 180) ?? "Notion returned a response.";
 }
 
 /** Counts user-supplied write units without computing a diff locally. */
@@ -463,7 +483,8 @@ function pageTitle(value: unknown): string | undefined {
 /** Finds the first Notion URL in nested arguments or response text. */
 function firstNotionUrl(value: unknown): string | undefined {
   if (typeof value === "string") {
-    return value.match(/https:\/\/(?:www\.)?(?:notion\.so|notion\.site)\/\S+/)?.[0];
+    const found = value.match(/https:\/\/(?:www\.)?(?:notion\.so|notion\.site)\/[^\s"'<>\\)]+/i)?.[0];
+    return found?.replace(/[.,;:]+$/, "");
   }
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -488,4 +509,188 @@ function valueAt(value: unknown, key: string): unknown {
 /** Returns true for non-array objects. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+type ParsedNotionText = {
+  title?: string;
+  summary?: string;
+  content: string;
+  url?: string;
+  details: NotionPreviewDetail[];
+};
+
+/** Converts Notion's XML-like MCP text into a widget-safe document preview. */
+function parseNotionResponseText(rawText: string): ParsedNotionText {
+  const raw = rawText.trim();
+  const outer = parseJsonRecord(raw);
+  const metadata = isRecord(outer?.metadata) ? outer.metadata : undefined;
+  const body = typeof outer?.text === "string" ? outer.text : raw;
+  const title = stringValue(metadata?.title) ?? attributeValue(body, "title");
+  const url = stringValue(metadata?.url) ?? firstNotionUrl(body);
+  const properties = parseProperties(extractTag(body, "properties"));
+  const contentBlock = extractTag(body, "content");
+  const bodyWithoutMetadata = removeTag(removeTag(body, "ancestor-path"), "properties");
+  const content = cleanNotionMarkup(contentBlock ?? bodyWithoutMetadata);
+  const summary = firstParagraph(content);
+  const details = previewDetails({ metadata, properties, url });
+
+  return {
+    ...(title ? { title } : {}),
+    ...(summary ? { summary } : {}),
+    content: content || raw || "No preview content returned.",
+    ...(url ? { url } : {}),
+    details
+  };
+}
+
+/** Parses a JSON object without surfacing malformed upstream data as an error. */
+function parseJsonRecord(text: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(text);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Extracts the first XML-ish tag body from the Notion MCP text format. */
+function extractTag(text: string, tagName: string): string | undefined {
+  const match = text.match(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i"));
+  return match?.[1]?.trim();
+}
+
+/** Removes every XML-ish tag section with the provided name. */
+function removeTag(text: string, tagName: string): string {
+  return text.replace(new RegExp(`<${tagName}\\b[^>]*>[\\s\\S]*?<\\/${tagName}>`, "gi"), "");
+}
+
+/** Reads a simple attribute value from the first matching XML-ish tag. */
+function attributeValue(text: string, attribute: string): string | undefined {
+  const escaped = attribute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`${escaped}="([^"]+)"`, "i"));
+  return match ? decodeEntities(match[1]) : undefined;
+}
+
+/** Parses Notion's properties payload when the upstream server includes it. */
+function parseProperties(text: string | undefined): Record<string, unknown> | undefined {
+  if (!text) {
+    return undefined;
+  }
+  const parsed = parseJsonRecord(text);
+  return parsed;
+}
+
+/** Builds a short ordered detail list for secondary page facts. */
+function previewDetails(input: {
+  metadata?: Record<string, unknown>;
+  properties?: Record<string, unknown>;
+  url?: string;
+}): NotionPreviewDetail[] {
+  const details: NotionPreviewDetail[] = [];
+  const properties = input.properties ?? {};
+  const keys = [
+    "Doc name",
+    "Category",
+    "Created time",
+    "Last edited by",
+    "Created by"
+  ];
+
+  for (const key of keys) {
+    const value = compactPropertyValue(properties[key]);
+    if (value) {
+      details.push({ label: key, value });
+    }
+  }
+
+  const type = compactPropertyValue(input.metadata?.type);
+  if (type) {
+    details.unshift({ label: "Type", value: type });
+  }
+  if (input.url) {
+    details.push({ label: "Source", value: "Notion" });
+  }
+
+  return dedupeDetails(details).slice(0, 6);
+}
+
+/** Turns flexible Notion property values into concise display text. */
+function compactPropertyValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const cleaned = cleanNotionMarkup(value);
+    return cleaned && cleaned !== "<omitted />" ? cleaned : undefined;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const parts = value.flatMap((item) => {
+      const text = compactPropertyValue(item);
+      return text ? [text] : [];
+    });
+    return parts.length ? parts.join(", ") : undefined;
+  }
+  if (isRecord(value)) {
+    const preferred = value.name ?? value.title ?? value.plain_text ?? value.content;
+    const compact = compactPropertyValue(preferred);
+    if (compact) {
+      return compact;
+    }
+    const serialized = JSON.stringify(value);
+    return serialized.length <= 120 ? serialized : undefined;
+  }
+  return undefined;
+}
+
+/** Removes duplicate labels and values while preserving the first occurrence. */
+function dedupeDetails(details: NotionPreviewDetail[]): NotionPreviewDetail[] {
+  const seen = new Set<string>();
+  return details.filter((detail) => {
+    const key = `${detail.label}:${detail.value}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Strips Notion's XML-ish wrapper while keeping readable text. */
+function cleanNotionMarkup(text: string): string {
+  return decodeEntities(text)
+    .replace(/^Here is the result[\s\S]*?\n(?=<[a-z-]+\b)/i, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Decodes the entity subset commonly present in Notion MCP markup. */
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/** Returns the first useful paragraph from a larger body. */
+function firstParagraph(text: string): string | undefined {
+  const paragraph = text.split(/\n{2,}/).map((entry) => entry.trim()).find(Boolean);
+  return paragraph ? truncate(paragraph, 160) : undefined;
+}
+
+/** Normalizes optional string-like values from unknown objects. */
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/** Truncates without splitting code units into a noisy long summary. */
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1).trimEnd()}...`;
 }

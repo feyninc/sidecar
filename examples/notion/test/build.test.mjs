@@ -58,7 +58,7 @@ test("builds the Notion MCP as a standalone published-Sidecar consumer", { timeo
     assert.equal(update?.descriptor.annotations?.destructiveHint, true);
     assert.match(
       await readFile(path.join(functionDir, update.widget.outputFile), "utf8"),
-      /notion-document-peek/,
+      /notion-document-window/,
     );
     assert.match(await readFile(path.join(functionDir, "index.js"), "utf8"), /server\/index\.js/);
     assert.match(await readFile(path.join(functionDir, ".vc-config.json"), "utf8"), /nodejs22\.x/);

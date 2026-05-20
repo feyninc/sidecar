@@ -5,10 +5,11 @@ import {
   Badge,
   Button,
   ButtonLink,
-  Code,
+  CopyButton,
   Divider,
   Heading,
   Inline,
+  KeyValue,
   Stack,
   Surface,
   Text
@@ -21,77 +22,121 @@ export default function NotionToolResultWidget() {
   const [expanded, setExpanded] = useState(false);
   const preview = structuredContent?.preview;
   const content = preview?.content ?? "Waiting for a Notion result.";
-  const visibleContent = expanded ? content : clampContent(content);
+  const visibleContent = expanded
+    ? clampContent(content, 7200)
+    : clampContent(content, preview?.kind === "write" ? 3600 : 2400);
+  const truncated = visibleContent.length < content.length;
   const stats = useMemo(() => Object.entries(preview?.stats ?? {}), [preview?.stats]);
+  const details = useMemo(() => preview?.details ?? [], [preview?.details]);
+  const actionLabel = preview?.kind === "metadata" && /authorize/i.test(preview.title)
+    ? "Authorize Notion"
+    : "Open in Notion";
 
   return (
-    <main className="grid gap-4 p-4">
-      <Inline className="items-start justify-between gap-3">
-        <Stack className="gap-1">
-          <Inline className="items-center gap-2">
-            <Badge>{preview?.kind ?? "notion"}</Badge>
-            <Badge variant={structuredContent?.ok === false ? "danger" : "secondary"}>
+    <main className="notion-shell">
+      <Stack gap="lg">
+        <Stack gap="sm" className="notion-intro">
+          <Inline align="start" className="notion-meta-row" gap="xs">
+            <Badge color="discovery" pill>
+              {preview?.kind ?? "notion"}
+            </Badge>
+            <Badge color={structuredContent?.ok === false ? "danger" : "success"} pill>
               {structuredContent?.ok === false ? "error" : "ok"}
             </Badge>
-          </Inline>
-          <Heading level={1} className="text-xl">
-            {preview?.title ?? "Notion result"}
-          </Heading>
-          <Text tone="secondary">{preview?.summary ?? "The upstream Notion MCP response will appear here."}</Text>
-        </Stack>
-        {preview?.url ? (
-          <ButtonLink href={preview.url} variant="secondary">
-            Open
-          </ButtonLink>
-        ) : null}
-      </Inline>
-
-      <Surface className="relative overflow-hidden p-0">
-        {stats.length ? (
-          <Inline className="absolute right-3 top-3 z-10 gap-2">
             {stats.map(([label, value]) => (
-              <Badge key={label} variant="secondary">
+              <Badge key={label} color="secondary" pill>
                 {value} {label}
               </Badge>
             ))}
           </Inline>
-        ) : null}
-        <pre className="notion-document-peek m-0 max-h-[52vh] overflow-auto p-4 pr-24 text-sm leading-6">
-          {visibleContent}
-        </pre>
-      </Surface>
 
-      <Inline className="items-center justify-between gap-3">
-        <Button type="button" variant="secondary" onClick={() => setExpanded((value) => !value)}>
-          {expanded ? "Peek" : "Preview"}
-        </Button>
-        <Text tone="secondary">
-          {content.length.toLocaleString()} chars
-        </Text>
-      </Inline>
+          <Heading level={1} className="notion-title">
+            {preview?.title ?? "Notion result"}
+          </Heading>
 
-      {expanded ? (
-        <>
-          <Divider />
-          <Stack className="gap-2">
-            <Heading level={2} className="text-sm">
-              Upstream structured content
-            </Heading>
-            <Code className="block max-h-72 overflow-auto whitespace-pre-wrap">
-              {JSON.stringify(structuredContent?.upstream.structuredContent ?? null, null, 2)}
-            </Code>
+          <Text tone="secondary" className="notion-summary">
+            {preview?.summary ?? "The upstream Notion MCP response will appear here."}
+          </Text>
+        </Stack>
+
+        <Surface variant="card" className="notion-document-window">
+          <Stack gap="md">
+            <Inline className="notion-window-bar" gap="sm">
+              <span className="notion-window-dot" aria-hidden="true" />
+              <span className="notion-window-dot" aria-hidden="true" />
+              <span className="notion-window-dot" aria-hidden="true" />
+              <Text tone="secondary" className="notion-window-label">
+                {preview?.kind === "write" ? "Submitted content" : "Document preview"}
+              </Text>
+            </Inline>
+
+            <Divider />
+
+            <article className="notion-document-body">
+              {paragraphs(visibleContent).map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
+            </article>
+
+            {truncated ? (
+              <Inline className="notion-more-row">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setExpanded((value) => !value)}
+                >
+                  {expanded ? "Show less" : "Show more"}
+                </Button>
+                <Text tone="secondary" className="notion-count">
+                  {content.length.toLocaleString()} chars
+                </Text>
+              </Inline>
+            ) : null}
           </Stack>
-        </>
-      ) : null}
+        </Surface>
+
+        {details.length ? (
+          <Surface variant="plain" className="notion-details">
+            <KeyValue
+              items={details.map((detail) => ({
+                key: detail.label,
+                value: detail.value
+              }))}
+            />
+          </Surface>
+        ) : null}
+
+        <Divider />
+
+        <Inline className="notion-actions" gap="sm">
+          {preview?.url ? (
+            <ButtonLink href={preview.url} color="primary">
+              {actionLabel}
+            </ButtonLink>
+          ) : null}
+          <CopyButton copyValue={content} variant="secondary">
+            {({ copied }) => copied ? "Copied" : "Copy preview"}
+          </CopyButton>
+        </Inline>
+      </Stack>
     </main>
   );
 }
 
 /** Keeps the default write view focused on a useful page-sized peek. */
-function clampContent(content: string): string {
-  const limit = 2400;
+function clampContent(content: string, limit: number): string {
   if (content.length <= limit) {
     return content;
   }
   return `${content.slice(0, limit).trimEnd()}\n\n...`;
+}
+
+/** Preserves Notion line breaks while avoiding a single raw pre block. */
+function paragraphs(content: string): string[] {
+  const values = content
+    .split(/\n{2,}/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return values.length ? values : ["No preview content returned."];
 }
