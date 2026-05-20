@@ -62,15 +62,21 @@ describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
 
       expect(mcpManifest.tools.find((tool) => tool.id === "add-numbers")?.descriptor._meta)
         .not.toHaveProperty("openai/outputTemplate");
+      expect(mcpManifest.tools.find((tool) => tool.id === "add-numbers")?.descriptor._meta)
+        .toHaveProperty("ui/resourceUri", mcpWidget?.resourceUri);
       expect(chatgptManifest.tools.find((tool) => tool.id === "add-numbers")?.descriptor._meta)
         .toHaveProperty("openai/outputTemplate", chatgptWidget?.resourceUri);
+      expect(chatgptManifest.tools.find((tool) => tool.id === "add-numbers")?.descriptor._meta)
+        .toHaveProperty("ui/resourceUri", chatgptWidget?.resourceUri);
       expect(claudeManifest.tools.find((tool) => tool.id === "add-numbers")?.descriptor._meta)
         .not.toHaveProperty("openai/outputTemplate");
+      expect(claudeManifest.tools.find((tool) => tool.id === "add-numbers")?.descriptor._meta)
+        .toHaveProperty("ui/resourceUri", claudeWidget?.resourceUri);
 
       const chatgptHtml = await readFile(path.join(rootDir, "out/chatgpt", chatgptWidget?.outputFile ?? ""), "utf8");
-      expect(chatgptHtml).toContain("SidecarWidgetRoot");
       expect(chatgptHtml).toContain("data-sc-component");
       expect(chatgptHtml).toContain("--app-font-sans");
+      expect(chatgptHtml.length).toBeLessThan(1_000_000);
 
       await expect(readFile(path.join(rootDir, "out/mcp/README.md"), "utf8"))
         .resolves.toContain("MCP URL");
@@ -218,7 +224,14 @@ describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
         params: { uri: widgetUri },
       });
       expect(resource.result.contents[0].mimeType).toBe("text/html;profile=mcp-app");
-      expect(resource.result.contents[0].text).toContain("SidecarWidgetRoot");
+      expect(resource.result._meta).toMatchObject({
+        ui: {
+          csp: {
+            resourceDomains: [],
+          },
+        },
+      });
+      expect(resource.result.contents[0].text).toContain("data-sc-component");
     } finally {
       if (child) {
         child.kill("SIGTERM");
@@ -354,8 +367,24 @@ export default widget({ description: "Configured widget." }, ConfiguredWidget);
 export default defineConfig({
   name: "React Singleton Fixture",
   version: "0.0.0",
-  description: "Tests React singleton widget bundling."
+  description: "Tests React singleton widget bundling.",
+  build: {
+    widgets: {
+      configure: "./sidecar.widgets.ts"
+    }
+  }
 });
+`,
+      );
+      await writeFile(
+        path.join(rootDir, "sidecar.widgets.ts"),
+        `export default function configureWidgetBuild() {
+  return {
+    esbuildOptions: {
+      minify: false
+    }
+  };
+}
 `,
       );
       await mkdir(path.join(rootDir, "node_modules"), { recursive: true });

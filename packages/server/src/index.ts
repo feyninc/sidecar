@@ -544,6 +544,7 @@ export class SidecarMcpServer {
     }
 
     return {
+      _meta: resource._meta,
       contents: [
         {
           uri,

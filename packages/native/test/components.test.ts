@@ -7,6 +7,7 @@ import { links } from "../src/index.js";
 import {
   Alert,
   Button,
+  ButtonLink,
   EmptyMessage,
   Input,
   RadioGroup,
@@ -43,6 +44,20 @@ describe("@sidecar-ai/native components", () => {
 
     expect(html).toContain('data-sc-intent="primary"');
     expect(html).toContain('data-sc-color="primary"');
+  });
+
+  it("opens external links outside the widget frame by default", () => {
+    const buttonHtml = renderToStaticMarkup(
+      createElement(ButtonLink, { href: "https://example.com" }, "Open"),
+    );
+    const textHtml = renderToStaticMarkup(
+      createElement(TextLink, { children: "Open", href: "https://example.com" }),
+    );
+
+    expect(buttonHtml).toContain('target="_blank"');
+    expect(buttonHtml).toContain('rel="noopener noreferrer"');
+    expect(textHtml).toContain('target="_blank"');
+    expect(textHtml).toContain('rel="noopener noreferrer"');
   });
 
   it("pins scoped primitives to host recipes", () => {

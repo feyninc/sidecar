@@ -147,6 +147,11 @@ describe("SidecarMcpServer", () => {
       })
     ).resolves.toMatchObject({
       result: {
+        _meta: {
+          ui: {
+            prefersBorder: true,
+          },
+        },
         contents: [{
           uri: "ui://demo/widget.html",
           mimeType: MCP_APP_RESOURCE_MIME_TYPE,

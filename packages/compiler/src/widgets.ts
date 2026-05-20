@@ -70,10 +70,13 @@ createRoot(document.getElementById("root")!).render(
       absWorkingDir: rootDir,
       alias: sidecarWidgetAliases(rootDir),
       bundle: true,
+      define: {
+        "process.env.NODE_ENV": JSON.stringify("production"),
+      },
       entryPoints: [entryFile],
       format: "iife",
       jsx: "automatic",
-      minify: false,
+      minify: true,
       nodePaths: [
         path.join(rootDir, "node_modules"),
         path.join(process.cwd(), "node_modules"),
@@ -459,6 +462,7 @@ export function widgetMeta(
     ui: {
       resourceUri,
     },
+    "ui/resourceUri": resourceUri,
   };
 
   if (target !== "chatgpt") {

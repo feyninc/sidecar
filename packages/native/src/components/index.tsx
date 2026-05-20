@@ -223,6 +223,7 @@ export const ButtonLink = React.forwardRef<HTMLAnchorElement, ButtonLinkProps>(f
 ) {
   const visual = normalizeButtonVisual({ color, intent, variant });
   const isExternal = external ?? Boolean(href && /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(href));
+  const linkTarget = target ?? (isExternal ? "_blank" : undefined);
 
   return React.createElement(
     "a",
@@ -244,8 +245,8 @@ export const ButtonLink = React.forwardRef<HTMLAnchorElement, ButtonLinkProps>(f
       "data-sc-uniform": uniform ? "" : undefined,
       "data-sc-variant": visual.variant,
       href,
-      rel: isExternal && target === "_blank" ? mergeRel(rel, "noopener noreferrer") : rel,
-      target,
+      rel: isExternal && linkTarget === "_blank" ? mergeRel(rel, "noopener noreferrer") : rel,
+      target: linkTarget,
       ...props,
     },
     loading ? React.createElement(LoadingIndicator, { "aria-hidden": true, size: "1em" }) : null,
@@ -1902,6 +1903,7 @@ export const TextLink = React.forwardRef<HTMLAnchorElement, TextLinkProps>(funct
   ref,
 ) {
   const external = forceExternal ?? Boolean(href && /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(href));
+  const linkTarget = target ?? (external ? "_blank" : undefined);
   return React.createElement(
     "a",
     {
@@ -1911,8 +1913,8 @@ export const TextLink = React.forwardRef<HTMLAnchorElement, TextLinkProps>(funct
       "data-sc-recipe": recipe,
       "data-sc-underline": underline ? "" : undefined,
       href,
-      rel: external && target === "_blank" ? mergeRel(rel, "noopener noreferrer") : rel,
-      target,
+      rel: external && linkTarget === "_blank" ? mergeRel(rel, "noopener noreferrer") : rel,
+      target: linkTarget,
       ...props,
     },
     children,
