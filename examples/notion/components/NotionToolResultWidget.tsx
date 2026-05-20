@@ -38,10 +38,10 @@ export default function NotionToolResultWidget() {
         <Stack gap="sm" className="notion-intro">
           <Inline align="start" className="notion-meta-row" gap="xs">
             <Badge color="discovery" pill>
-              {preview?.kind ?? "notion"}
+              {previewKindLabel(preview?.kind)}
             </Badge>
             <Badge color={structuredContent?.ok === false ? "danger" : "success"} pill>
-              {structuredContent?.ok === false ? "error" : "ok"}
+              {structuredContent?.ok === false ? "Error" : "Ready"}
             </Badge>
             {stats.map(([label, value]) => (
               <Badge key={label} color="secondary" pill>
@@ -139,4 +139,13 @@ function paragraphs(content: string): string[] {
     .map((value) => value.trim())
     .filter(Boolean);
   return values.length ? values : ["No preview content returned."];
+}
+
+/** Names the preview intent in user-facing language. */
+function previewKindLabel(kind: NotionToolOutput["preview"]["kind"] | undefined): string {
+  if (kind === "read") return "Page";
+  if (kind === "search") return "Search";
+  if (kind === "write") return "Write";
+  if (kind === "metadata") return "Setup";
+  return "Notion";
 }

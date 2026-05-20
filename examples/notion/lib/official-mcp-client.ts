@@ -525,9 +525,13 @@ function parseNotionResponseText(rawText: string): ParsedNotionText {
   const outer = parseJsonRecord(raw);
   const metadata = isRecord(outer?.metadata) ? outer.metadata : undefined;
   const body = typeof outer?.text === "string" ? outer.text : raw;
-  const title = stringValue(metadata?.title) ?? attributeValue(body, "title");
-  const url = stringValue(metadata?.url) ?? firstNotionUrl(body);
   const properties = parseProperties(extractTag(body, "properties"));
+  const title = stringValue(metadata?.title)
+    ?? compactPropertyValue(properties?.["Doc name"])
+    ?? compactPropertyValue(properties?.Name)
+    ?? compactPropertyValue(properties?.title)
+    ?? attributeValue(body, "title");
+  const url = stringValue(metadata?.url) ?? firstNotionUrl(body);
   const contentBlock = extractTag(body, "content");
   const bodyWithoutMetadata = removeTag(removeTag(body, "ancestor-path"), "properties");
   const content = cleanNotionMarkup(contentBlock ?? bodyWithoutMetadata);
