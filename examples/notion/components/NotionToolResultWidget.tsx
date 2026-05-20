@@ -56,7 +56,7 @@ export default function NotionToolResultWidget() {
             {preview?.title ?? "Notion result"}
           </Heading>
 
-          <Text tone="secondary" className="notion-summary">
+          <Text tone="muted" className="notion-summary">
             {preview?.summary ?? "The upstream Notion MCP response will appear here."}
           </Text>
         </Stack>
@@ -67,7 +67,7 @@ export default function NotionToolResultWidget() {
               <span className="notion-window-dot" aria-hidden="true" />
               <span className="notion-window-dot" aria-hidden="true" />
               <span className="notion-window-dot" aria-hidden="true" />
-              <Text tone="secondary" className="notion-window-label">
+              <Text tone="muted" className="notion-window-label">
                 {preview?.kind === "write" ? "Submitted content" : "Document preview"}
               </Text>
             </Inline>
@@ -95,7 +95,7 @@ export default function NotionToolResultWidget() {
                 >
                   {expanded ? "Show less" : "Show more"}
                 </Button>
-                <Text tone="secondary" className="notion-count">
+                <Text tone="muted" className="notion-count">
                   {content.length.toLocaleString()} chars
                 </Text>
               </Inline>
