@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { build as esbuild, type BuildOptions, type Loader, type Plugin } from "esbuild";
@@ -19,6 +20,7 @@ import type { SidecarSourceVariant, SidecarTarget, SidecarToolManifestEntry, Sid
 import { escapeHtml, safePathSegment, toImportSpecifier } from "./utils.js";
 
 const CLAUDE_FONT_RESOURCE_DOMAIN = "https://assets.claude.ai";
+const requireFromCompiler = createRequire(import.meta.url);
 
 /** Bundles every discovered `widget.tsx` into a content-hashed HTML resource. */
 export async function buildWidgets(
@@ -66,7 +68,7 @@ createRoot(document.getElementById("root")!).render(
 
     const baseOptions = enforceWidgetBuildInvariants({
       absWorkingDir: rootDir,
-      alias: devSidecarBundleAliases(rootDir),
+      alias: sidecarWidgetAliases(rootDir),
       bundle: true,
       entryPoints: [entryFile],
       format: "iife",
@@ -238,9 +240,14 @@ function enforceWidgetBuildInvariants(
   options: BuildOptions,
   required?: { rootDir: string; entryFile: string },
 ): BuildOptions {
+  const aliases = required
+    ? { ...(options.alias ?? {}), ...reactSingletonAliases(required.rootDir) }
+    : options.alias;
+
   return {
     ...options,
     absWorkingDir: required?.rootDir ?? options.absWorkingDir,
+    alias: aliases,
     bundle: true,
     entryPoints: required ? [required.entryFile] : options.entryPoints,
     format: "iife",
@@ -248,6 +255,33 @@ function enforceWidgetBuildInvariants(
     platform: "browser",
     write: false,
   };
+}
+
+/** Builds all Sidecar-owned widget aliases, including React singleton aliases. */
+function sidecarWidgetAliases(rootDir: string): Record<string, string> | undefined {
+  return {
+    ...(devSidecarBundleAliases(rootDir) ?? {}),
+    ...reactSingletonAliases(rootDir),
+  };
+}
+
+/** Forces React and React DOM to resolve from one project-local copy. */
+function reactSingletonAliases(rootDir: string): Record<string, string> {
+  return {
+    react: resolveProjectModule(rootDir, "react"),
+    "react/jsx-runtime": resolveProjectModule(rootDir, "react/jsx-runtime"),
+    "react/jsx-dev-runtime": resolveProjectModule(rootDir, "react/jsx-dev-runtime"),
+    "react-dom": resolveProjectModule(rootDir, "react-dom"),
+    "react-dom/client": resolveProjectModule(rootDir, "react-dom/client"),
+    "react-dom/server": resolveProjectModule(rootDir, "react-dom/server"),
+  };
+}
+
+/** Resolves a package entry as the app would, falling back to the compiler workspace. */
+function resolveProjectModule(rootDir: string, specifier: string): string {
+  return requireFromCompiler.resolve(specifier, {
+    paths: [rootDir, process.cwd()],
+  });
 }
 
 /** Resolves relative alias replacements from the app root for predictable builds. */

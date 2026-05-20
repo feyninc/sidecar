@@ -339,6 +339,80 @@ export default widget({ description: "Configured widget." }, ConfiguredWidget);
     }
   });
 
+  it("deduplicates React when source aliases and app-local React both exist", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-e2e-react-singleton-"));
+
+    try {
+      await writeFile(
+        path.join(rootDir, "package.json"),
+        `${JSON.stringify({ name: "react-singleton-fixture", version: "0.0.0", type: "module" }, null, 2)}\n`,
+      );
+      await writeFile(
+        path.join(rootDir, "sidecar.config.ts"),
+        `import { defineConfig } from "sidecar-ai";
+
+export default defineConfig({
+  name: "React Singleton Fixture",
+  version: "0.0.0",
+  description: "Tests React singleton widget bundling."
+});
+`,
+      );
+      await mkdir(path.join(rootDir, "node_modules"), { recursive: true });
+      await cp(path.join(process.cwd(), "node_modules", "react"), path.join(rootDir, "node_modules", "react"), {
+        recursive: true,
+      });
+      await cp(path.join(process.cwd(), "node_modules", "react-dom"), path.join(rootDir, "node_modules", "react-dom"), {
+        recursive: true,
+      });
+      await cp(path.join(process.cwd(), "node_modules", "scheduler"), path.join(rootDir, "node_modules", "scheduler"), {
+        recursive: true,
+      });
+      await mkdir(path.join(rootDir, "server", "react-widget"), { recursive: true });
+      await writeFile(
+        path.join(rootDir, "server", "react-widget", "tool.ts"),
+        `import { tool, toolResult } from "sidecar-ai";
+
+export default tool({
+  name: "React Widget",
+  description: "Use this when checking React widget bundling.",
+  execute() {
+    return toolResult({ structuredContent: { ok: true }, content: "ok" });
+  }
+});
+`,
+      );
+      await writeFile(
+        path.join(rootDir, "server", "react-widget", "widget.tsx"),
+        `import { useState } from "react";
+import { widget, useToolResult } from "@sidecar-ai/react";
+
+function ReactWidget() {
+  const [count] = useState(1);
+  const result = useToolResult<{ ok: boolean }>();
+  return <main>{count}:{String(result.structuredContent?.ok ?? false)}</main>;
+}
+
+export default widget({ description: "React singleton widget." }, ReactWidget);
+`,
+      );
+
+      const manifest = await buildProject({ rootDir, outDir: "out/mcp", target: "mcp" });
+      const widget = manifest.tools[0]?.widget;
+      const html = await readFile(path.join(rootDir, "out/mcp", widget?.outputFile ?? ""), "utf8");
+      const reactModulePaths = [
+        ...html.matchAll(/\/\/ ([^\n]*node_modules\/react\/(?:index|jsx-runtime)\.js)/g),
+      ].flatMap((match) => (match[1] ? [match[1]] : []));
+      const reactRoots = new Set(
+        reactModulePaths.map((modulePath) => modulePath.replace(/node_modules\/react\/.*$/, "node_modules/react")),
+      );
+      expect(reactRoots.size).toBe(1);
+      expect(html).not.toContain("../../node_modules/react/index.js");
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps build output inside the project root", async () => {
     const rootDir = await copySimpleFixture("sidecar-e2e-outside-root-");
 
