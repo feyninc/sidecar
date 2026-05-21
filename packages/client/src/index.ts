@@ -190,6 +190,20 @@ export type WidgetBridge = {
   subscribeHostContext(listener: HostContextListener): () => void;
 };
 
+/** Minimal preview host injected by `sidecar preview` before widget code runs. */
+type SidecarPreviewHost = {
+  hostContext: SidecarHostContext;
+  hostCapabilities?: Record<string, unknown>;
+  toolInput?: ToolInput;
+  toolResult?: McpAppsToolResult;
+};
+
+declare global {
+  interface Window {
+    __sidecarPreview?: SidecarPreviewHost;
+  }
+}
+
 /** Listener called when the host sends standard MCP Apps tool input. */
 export type ToolInputListener = (input: ToolInput) => void;
 
@@ -204,6 +218,10 @@ export type ToolClientShape = object;
 
 /** Creates a browser bridge that speaks MCP Apps first and ChatGPT globals second. */
 export function createBrowserBridge(): WidgetBridge {
+  if (typeof window !== "undefined" && window.__sidecarPreview) {
+    return createPreviewBridge(window.__sidecarPreview);
+  }
+
   const state = createMcpAppsState();
 
   return {
@@ -381,6 +399,89 @@ export function createBrowserBridge(): WidgetBridge {
 
     subscribeHostContext(listener) {
       return subscribeHostContext(listener, state);
+    },
+  };
+}
+
+/** Creates a deterministic bridge for the local Sidecar preview catalog. */
+function createPreviewBridge(preview: SidecarPreviewHost): WidgetBridge {
+  const toolResult = normalizeToolResult(preview.toolResult ?? {
+    structuredContent: undefined,
+    content: [],
+    _meta: {},
+  });
+
+  return {
+    async callServerTool() {
+      return toolResult as never;
+    },
+    async callTool() {
+      return toolResult.structuredContent as never;
+    },
+    async readServerResource() {
+      return { ok: false, reason: "unsupported" };
+    },
+    async listServerResources() {
+      return { ok: false, reason: "unsupported" };
+    },
+    async createSamplingMessage() {
+      return { ok: false, reason: "unsupported" };
+    },
+    async sendMessage() {
+      return { ok: false, reason: "unsupported" };
+    },
+    async updateModelContext() {
+      return { ok: false, reason: "unsupported" };
+    },
+    async sendLog(message) {
+      console[message.level === "error" ? "error" : "log"]("[sidecar preview]", message);
+      return { ok: true, value: undefined };
+    },
+    async openLink(url) {
+      if (!isAllowedExternalUrl(url)) {
+        return { ok: false, reason: "denied" };
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+      return { ok: true, value: undefined };
+    },
+    async downloadFile() {
+      return { ok: false, reason: "unsupported" };
+    },
+    async requestTeardown() {
+      return { ok: false, reason: "unsupported" };
+    },
+    async requestDisplayMode(mode) {
+      return { ok: true, value: mode };
+    },
+    async sendSizeChanged() {
+      return { ok: true, value: undefined };
+    },
+    getToolResult() {
+      return toolResult as never;
+    },
+    subscribeToolInput(listener) {
+      listener(preview.toolInput ?? {});
+      return () => {};
+    },
+    subscribeToolInputPartial() {
+      return () => {};
+    },
+    subscribeToolResult(listener) {
+      listener(toolResult);
+      return () => {};
+    },
+    subscribeToolCancelled() {
+      return () => {};
+    },
+    getHostContext() {
+      return preview.hostContext;
+    },
+    getHostCapabilities() {
+      return preview.hostCapabilities;
+    },
+    subscribeHostContext(listener) {
+      listener(preview.hostContext);
+      return () => {};
     },
   };
 }

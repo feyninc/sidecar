@@ -8,6 +8,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,7 +43,7 @@ import {
 import { createSidecarHttpServer, isSidecarProxy, type LoadedPrompt, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar-ai/server";
 import { startTunnel, validateTunnelEndpoint, type TunnelProvider, type TunnelSession } from "./tunnel.js";
 
-type Command = "build" | "check" | "dev" | "inspect" | "preview" | "help";
+type Command = "build" | "check" | "component-preview" | "dev" | "inspect" | "preview" | "help";
 
 /** Dispatches the requested CLI command. */
 export async function main(argv: string[]): Promise<void> {
@@ -211,10 +212,14 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     case "preview": {
-      if (argv[3] !== "components") {
-        throw new Error("Only `sidecar preview components` is supported right now.");
-      }
+      await previewProject({
+        rootDir,
+        targets: readPreviewTargets(argv),
+      });
+      return;
+    }
 
+    case "component-preview": {
       await previewComponents({
         rootDir,
         host: readOption(argv, "--host") ?? "chatgpt",
@@ -236,7 +241,8 @@ Usage:
   sidecar check [--cwd <dir>] [--target mcp|chatgpt|claude] [--strict]
   sidecar dev [--cwd <dir>] [--target mcp|chatgpt|claude] [--port <port>] [--tunnel [cloudflared|wrangler]]
   sidecar inspect [--cwd <dir>] [--target mcp|chatgpt|claude]
-  sidecar preview components [--cwd <dir>] [--host chatgpt|claude|generic] [--compare native,openai] [--components representative|all] [--theme light|dark|both] [--port <port>] [--no-approve]
+  sidecar preview [--cwd <dir>] [--target mcp|chatgpt|claude]
+  sidecar component-preview [--cwd <dir>] [--host chatgpt|claude|generic] [--compare native,openai] [--components representative|all] [--theme light|dark|both] [--port <port>] [--no-approve]
 `);
   }
 }
@@ -315,6 +321,77 @@ type ComponentPreviewSet = "representative" | "all";
 /** Theme variants rendered by the preview matrix. */
 type ComponentPreviewTheme = "light" | "dark";
 
+/** Options for the project widget preview command. */
+type ProjectPreviewOptions = {
+  rootDir: string;
+  targets: SidecarTarget[];
+};
+
+/** Built target output used by the project preview server. */
+export type ProjectPreviewBuild = {
+  target: SidecarTarget;
+  outDir: string;
+  manifest: SidecarManifest;
+};
+
+/** Starts the visual project widget catalog. */
+async function previewProject(options: ProjectPreviewOptions): Promise<void> {
+  const builds: ProjectPreviewBuild[] = [];
+  for (const target of options.targets) {
+    const outDir = `.sidecar/preview/${target}`;
+    const manifest = await buildProject({ rootDir: options.rootDir, outDir, target });
+    printDiagnostics(manifest.diagnostics ?? []);
+    builds.push({ target, outDir, manifest });
+  }
+
+  const server = createServer(async (request, response) => {
+    try {
+      const url = new URL(request.url ?? "/", "http://127.0.0.1");
+      if (url.pathname === "/") {
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(renderProjectPreviewHtml(builds));
+        return;
+      }
+
+      if (url.pathname === "/widget") {
+        const target = url.searchParams.get("target");
+        const tool = url.searchParams.get("tool");
+        const theme = url.searchParams.get("theme") === "dark" ? "dark" : "light";
+        const build = builds.find((entry) => entry.target === target);
+        const entry = build?.manifest.tools.find((item) => item.id === tool);
+        if (!build || !entry?.widget?.outputFile) {
+          response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+          response.end("Widget not found.");
+          return;
+        }
+
+        const html = await readFile(path.join(options.rootDir, build.outDir, entry.widget.outputFile), "utf8");
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        response.end(injectProjectPreviewBridge(html, entry, build.target, theme));
+        return;
+      }
+
+      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Not found.");
+    } catch (error) {
+      response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      response.end(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  const port = await listenOnAnyPort(server);
+  const url = `http://127.0.0.1:${port}`;
+  console.log(`Sidecar preview running at ${url}`);
+  console.log(`Targets: ${options.targets.join(", ")}`);
+  console.log("Press Ctrl+C to stop.");
+
+  const shutdown = () => {
+    server.close(() => exit(0));
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+}
+
 /** Starts a component matrix preview and optionally records human approval. */
 async function previewComponents(options: ComponentPreviewOptions): Promise<void> {
   const cliDir = path.dirname(fileURLToPath(import.meta.url));
@@ -363,6 +440,272 @@ async function previewComponents(options: ComponentPreviewOptions): Promise<void
   }
 
   server.close();
+}
+
+/** Renders the project widget catalog with one section per theme and one column per target. */
+export function renderProjectPreviewHtml(builds: readonly ProjectPreviewBuild[]): string {
+  const themes: ComponentPreviewTheme[] = ["light", "dark"];
+  const sections = themes.map((theme) => renderProjectPreviewTheme(builds, theme)).join("");
+  const toolCount = new Set(
+    builds.flatMap((build) => build.manifest.tools.filter((tool) => tool.widget).map((tool) => tool.id)),
+  ).size;
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sidecar preview</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body { background: #f4f4f5; color: #18181b; font: 14px/1.45 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; }
+      header { align-items: baseline; background: rgb(255 255 255 / 92%); border-bottom: 1px solid rgb(0 0 0 / 10%); display: flex; gap: 14px; padding: 14px 18px; position: sticky; top: 0; z-index: 1; }
+      h1 { font-size: 18px; margin: 0; }
+      .summary { color: #5f5f66; }
+      .theme-section { display: grid; gap: 12px; padding: 18px; }
+      .theme-title { color: #3f3f46; font-size: 12px; font-weight: 800; letter-spacing: .05em; margin: 0; text-transform: uppercase; }
+      .target-grid { align-items: start; display: grid; gap: 14px; grid-template-columns: repeat(${Math.max(builds.length, 1)}, minmax(320px, 1fr)); overflow-x: auto; padding-bottom: 8px; }
+      .target-column { background: rgb(255 255 255 / 72%); border: 1px solid rgb(0 0 0 / 10%); border-radius: 10px; display: grid; gap: 12px; min-width: 320px; padding: 12px; }
+      .target-title { font-size: 13px; font-weight: 800; margin: 0; text-transform: uppercase; }
+      .widget-card { border: 1px solid rgb(0 0 0 / 10%); border-radius: 9px; display: grid; gap: 8px; overflow: hidden; }
+      .widget-label { align-items: baseline; background: rgb(250 250 250 / 92%); border-bottom: 1px solid rgb(0 0 0 / 8%); display: flex; justify-content: space-between; padding: 8px 10px; }
+      .widget-name { font-weight: 700; }
+      .widget-id { color: #71717a; font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      iframe { background: transparent; border: 0; height: 360px; width: 100%; }
+      .empty { border: 1px dashed rgb(0 0 0 / 18%); border-radius: 9px; color: #71717a; padding: 18px; }
+      .theme-section[data-theme="light"] { background: #f4f4f5; color: #18181b; }
+      .theme-section[data-theme="dark"] { background: #111113; color: #f4f4f5; }
+      .theme-section[data-theme="dark"] .theme-title { color: #d4d4d8; }
+      .theme-section[data-theme="dark"] .target-column,
+      .theme-section[data-theme="dark"] .widget-card { background: rgb(24 24 27 / 72%); border-color: rgb(255 255 255 / 12%); }
+      .theme-section[data-theme="dark"] .widget-label { background: rgb(39 39 42 / 72%); border-bottom-color: rgb(255 255 255 / 10%); }
+      .theme-section[data-theme="dark"] .widget-id,
+      .theme-section[data-theme="dark"] .empty { color: #a1a1aa; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Sidecar preview</h1>
+      <span class="summary">${toolCount} widget${toolCount === 1 ? "" : "s"} across ${builds.length} target${builds.length === 1 ? "" : "s"}</span>
+    </header>
+    ${sections}
+  </body>
+</html>`;
+}
+
+/** Renders one light/dark catalog section. */
+function renderProjectPreviewTheme(
+  builds: readonly ProjectPreviewBuild[],
+  theme: ComponentPreviewTheme,
+): string {
+  const columns = builds.map((build) => renderProjectPreviewTarget(build, theme)).join("");
+  return `<section class="theme-section" data-theme="${theme}">
+    <h2 class="theme-title">${escapeHtml(theme)}</h2>
+    <div class="target-grid">${columns}</div>
+  </section>`;
+}
+
+/** Renders one target column in the project preview catalog. */
+function renderProjectPreviewTarget(build: ProjectPreviewBuild, theme: ComponentPreviewTheme): string {
+  const widgets = build.manifest.tools
+    .filter((tool) => tool.widget?.outputFile)
+    .map((tool) => renderProjectPreviewWidget(build.target, tool, theme))
+    .join("");
+  return `<section class="target-column">
+    <h3 class="target-title">${escapeHtml(previewTargetLabel(build.target))}</h3>
+    ${widgets || `<div class="empty">No widgets found for ${escapeHtml(build.target)}.</div>`}
+  </section>`;
+}
+
+/** Renders one widget iframe in the project preview catalog. */
+function renderProjectPreviewWidget(
+  target: SidecarTarget,
+  tool: SidecarToolManifestEntry,
+  theme: ComponentPreviewTheme,
+): string {
+  const src = `/widget?target=${encodeURIComponent(target)}&tool=${encodeURIComponent(tool.id)}&theme=${theme}`;
+  return `<article class="widget-card">
+    <div class="widget-label">
+      <span class="widget-name">${escapeHtml(tool.name)}</span>
+      <span class="widget-id">${escapeHtml(tool.id)}</span>
+    </div>
+    <iframe title="${escapeHtml(`${tool.name} ${target} ${theme}`)}" src="${escapeHtml(src)}"></iframe>
+  </article>`;
+}
+
+/** Injects deterministic host context and tool result data into a compiled widget document. */
+export function injectProjectPreviewBridge(
+  html: string,
+  tool: SidecarToolManifestEntry,
+  target: SidecarTarget,
+  theme: ComponentPreviewTheme,
+): string {
+  const host = previewHostName(target);
+  const preview = {
+    hostContext: {
+      name: host,
+      theme,
+      source: "mcp-apps",
+      raw: {
+        theme,
+        userAgent: `Sidecar Preview ${previewTargetLabel(target)}`,
+        displayMode: "inline",
+        availableDisplayModes: ["inline", "fullscreen", "pip"],
+      },
+    },
+    hostCapabilities: {
+      openLinks: {},
+      serverTools: {},
+      serverResources: {},
+      logging: {},
+      message: { text: {}, structuredContent: {} },
+      updateModelContext: { structuredContent: {} },
+    },
+    toolInput: {
+      arguments: previewToolArguments(tool),
+    },
+    toolResult: previewToolResult(tool),
+  };
+  const script = `<script>window.__sidecarPreview=${escapeScriptJson(preview)};</script>`;
+  return html
+    .replace("<html lang=\"en\"", `<html lang="en" data-sidecar-host="${host}" data-sidecar-theme="${theme}" data-theme="${theme}"`)
+    .replace("</head>", `${script}\n  </head>`);
+}
+
+/** Creates a stable sample MCP tool result for visual widget previews. */
+function previewToolResult(tool: SidecarToolManifestEntry): Record<string, unknown> {
+  const content = [
+    `# ${tool.name}`,
+    "",
+    tool.description,
+    "",
+    "| Field | Value |",
+    "| --- | --- |",
+    `| Tool | ${escapeMarkdownTableCell(tool.id)} |`,
+    "| Preview | Ready |",
+  ].join("\n");
+  const structuredContent = {
+    tool: tool.id,
+    ok: true,
+    text: content,
+    preview: {
+      kind: previewKind(tool),
+      title: tool.name,
+      summary: tool.description,
+      content,
+      items: [
+        {
+          title: `${tool.name} preview`,
+          body: tool.description,
+        },
+        {
+          title: "Table rendering",
+          body: "Preview data includes a Markdown table.",
+        },
+      ],
+    },
+    upstream: {
+      isError: false,
+    },
+  };
+
+  return {
+    structuredContent,
+    content: [{ type: "text", text: tool.description }],
+    _meta: {
+      sidecarPreview: true,
+      tool: tool.id,
+    },
+    isError: false,
+  };
+}
+
+/** Creates sample tool input for widgets that inspect original arguments. */
+function previewToolArguments(tool: SidecarToolManifestEntry): Record<string, unknown> {
+  const properties = tool.descriptor.inputSchema?.properties;
+  if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(properties).map(([key, schema]) => [key, previewValueForSchema(schema)]),
+  );
+}
+
+/** Creates one sample value for a JSON Schema property. */
+function previewValueForSchema(schema: unknown): unknown {
+  if (!schema || typeof schema !== "object") {
+    return "preview";
+  }
+  const record = schema as Record<string, unknown>;
+  if (Array.isArray(record.enum) && record.enum.length) {
+    return record.enum[0];
+  }
+  switch (record.type) {
+    case "number":
+    case "integer":
+      return 1;
+    case "boolean":
+      return true;
+    case "array":
+      return [];
+    case "object":
+      return {};
+    default:
+      return "preview";
+  }
+}
+
+/** Chooses a preview kind that matches common Sidecar example widget shapes. */
+function previewKind(tool: SidecarToolManifestEntry): string {
+  const id = tool.id.toLowerCase();
+  if (id.includes("search") || id.includes("query")) {
+    return "search";
+  }
+  if (id.includes("create") || id.includes("update") || id.includes("move") || id.includes("duplicate")) {
+    return "write";
+  }
+  if (id.includes("fetch") || id.includes("read") || id.includes("get")) {
+    return "read";
+  }
+  return "metadata";
+}
+
+/** Maps build targets to runtime host names supported by Sidecar widgets. */
+function previewHostName(target: SidecarTarget): "chatgpt" | "claude" | "generic" {
+  if (target === "chatgpt") {
+    return "chatgpt";
+  }
+  if (target === "claude") {
+    return "claude";
+  }
+  return "generic";
+}
+
+/** Returns a human-readable preview label for one target column. */
+function previewTargetLabel(target: SidecarTarget): string {
+  switch (target) {
+    case "chatgpt":
+      return "ChatGPT";
+    case "claude":
+      return "Claude";
+    default:
+      return "MCP";
+  }
+}
+
+/** Escapes JSON so it can be safely embedded in an inline script. */
+function escapeScriptJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+/** Escapes Markdown table separators in sample data. */
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|");
 }
 
 /** Component parity approval receipt written by the preview command. */
@@ -737,6 +1080,32 @@ export function previewComponentNames(componentSet: ComponentPreviewSet): string
   ];
 }
 
+/** Parses the build targets selected for the project preview command. */
+export function readPreviewTargets(argv: string[]): SidecarTarget[] {
+  const values: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== "--target") {
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value) {
+      values.push(...value.split(",").map((entry) => entry.trim()).filter(Boolean));
+    }
+  }
+
+  if (!values.length) {
+    return ["mcp", "chatgpt", "claude"];
+  }
+
+  const targets = values.map((target) => {
+    if (target === "mcp" || target === "chatgpt" || target === "claude") {
+      return target;
+    }
+    throw new Error(`Unsupported Sidecar target "${target}". Expected mcp, chatgpt, or claude.`);
+  });
+  return Array.from(new Set(targets));
+}
+
 /** Parses the component inventory selected for the preview command. */
 export function readPreviewComponentSet(value: string | undefined): ComponentPreviewSet {
   if (!value || value === "representative") {
@@ -1050,6 +1419,25 @@ function unwrapRuntimeDefault(value: unknown): unknown {
     return unwrapRuntimeDefault((value as { default: unknown }).default);
   }
   return value;
+}
+
+/** Starts an HTTP server on an ephemeral local port. */
+function listenOnAnyPort(server: ReturnType<typeof createServer>): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error) => {
+      reject(error);
+    };
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", onError);
+      const address = server.address() as AddressInfo | null;
+      if (!address) {
+        reject(new Error("Preview server did not expose a bound address."));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
 }
 
 /** Starts the local dev server and resolves only once the port is bound. */
