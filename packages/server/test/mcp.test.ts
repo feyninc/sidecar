@@ -1,5 +1,9 @@
 /** Tests for MCP JSON-RPC dispatch and auth enforcement. */
+import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   createPromptDescriptor,
@@ -99,6 +103,236 @@ describe("SidecarMcpServer", () => {
       id: "ping-1",
       result: {}
     });
+  });
+
+  it("replaces public tools with code-mode meta-tools", async () => {
+    const add = tool({
+      name: "Add Numbers",
+      description: "Use this when adding two numbers.",
+      execute(params: { a: number; b: number }) {
+        return toolResult({
+          structuredContent: { sum: params.a + params.b },
+          content: "Added.",
+        });
+      },
+    });
+    const server = createSidecarMcpServer({
+      tools: [{ tool: add }],
+      codeMode: { enabled: true, unsafe: true },
+      createContext: () => testContext(),
+    });
+
+    await expect(
+      server.handle({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    ).resolves.toMatchObject({
+      result: {
+        tools: [
+          { name: "search_tools" },
+          { name: "get_tool_schema" },
+          { name: "execute_code" },
+        ],
+      },
+    });
+
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "add_numbers", arguments: { a: 1, b: 2 } },
+      }),
+    ).resolves.toMatchObject({
+      error: {
+        message: 'Unknown tool "add_numbers".',
+      },
+    });
+  });
+
+  it("executes unsafe code mode through internal tool bindings", async () => {
+    const add = tool({
+      name: "Add Numbers",
+      description: "Use this when adding two numbers.",
+      execute(params: { a: number; b: number }) {
+        return toolResult({
+          structuredContent: { sum: params.a + params.b },
+          content: `The sum is ${params.a + params.b}.`,
+        });
+      },
+    });
+    const server = createSidecarMcpServer({
+      tools: [{ tool: add }],
+      codeMode: { enabled: true, unsafe: true },
+      createContext: () => testContext(),
+    });
+
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "execute_code",
+          arguments: {
+            code: `
+              export default async function({ tools }) {
+                const result = await tools.addNumbers({ a: 4, b: 5 });
+                return { doubled: result.sum * 2 };
+              }
+            `,
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      result: {
+        structuredContent: {
+          codeMode: {
+            ok: true,
+            value: { doubled: 18 },
+            calls: [{ tool: "add_numbers", ok: true }],
+          },
+        },
+      },
+    });
+  });
+
+  it("executes remote code mode through reserved remote.ts execute contract", async () => {
+    const add = tool({
+      name: "Add Numbers",
+      description: "Use this when adding two numbers.",
+      execute(params: { a: number; b: number }) {
+        return toolResult({
+          structuredContent: { sum: params.a + params.b },
+          content: `The sum is ${params.a + params.b}.`,
+        });
+      },
+    });
+    const server = createSidecarHttpServer({
+      tools: [{ tool: add }],
+      codeMode: { enabled: true },
+      remoteExecution: {
+        async execute(run) {
+          const directory = await mkdtemp(path.join(tmpdir(), "sidecar-remote-"));
+          try {
+            for (const file of run.files) {
+              const target = path.join(directory, file.path);
+              await writeFile(target, file.text);
+            }
+            return await runNodeCommand(directory, run.command, run.env, run.timeoutMs);
+          } finally {
+            await rm(directory, { recursive: true, force: true });
+          }
+        },
+      },
+      createContext: () => testContext(),
+    });
+    const baseUrl = await listen(server);
+
+    try {
+      const response = await postRpc(baseUrl, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "execute_code",
+          arguments: {
+            code: `
+              export default async function({ tools }) {
+                const result = await tools.addNumbers({ a: 10, b: 7 });
+                return { sum: result.sum };
+              }
+            `,
+          },
+        },
+      });
+      await expect(response.json()).resolves.toMatchObject({
+        result: {
+          structuredContent: {
+            codeMode: {
+              ok: true,
+              value: { sum: 17 },
+              calls: [{ tool: "add_numbers", ok: true }],
+            },
+          },
+        },
+      });
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("supports stateless remote callbacks across server instances", async () => {
+    const add = tool({
+      name: "Add Numbers",
+      description: "Use this when adding two numbers.",
+      execute(params: { a: number; b: number }) {
+        return toolResult({
+          structuredContent: { sum: params.a + params.b },
+          content: `The sum is ${params.a + params.b}.`,
+        });
+      },
+    });
+    const callbackServer = createSidecarHttpServer({
+      tools: [{ tool: add }],
+      codeMode: { enabled: true, callbackSecret: "shared-test-secret" },
+      createContext: () => testContext(),
+    });
+    const callbackBaseUrl = await listen(callbackServer);
+    const executionServer = createSidecarHttpServer({
+      tools: [{ tool: add }],
+      codeMode: { enabled: true, callbackSecret: "shared-test-secret" },
+      remoteExecution: {
+        async execute(run) {
+          const directory = await mkdtemp(path.join(tmpdir(), "sidecar-remote-"));
+          try {
+            for (const file of run.files) {
+              const target = path.join(directory, file.path);
+              await writeFile(target, file.text);
+            }
+            return await runNodeCommand(directory, run.command, {
+              ...run.env,
+              SIDECAR_CALLBACK_URL: `${callbackBaseUrl}/__sidecar/code-mode/tool`,
+            }, run.timeoutMs);
+          } finally {
+            await rm(directory, { recursive: true, force: true });
+          }
+        },
+      },
+      createContext: () => testContext(),
+    });
+    const executionBaseUrl = await listen(executionServer);
+
+    try {
+      const response = await postRpc(executionBaseUrl, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "execute_code",
+          arguments: {
+            code: `
+              export default async function({ tools }) {
+                const result = await tools.addNumbers({ a: 3, b: 8 });
+                return { sum: result.sum };
+              }
+            `,
+          },
+        },
+      });
+      await expect(response.json()).resolves.toMatchObject({
+        result: {
+          structuredContent: {
+            codeMode: {
+              ok: true,
+              value: { sum: 11 },
+              calls: [{ tool: "add_numbers", ok: true }],
+            },
+          },
+        },
+      });
+    } finally {
+      await close(executionServer);
+      await close(callbackServer);
+    }
   });
 
   it("serves MCP Apps resources with standard MIME and resource metadata", async () => {
@@ -1411,5 +1645,47 @@ function postRpc(baseUrl: string, body: unknown): Promise<Response> {
       accept: "application/json, text/event-stream"
     },
     body: JSON.stringify(body)
+  });
+}
+
+/** Runs a generated remote-code command in a throwaway local Node process. */
+function runNodeCommand(
+  cwd: string,
+  command: string[],
+  env: Record<string, string>,
+  timeoutMs: number,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const [program, ...args] = command;
+    if (!program) {
+      reject(new Error("Missing command program."));
+      return;
+    }
+
+    const child = spawn(program, args, {
+      cwd,
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error("Remote command timed out."));
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      resolve({
+        exitCode: code ?? 0,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+      });
+    });
   });
 }

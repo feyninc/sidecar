@@ -10,6 +10,7 @@ import { createProject } from "./project.js";
 import type { SidecarCompilerConfig } from "./types.js";
 import { existsSyncSafe } from "./utils.js";
 import type { WidgetBuildConfig, WidgetEsbuildConfig } from "@sidecar-ai/core";
+import type { CodeModeRenderStrategy } from "@sidecar-ai/core";
 
 /** Reads the serializable subset of `sidecar.config.ts` without executing app code. */
 export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
@@ -47,6 +48,10 @@ export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
     pagination: {
       pageSize: readNumberNested(definition, "pagination", "pageSize") ?? 50,
       hasOverride: hasProperty(readObjectProperty(definition, "pagination"), "override"),
+    },
+    codeMode: readCodeModeConfig(definition),
+    remoteExecution: {
+      enabled: readBooleanProperty(definition, "remoteExecution") ?? false,
     },
   };
 }
@@ -119,7 +124,91 @@ export function defaultCompilerConfig(): SidecarCompilerConfig {
       pageSize: 50,
       hasOverride: false,
     },
+    codeMode: {
+      enabled: false,
+      unsafe: false,
+      render: {
+        enabled: true,
+        strategy: "last-renderable",
+      },
+    },
+    remoteExecution: {
+      enabled: false,
+    },
   };
+}
+
+/** Reads normalized code-mode settings from the top-level config object. */
+function readCodeModeConfig(definition: ObjectLiteralExpression): SidecarCompilerConfig["codeMode"] {
+  const defaults = defaultCompilerConfig().codeMode;
+  const property = definition.getProperty("codeMode");
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return defaults;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  if (!initializer) {
+    return defaults;
+  }
+  if (initializer.getKind() === SyntaxKind.TrueKeyword) {
+    return { ...defaults, enabled: true };
+  }
+  if (initializer.getKind() === SyntaxKind.FalseKeyword) {
+    return { ...defaults, enabled: false };
+  }
+  if (!Node.isObjectLiteralExpression(initializer)) {
+    return defaults;
+  }
+
+  return {
+    enabled: true,
+    unsafe: readBooleanProperty(initializer, "unsafe") ?? false,
+    render: readCodeModeRenderConfig(initializer) ?? defaults.render,
+  };
+}
+
+/** Reads `codeMode.render`, accepting a boolean or options object. */
+function readCodeModeRenderConfig(
+  definition: ObjectLiteralExpression,
+): SidecarCompilerConfig["codeMode"]["render"] | undefined {
+  const property = definition.getProperty("render");
+  if (!property || !Node.isPropertyAssignment(property)) {
+    return undefined;
+  }
+
+  const initializer = unwrapExpression(property.getInitializer());
+  if (!initializer) {
+    return undefined;
+  }
+  if (initializer.getKind() === SyntaxKind.TrueKeyword) {
+    return { enabled: true, strategy: "last-renderable" };
+  }
+  if (initializer.getKind() === SyntaxKind.FalseKeyword) {
+    return { enabled: false, strategy: "last-renderable" };
+  }
+  if (!Node.isObjectLiteralExpression(initializer)) {
+    return undefined;
+  }
+
+  return {
+    enabled: readBooleanProperty(initializer, "enabled") ?? true,
+    strategy: readRenderStrategy(initializer) ?? "last-renderable",
+  };
+}
+
+/** Reads a supported code-mode render strategy string. */
+function readRenderStrategy(
+  definition: ObjectLiteralExpression,
+): CodeModeRenderStrategy | undefined {
+  const value = readStringProperty(definition, "strategy");
+  if (
+    value === "last-renderable" ||
+    value === "first-renderable" ||
+    value === "explicit"
+  ) {
+    return value;
+  }
+  return undefined;
 }
 
 /** Reads a build target nested object property. */
@@ -167,7 +256,15 @@ function readBooleanNested(
   if (!object) {
     return undefined;
   }
-  const property = object.getProperty(propertyName);
+  return readBooleanProperty(object, propertyName);
+}
+
+/** Reads a boolean object property. */
+function readBooleanProperty(
+  definition: ObjectLiteralExpression,
+  propertyName: string,
+): boolean | undefined {
+  const property = definition.getProperty(propertyName);
   if (!property || !Node.isPropertyAssignment(property)) {
     return undefined;
   }

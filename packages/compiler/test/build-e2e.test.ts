@@ -240,6 +240,150 @@ describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
     }
   });
 
+  it("builds code-mode output that exposes only meta-tools at runtime", async () => {
+    const rootDir = await copySimpleFixture("sidecar-e2e-code-mode-");
+    const port = await getFreePort();
+    let server: ReturnType<typeof createHttpServer> | undefined;
+    const previousMcpUrl = process.env.SIDECAR_MCP_URL;
+    const previousDemoToken = process.env.SIDECAR_DEMO_TOKEN;
+
+    try {
+      await writeFile(
+        path.join(rootDir, "sidecar.config.ts"),
+        `import { defineConfig } from "sidecar-ai";
+
+export default defineConfig({
+  name: "Simple Sidecar Example",
+  version: "0.1.0-alpha.1",
+  description: "A small Sidecar project used to exercise code mode.",
+  codeMode: {
+    unsafe: true,
+    render: {
+      enabled: false
+    }
+  },
+  pagination: {
+    pageSize: 50
+  }
+});
+`,
+      );
+
+      const manifest = await buildProject({ rootDir, outDir: "out/code-mode", target: "mcp" });
+      expect(manifest.codeMode).toMatchObject({
+        enabled: true,
+        unsafe: true,
+        remoteExecution: false,
+        render: {
+          enabled: false,
+          strategy: "last-renderable",
+        },
+      });
+
+      process.env.SIDECAR_MCP_URL = `http://127.0.0.1:${port}/mcp`;
+      process.env.SIDECAR_DEMO_TOKEN = "secret";
+      const module = await import(`${pathToFileURL(path.join(rootDir, "out/code-mode/server/index.js")).href}?${Date.now()}`);
+      const handler = module.default;
+      server = createHttpServer((request, response) => {
+        Promise.resolve(handler(request, response)).catch((error: unknown) => {
+          response.statusCode = 500;
+          response.end(error instanceof Error ? error.message : String(error));
+        });
+      });
+      await listenOnPort(server, port);
+
+      const tools = await postMcp(`http://127.0.0.1:${port}/mcp`, "secret", {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+      });
+      expect(tools.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+        "search_tools",
+        "get_tool_schema",
+        "execute_code",
+      ]);
+    } finally {
+      restoreEnv("SIDECAR_MCP_URL", previousMcpUrl);
+      restoreEnv("SIDECAR_DEMO_TOKEN", previousDemoToken);
+      if (server) {
+        await closeHttpServer(server);
+      }
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("requires remote.ts when code mode uses remote execution", async () => {
+    const rootDir = await copySimpleFixture("sidecar-e2e-code-mode-remote-missing-");
+
+    try {
+      await writeFile(
+        path.join(rootDir, "sidecar.config.ts"),
+        `import { defineConfig } from "sidecar-ai";
+
+export default defineConfig({
+  name: "Simple Sidecar Example",
+  version: "0.1.0-alpha.1",
+  description: "A small Sidecar project used to exercise code mode.",
+  codeMode: true,
+  remoteExecution: true
+});
+`,
+      );
+
+      await expect(buildProject({ rootDir, outDir: "out/code-mode", target: "mcp" }))
+        .rejects.toThrow("remoteExecution: true requires a reserved remote.ts file");
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a reserved remote.ts execute definition for code mode", async () => {
+    const rootDir = await copySimpleFixture("sidecar-e2e-code-mode-remote-");
+
+    try {
+      await writeFile(
+        path.join(rootDir, "sidecar.config.ts"),
+        `import { defineConfig } from "sidecar-ai";
+
+export default defineConfig({
+  name: "Simple Sidecar Example",
+  version: "0.1.0-alpha.1",
+  description: "A small Sidecar project used to exercise code mode.",
+  codeMode: true,
+  remoteExecution: true
+});
+`,
+      );
+      await writeFile(
+        path.join(rootDir, "remote.ts"),
+        `import { remote } from "sidecar-ai/remote";
+
+export default remote({
+  async execute() {
+    return {
+      exitCode: 0,
+      stdout: "",
+      stderr: ""
+    };
+  }
+});
+`,
+      );
+
+      const manifest = await buildProject({ rootDir, outDir: "out/code-mode", target: "mcp" });
+      expect(manifest.codeMode).toMatchObject({
+        enabled: true,
+        unsafe: false,
+        remoteExecution: true,
+      });
+      expect(manifest.codeMode?.widget?.resourceUri).toMatch(/^ui:\/\/code-mode\/widget\.[a-f0-9]{12}\.html$/);
+      await expect(readFile(path.join(rootDir, "out/code-mode/server/index.js"), "utf8"))
+        .resolves.toContain("assertRemote");
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("changes widget resource URIs when widget CSS changes", async () => {
     const rootDir = await copySimpleFixture("sidecar-e2e-cache-");
 

@@ -30,7 +30,15 @@ import {
   type SidecarTarget,
   type SidecarToolManifestEntry,
 } from "@sidecar-ai/compiler";
-import { isSidecarPrompt, isSidecarResource, isSidecarTool, MCP_APP_RESOURCE_MIME_TYPE, type SidecarConfig } from "@sidecar-ai/core";
+import {
+  isSidecarPrompt,
+  isSidecarRemote,
+  isSidecarResource,
+  isSidecarTool,
+  MCP_APP_RESOURCE_MIME_TYPE,
+  type RemoteExecutionDefinition,
+  type SidecarConfig
+} from "@sidecar-ai/core";
 import { createSidecarHttpServer, isSidecarProxy, type LoadedPrompt, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar-ai/server";
 import { startTunnel, validateTunnelEndpoint, type TunnelProvider, type TunnelSession } from "./tunnel.js";
 
@@ -101,6 +109,9 @@ export async function main(argv: string[]): Promise<void> {
       const loadedAuth = await loadRuntimeAuth(rootDir);
       const runtimeConfig = await loadRuntimeConfig(rootDir);
       const proxy = await loadRuntimeProxy(rootDir);
+      const remoteExecution = manifestCodeModeNeedsRemote(runtimeConfig)
+        ? await loadRuntimeRemote(rootDir)
+        : undefined;
       const runtimeToolEntries = await analyzeProjectTools(rootDir, { target });
       const runtimeTools = await loadRuntimeTools(rootDir, runtimeToolEntries);
       const manifest = await buildProject({ rootDir, outDir, target });
@@ -121,6 +132,21 @@ export async function main(argv: string[]): Promise<void> {
         path: "/mcp",
         auth,
         proxy,
+        codeMode: manifest.codeMode
+          ? {
+              enabled: true,
+              unsafe: manifest.codeMode.unsafe,
+              render: manifest.codeMode.render,
+              widgetMeta: manifest.codeMode.widget?.resourceUri
+                ? {
+                    ui: { resourceUri: manifest.codeMode.widget.resourceUri },
+                    "ui/resourceUri": manifest.codeMode.widget.resourceUri,
+                    ...(manifest.target === "chatgpt" ? { "openai/outputTemplate": manifest.codeMode.widget.resourceUri } : {}),
+                  }
+                : undefined,
+            }
+          : undefined,
+        remoteExecution,
         tools,
         resources,
         prompts,
@@ -826,6 +852,40 @@ async function loadRuntimeProxy(rootDir: string): Promise<SidecarProxy | undefin
   return defaultExport;
 }
 
+/** Loads `remote.ts` at runtime for code-mode dev servers when configured. */
+async function loadRuntimeRemote(rootDir: string): Promise<RemoteExecutionDefinition | undefined> {
+  const remotePath = path.join(rootDir, "remote.ts");
+  if (!existsSync(remotePath)) {
+    return undefined;
+  }
+
+  const parentURL = pathToFileURL(path.join(rootDir, "sidecar.config.ts")).href;
+  const tsconfigPath = path.join(rootDir, "tsconfig.json");
+  const tsconfig = existsSync(tsconfigPath) ? tsconfigPath : false;
+  const module = (await tsImport(pathToFileURL(remotePath).href, {
+    parentURL,
+    tsconfig
+  })) as { default?: unknown };
+
+  const defaultExport = unwrapRuntimeDefault(module.default);
+  if (!isSidecarRemote(defaultExport)) {
+    throw new Error("remote.ts must default-export remote({ execute }) from sidecar-ai/remote.");
+  }
+
+  return defaultExport;
+}
+
+/** Returns true when config requires a project-owned remote executor. */
+function manifestCodeModeNeedsRemote(config: SidecarConfig | undefined): boolean {
+  if (!config?.codeMode || !config.remoteExecution) {
+    return false;
+  }
+  if (config.codeMode === true) {
+    return true;
+  }
+  return !config.codeMode.unsafe;
+}
+
 /** Loads `sidecar.config.ts` at runtime so dev can honor function overrides. */
 async function loadRuntimeConfig(rootDir: string): Promise<SidecarConfig | undefined> {
   const configPath = path.join(rootDir, "sidecar.config.ts");
@@ -898,6 +958,18 @@ function attachBuiltToolDescriptors(
 /** Reads generated widget resources so the dev server can serve them through MCP. */
 async function loadResources(rootDir: string, outDir: string, manifest: SidecarManifest): Promise<LoadedResource[]> {
   const resources: LoadedResource[] = [];
+  if (manifest.codeMode?.widget?.outputFile) {
+    const text = await readFile(path.join(rootDir, outDir, manifest.codeMode.widget.outputFile), "utf8");
+    resources.push({
+      uri: manifest.codeMode.widget.resourceUri,
+      name: "Execute Code",
+      description: manifest.codeMode.widget.options?.description,
+      mimeType: MCP_APP_RESOURCE_MIME_TYPE,
+      text,
+      _meta: manifest.codeMode.widget.resourceMeta,
+    });
+  }
+
   for (const entry of manifest.tools) {
     if (!entry.widget?.outputFile) {
       continue;

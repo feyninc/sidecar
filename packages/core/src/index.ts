@@ -37,6 +37,10 @@ export type SidecarConfig = {
   tools?: ToolCapabilityConfig;
   /** Cursor pagination defaults for MCP list operations. */
   pagination?: PaginationConfig;
+  /** Optional code-mode transform that exposes a small tool catalog backed by generated code. */
+  codeMode?: boolean | CodeModeConfig;
+  /** Enables project-owned remote execution through reserved `remote.ts`. */
+  remoteExecution?: boolean;
 };
 
 /** Build target profile selected by reserved platform file suffixes. */
@@ -191,6 +195,68 @@ export type PaginationConfig<Auth = unknown> = {
   pageSize?: number;
   /** One override for all list operations, or specific overrides keyed by operation. */
   override?: PaginationOverride<unknown, Auth> | PaginationOverrideMap<Auth>;
+};
+
+/** Strategy used by the generated code-mode widget when several internal tools can render UI. */
+export type CodeModeRenderStrategy =
+  | "last-renderable"
+  | "first-renderable"
+  | "explicit";
+
+/** UI rendering behavior for code-mode tool results. */
+export type CodeModeRenderConfig = {
+  /** Whether the public `execute_code` tool should advertise a dynamic widget. */
+  enabled?: boolean;
+  /** How Sidecar chooses an internal widget result when generated code calls several tools. */
+  strategy?: CodeModeRenderStrategy;
+};
+
+/** Configures Sidecar's code-mode transform. */
+export type CodeModeConfig = {
+  /** Runs generated code directly in the MCP server process. Intended only for trusted/local use. */
+  unsafe?: boolean;
+  /** Dynamic widget selection behavior for code-mode results. */
+  render?: boolean | CodeModeRenderConfig;
+};
+
+/** File emitted into a remote executor workspace for one code-mode run. */
+export type RemoteRunFile = {
+  path: string;
+  text: string;
+};
+
+/** Code-mode work package passed to `remote.ts`. */
+export type RemoteCodeRun = {
+  /** Stable id for this code-mode invocation. */
+  id: string;
+  /** Files Sidecar generated for the remote executor. */
+  files: RemoteRunFile[];
+  /** Command the executor should run after writing `files`. */
+  command: string[];
+  /** Sidecar-generated environment only. App/provider secrets are intentionally not included. */
+  env: Record<string, string>;
+  /** Maximum runtime Sidecar expects the executor to enforce. */
+  timeoutMs: number;
+};
+
+/** Result returned by `remote.ts` after the generated runner exits. */
+export type RemoteExecutionResult = {
+  exitCode: number;
+  stdout: string;
+  stderr?: string;
+};
+
+/** Context passed to a project-owned remote executor. */
+export type RemoteExecutionContext = {
+  log: Logger;
+};
+
+/** Reserved `remote.ts` definition used by code mode remote execution. */
+export type RemoteExecutionDefinition = {
+  execute(
+    run: RemoteCodeRun,
+    ctx: RemoteExecutionContext,
+  ): MaybePromise<RemoteExecutionResult>;
 };
 
 /** Options accepted by the built-in offset cursor pagination helper. */
@@ -856,6 +922,7 @@ const resourceBrand = Symbol.for("sidecar.resource");
 const resourceResultBrand = Symbol.for("sidecar.resourceResult");
 const promptBrand = Symbol.for("sidecar.prompt");
 const skillBrand = Symbol.for("sidecar.skill");
+const remoteBrand = Symbol.for("sidecar.remote");
 
 /**
  * Declares app identity in `sidecar.config.ts`.
@@ -882,6 +949,27 @@ export function defineWidgetBundler<Options = WidgetBundlerEsbuildOptions>(
   hook: WidgetBundlerHook<Options>,
 ): WidgetBundlerHook<Options> {
   return hook;
+}
+
+/** Declares the project-owned remote code executor in reserved `remote.ts`. */
+export function remote(definition: RemoteExecutionDefinition): RemoteExecutionDefinition {
+  if (typeof definition.execute !== "function") {
+    throw new SidecarDefinitionError("remote({ ... }) must include an execute function.");
+  }
+
+  return Object.freeze({
+    ...definition,
+    [remoteBrand]: true,
+  });
+}
+
+/** Returns true when a value was produced by `remote()`. */
+export function isSidecarRemote(value: unknown): value is RemoteExecutionDefinition {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      (value as Record<symbol, unknown>)[remoteBrand] === true,
+  );
 }
 
 /**

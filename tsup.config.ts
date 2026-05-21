@@ -51,6 +51,7 @@ export default defineConfig({
     "cli/index": "packages/cli/src/index.ts",
     "create-sidecar-app/index": "packages/create-sidecar-app/src/index.ts",
     "sidecar-ai/index": "packages/sidecar-ai/src/index.ts",
+    "sidecar-ai/remote": "packages/sidecar-ai/src/remote.ts",
     "sidecar-ai/sidecar": "packages/sidecar-ai/src/sidecar.ts",
     "openai/index": "packages/openai/src/index.ts",
     "openai/components": "packages/openai/src/components.tsx",

@@ -393,6 +393,65 @@ Set `build.target` in `sidecar.config.ts` when one platform is the normal app ta
 `mcp` uses only standard MCP behavior. `chatgpt` and `claude` add platform-specific output where supported.
 `--host` selects the hosting artifact shape. `node` emits a standalone Node server; `vercel` emits Vercel Build Output API files at `.vercel/output`. When `VERCEL=1` is present, `sidecar build` selects the Vercel host automatically.
 
+## Code Mode
+
+Code mode exposes a small public tool catalog for hosts that prefer generated
+code over many individual tools:
+
+- `search_tools`
+- `get_tool_schema`
+- `execute_code`
+
+Your authored tools still live in `server/<tool-id>/tool.ts`, but Sidecar keeps
+them internal and gives generated code a typed `tools.*` API. If internal tools
+return widgets, `execute_code` can render the selected internal widget through a
+single dynamic code-mode widget.
+
+```ts
+// sidecar.config.ts
+import { defineConfig } from "sidecar-ai";
+
+export default defineConfig({
+  name: "Code Mode Demo",
+  version: "0.1.0",
+  codeMode: {
+    render: {
+      enabled: true,
+      strategy: "last-renderable"
+    }
+  },
+  remoteExecution: true
+});
+```
+
+Remote execution is owned by your app through reserved `remote.ts`. Sidecar
+generates a runner, a command, and a short-lived callback token; your executor
+writes the files, runs the command, and returns stdout/stderr.
+
+```ts
+// remote.ts
+import { remote } from "sidecar-ai/remote";
+
+export default remote({
+  async execute(run, ctx) {
+    ctx.log.info(`Running ${run.id}`);
+
+    // Write run.files into your sandbox, run run.command with run.env,
+    // enforce run.timeoutMs, then return the process result.
+    return {
+      exitCode: 0,
+      stdout: "",
+      stderr: ""
+    };
+  }
+});
+```
+
+For multi-instance or serverless hosts, set `SIDECAR_CODE_MODE_SECRET` so remote
+tool callbacks use stateless encrypted tokens instead of process-local dev
+tokens. For trusted local experiments only, use `codeMode: { unsafe: true }` to
+run generated code inside the MCP server process.
+
 ## Auth And Proxy
 
 `auth.ts` owns MCP/OAuth resource-server behavior. Your auth provider still validates tokens.

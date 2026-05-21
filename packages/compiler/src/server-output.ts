@@ -89,7 +89,7 @@ function renderServerEntry(
     `import { pathToFileURL } from "node:url";`,
     `import { createSidecarHttpHandler } from "@sidecar-ai/server";`,
     `import { isSidecarAuth } from "@sidecar-ai/auth";`,
-    `import { isSidecarPrompt, isSidecarResource, isSidecarTool } from "@sidecar-ai/core";`,
+    `import { isSidecarPrompt, isSidecarRemote, isSidecarResource, isSidecarTool } from "@sidecar-ai/core";`,
     `import { isSidecarProxy } from "@sidecar-ai/server/proxy";`,
     ...tools.map((entry, index) =>
       `import tool${index} from ${JSON.stringify(toImportSpecifier(entryDir, path.join(rootDir, entry.sourceFile)))};`,
@@ -106,6 +106,9 @@ function renderServerEntry(
     existsSync(path.join(rootDir, "proxy.ts"))
       ? `import proxyExport from ${JSON.stringify(toImportSpecifier(entryDir, path.join(rootDir, "proxy.ts")))};`
       : `const proxyExport = undefined;`,
+    existsSync(path.join(rootDir, "remote.ts"))
+      ? `import remoteExport from ${JSON.stringify(toImportSpecifier(entryDir, path.join(rootDir, "remote.ts")))};`
+      : `const remoteExport = undefined;`,
     existsSync(path.join(rootDir, "sidecar.config.ts"))
       ? `import configExport from ${JSON.stringify(toImportSpecifier(entryDir, path.join(rootDir, "sidecar.config.ts")))};`
       : `const configExport = undefined;`,
@@ -121,6 +124,9 @@ const auth = loadedAuth && process.env.SIDECAR_MCP_URL
   ? loadedAuth.withResource(process.env.SIDECAR_MCP_URL)
   : loadedAuth;
 const proxy = proxyExport === undefined ? undefined : assertProxy(proxyExport);
+const remoteExecution = manifest.codeMode?.remoteExecution
+  ? assertRemote(remoteExport)
+  : undefined;
 const runtimeConfig = configExport && typeof configExport === "object" ? configExport : undefined;
 
 if (auth && !process.env.SIDECAR_MCP_URL) {
@@ -134,6 +140,21 @@ export const handler = createSidecarHttpHandler({
   publicUrl: process.env.SIDECAR_PUBLIC_URL ?? process.env.SIDECAR_MCP_URL,
   auth,
   proxy,
+  codeMode: manifest.codeMode
+    ? {
+        enabled: true,
+        unsafe: manifest.codeMode.unsafe,
+        render: manifest.codeMode.render,
+        widgetMeta: manifest.codeMode.widget?.resourceUri
+          ? {
+              ui: { resourceUri: manifest.codeMode.widget.resourceUri },
+              "ui/resourceUri": manifest.codeMode.widget.resourceUri,
+              ...(manifest.target === "chatgpt" ? { "openai/outputTemplate": manifest.codeMode.widget.resourceUri } : {}),
+            }
+          : undefined,
+      }
+    : undefined,
+  remoteExecution,
   tools: [
 ${tools.map((entry, index) => `    loadTool(${JSON.stringify(entry.sourceFile)}, tool${index}, manifest.tools[${index}].descriptor),`).join("\n")}
   ],
@@ -215,6 +236,14 @@ function assertProxy(value) {
   return proxyValue;
 }
 
+function assertRemote(value) {
+  const remoteValue = unwrapRuntimeDefault(value);
+  if (!isSidecarRemote(remoteValue)) {
+    throw new Error("remote.ts must default-export remote({ execute }) from sidecar-ai/remote.");
+  }
+  return remoteValue;
+}
+
 function unwrapRuntimeDefault(value) {
   if (
     value &&
@@ -257,7 +286,7 @@ function shutdown() {
 
 /** Renders generated widget resources as static MCP resource entries. */
 function renderWidgetResources(manifest: SidecarManifest): string {
-  return manifest.tools
+  const toolWidgets = manifest.tools
     .filter((entry) => entry.widget?.outputFile)
     .map((entry) => `    {
       uri: ${JSON.stringify(entry.widget?.resourceUri)},
@@ -268,6 +297,17 @@ function renderWidgetResources(manifest: SidecarManifest): string {
       _meta: ${JSON.stringify(entry.widget?.resourceMeta ?? undefined)},
     },`)
     .join("\n");
+  const codeModeWidget = manifest.codeMode?.widget?.outputFile
+    ? `    {
+      uri: ${JSON.stringify(manifest.codeMode.widget.resourceUri)},
+      name: "Execute Code",
+      description: ${JSON.stringify(manifest.codeMode.widget.options?.description)},
+      mimeType: "text/html;profile=mcp-app",
+      text: readWidget(${JSON.stringify(manifest.codeMode.widget.outputFile)}),
+      _meta: ${JSON.stringify(manifest.codeMode.widget.resourceMeta ?? undefined)},
+    },`
+    : "";
+  return [codeModeWidget, toolWidgets].filter(Boolean).join("\n");
 }
 
 /** Writes a minimal package manifest for hosts that run the build output directly. */
@@ -325,6 +365,7 @@ function sidecarBundleAliases(rootDir: string): Record<string, string> | undefin
   }
 
   return {
+    "sidecar-ai/remote": path.join(repoRoot, "packages", "sidecar-ai", "src", "remote.ts"),
     "sidecar-ai": path.join(repoRoot, "packages", "sidecar-ai", "src", "index.ts"),
     "@sidecar-ai/auth": path.join(repoRoot, "packages", "auth", "src", "index.ts"),
     "@sidecar-ai/core": path.join(repoRoot, "packages", "core", "src", "index.ts"),

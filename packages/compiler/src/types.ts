@@ -13,6 +13,7 @@ import type {
   ToolVisibility,
   WidgetBuildConfig,
   ToolWidgetOptions,
+  CodeModeRenderStrategy,
 } from "@sidecar-ai/core";
 import type { SidecarDiagnostic } from "./diagnostics.js";
 
@@ -50,6 +51,18 @@ export type SidecarWidgetManifestEntry = {
   resourceMeta?: Record<string, unknown>;
   outputFile?: string;
   options?: ToolWidgetOptions;
+};
+
+/** Normalized code-mode config recorded in build manifests. */
+export type SidecarCodeModeManifestEntry = {
+  enabled: boolean;
+  unsafe: boolean;
+  remoteExecution: boolean;
+  render: {
+    enabled: boolean;
+    strategy: CodeModeRenderStrategy;
+  };
+  widget?: SidecarWidgetManifestEntry;
 };
 
 /** Static resource entry emitted into `manifest.sidecar.json`. */
@@ -112,6 +125,17 @@ export type SidecarCompilerConfig = {
     pageSize: number;
     hasOverride: boolean;
   };
+  codeMode: {
+    enabled: boolean;
+    unsafe: boolean;
+    render: {
+      enabled: boolean;
+      strategy: CodeModeRenderStrategy;
+    };
+  };
+  remoteExecution: {
+    enabled: boolean;
+  };
 };
 
 /** Build manifest produced for a Sidecar MCP output. */
@@ -123,6 +147,7 @@ export type SidecarManifest = {
   generatedAt: string;
   config: SidecarCompilerConfig;
   tools: SidecarToolManifestEntry[];
+  codeMode?: SidecarCodeModeManifestEntry;
   resources: SidecarResourceManifestEntry[];
   resourceTemplates: SidecarResourceTemplateManifestEntry[];
   prompts: SidecarPromptManifestEntry[];

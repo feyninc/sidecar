@@ -6,7 +6,13 @@
  * resources during development or simple deployments.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  randomUUID,
+} from "node:crypto";
 import { runProxy, type SidecarProxy } from "./proxy.js";
 import { createSseHub, createSseStream, type McpNotificationSink } from "./sse.js";
 import type { SidecarAuth } from "@sidecar-ai/auth";
@@ -18,6 +24,8 @@ import {
   executeResource,
   executeTool,
   SidecarRuntimeError,
+  toolResult,
+  type CodeModeRenderStrategy,
   type JsonObject,
   type JsonSchema,
   type McpListOperation,
@@ -36,6 +44,8 @@ import {
   type ResourceCapabilityConfig,
   type ResourceContext,
   type RuntimeNotifications,
+  type RemoteExecutionDefinition,
+  type RemoteExecutionResult,
   type SidecarPrompt,
   type SidecarResource,
   type SidecarTool,
@@ -115,6 +125,25 @@ export type LoadedResourceTemplate = {
   descriptor: McpResourceTemplateDescriptor;
 };
 
+/** Runtime code-mode options passed by compiler-generated server output. */
+export type SidecarCodeModeRuntimeOptions = {
+  enabled?: boolean;
+  unsafe?: boolean;
+  /**
+   * Optional shared secret for stateless remote callback tokens.
+   *
+   * Set this from an environment variable on multi-instance/serverless hosts.
+   * Without it, Sidecar uses process-local tokens intended for local dev and
+   * single-process Node servers.
+   */
+  callbackSecret?: string;
+  render?: {
+    enabled?: boolean;
+    strategy?: CodeModeRenderStrategy;
+  };
+  widgetMeta?: Record<string, unknown>;
+};
+
 /** Options for the in-memory MCP request dispatcher. */
 export type SidecarMcpServerOptions = {
   name?: string;
@@ -124,6 +153,8 @@ export type SidecarMcpServerOptions = {
   resourceTemplates?: LoadedResourceTemplate[];
   prompts?: LoadedPrompt[];
   auth?: SidecarAuth;
+  codeMode?: SidecarCodeModeRuntimeOptions;
+  remoteExecution?: RemoteExecutionDefinition;
   createContext?: (request: JsonRpcRequest) => ToolContext | Promise<ToolContext>;
   maxBodyBytes?: number;
   toolTimeoutMs?: number;
@@ -159,6 +190,44 @@ type RuntimeNotificationOptions = {
   isResourceSubscribed(uri: string): boolean;
 };
 
+const CODE_MODE_SEARCH_TOOL = "search_tools";
+const CODE_MODE_SCHEMA_TOOL = "get_tool_schema";
+const CODE_MODE_EXECUTE_TOOL = "execute_code";
+const CODE_MODE_RESULT_PREFIX = "__SIDECAR_CODE_MODE_RESULT__";
+const CODE_MODE_CALLBACK_PATH = "/__sidecar/code-mode/tool";
+const CODE_MODE_CALLBACK_TOKEN_TTL_MS = 5 * 60 * 1000;
+
+type CodeRunSession = {
+  authSession: unknown;
+  requestId: RequestId | string;
+};
+
+type CodeModeCallbackTokenPayload = {
+  version: 1;
+  expiresAt: number;
+  authSession: unknown;
+  requestId: RequestId | string;
+};
+
+type CodeModeToolCall = {
+  tool: string;
+  ok: boolean;
+  result: McpToolResult;
+};
+
+type CodeModeRunnerResult =
+  | {
+      ok: true;
+      value: unknown;
+      calls: CodeModeToolCall[];
+      explicitRender?: { tool?: string; value?: unknown };
+    }
+  | {
+      ok: false;
+      error: string;
+      calls: CodeModeToolCall[];
+    };
+
 /** JSON-RPC MCP dispatcher for Sidecar tools and resources. */
 export class SidecarMcpServer {
   private readonly tools = new Map<string, RegisteredTool>();
@@ -167,6 +236,7 @@ export class SidecarMcpServer {
   private readonly resourceTemplates: LoadedResourceTemplate[];
   private readonly activeRequests = new Map<RequestId, AbortController>();
   private readonly subscribedResourceUris = new Set<string>();
+  private readonly codeRuns = new Map<string, CodeRunSession>();
 
   constructor(private readonly options: SidecarMcpServerOptions) {
     for (const loaded of options.tools) {
@@ -209,6 +279,9 @@ export class SidecarMcpServer {
 
   /** Returns all tool descriptors exposed through `tools/list`. */
   descriptors(): McpToolDescriptor[] {
+    if (this.isCodeModeEnabled()) {
+      return codeModeDescriptors(this.options.codeMode?.widgetMeta);
+    }
     return [...this.tools.values()].map((loaded) => loaded.descriptor);
   }
 
@@ -411,6 +484,10 @@ export class SidecarMcpServer {
     request: JsonRpcRequest,
     context: SidecarHandleContext,
   ): Promise<McpToolResult> {
+    if (this.isCodeModeEnabled()) {
+      return this.callCodeModeTool(request, context);
+    }
+
     const params = request.params as { name?: unknown; arguments?: unknown } | undefined;
     const name = typeof params?.name === "string" ? params.name : undefined;
     if (!name) {
@@ -422,6 +499,17 @@ export class SidecarMcpServer {
       throw new JsonRpcError(-32602, `Unknown tool "${name}".`);
     }
 
+    return this.executeRegisteredTool(name, loaded, params?.arguments ?? {}, request, context);
+  }
+
+  /** Executes a registered tool through the normal Sidecar validation/auth path. */
+  private async executeRegisteredTool(
+    name: string,
+    loaded: RegisteredTool,
+    argsValue: unknown,
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<McpToolResult> {
     const authSession = await this.authorizeTool(loaded, context);
     const ctx = this.options.createContext
       ? await this.options.createContext(request)
@@ -443,10 +531,10 @@ export class SidecarMcpServer {
       const args = loaded.descriptorProvided
         ? validateAgainstSchema(
             loaded.descriptor.inputSchema,
-            params?.arguments ?? {},
+            argsValue ?? {},
             `Invalid parameters for tool "${name}".`,
           )
-        : params?.arguments ?? {};
+        : argsValue ?? {};
       const result = await withTimeout(
         executeTool(loaded.tool, args, ctx),
         this.options.toolTimeoutMs,
@@ -465,6 +553,313 @@ export class SidecarMcpServer {
         this.activeRequests.delete(request.id);
       }
     }
+  }
+
+  /** Returns true when this runtime should expose the code-mode meta-tool catalog. */
+  private isCodeModeEnabled(): boolean {
+    return Boolean(this.options.codeMode?.enabled);
+  }
+
+  /** Dispatches code-mode meta-tools instead of public authored tools. */
+  private async callCodeModeTool(
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<McpToolResult> {
+    const params = request.params as { name?: unknown; arguments?: unknown } | undefined;
+    const name = typeof params?.name === "string" ? params.name : undefined;
+    if (!name) {
+      throw new JsonRpcError(-32602, "tools/call requires params.name.");
+    }
+
+    switch (name) {
+      case CODE_MODE_SEARCH_TOOL:
+        return this.searchCodeModeTools(params?.arguments);
+      case CODE_MODE_SCHEMA_TOOL:
+        return this.describeCodeModeTools(params?.arguments);
+      case CODE_MODE_EXECUTE_TOOL:
+        return this.executeCodeMode(params?.arguments, request, context);
+      default:
+        throw new JsonRpcError(-32602, `Unknown tool "${name}".`);
+    }
+  }
+
+  /** Searches the internal authored tool catalog exposed to generated code. */
+  private searchCodeModeTools(args: unknown): McpToolResult {
+    const query = typeof (args as { query?: unknown } | undefined)?.query === "string"
+      ? String((args as { query: string }).query).toLowerCase()
+      : "";
+    const matches = [...this.tools.values()]
+      .map((entry) => codeModeToolSummary(entry.descriptor))
+      .filter((entry) => {
+        if (!query) return true;
+        return `${entry.id} ${entry.name} ${entry.description}`.toLowerCase().includes(query);
+      });
+
+    return toolResult({
+      structuredContent: { tools: matches },
+      content: matches.length
+        ? matches.map((entry) => `- ${entry.id}: ${entry.description}`).join("\n")
+        : "No internal Sidecar tools matched that query.",
+    });
+  }
+
+  /** Returns JSON Schema and generated TypeScript call signatures for internal tools. */
+  private describeCodeModeTools(args: unknown): McpToolResult {
+    const requested = readStringArray((args as { tools?: unknown } | undefined)?.tools);
+    const entries = [...this.tools.values()]
+      .filter((entry) => !requested.length || requested.includes(entry.descriptor.name))
+      .map((entry) => ({
+        ...codeModeToolSummary(entry.descriptor),
+        inputSchema: entry.descriptor.inputSchema,
+        outputSchema: entry.descriptor.outputSchema,
+        typescript: codeModeToolSignature(entry.descriptor),
+      }));
+
+    return toolResult({
+      structuredContent: { tools: entries },
+      content: entries.length
+        ? entries.map((entry) => entry.typescript).join("\n\n")
+        : "No internal Sidecar tools matched that request.",
+    });
+  }
+
+  /** Executes generated code through the configured remote executor or unsafe local mode. */
+  private async executeCodeMode(
+    args: unknown,
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<McpToolResult> {
+    const code = typeof (args as { code?: unknown } | undefined)?.code === "string"
+      ? (args as { code: string }).code
+      : undefined;
+    if (!code?.trim()) {
+      throw new JsonRpcError(-32602, "execute_code requires a non-empty code string.");
+    }
+
+    const authSession = context.authSession ?? await this.authorizeEndpoint(context);
+    const runId = randomUUID();
+    const callbackToken = this.createCodeModeCallbackToken({
+      authSession,
+      requestId: request.id ?? runId,
+    });
+
+    try {
+      const execution = this.options.codeMode?.unsafe
+        ? await this.executeUnsafeCodeMode(code, request, { ...context, authSession })
+        : await this.executeRemoteCodeMode(code, runId, callbackToken.token, context);
+      return this.codeModeExecutionResult(execution);
+    } finally {
+      if (callbackToken.processLocal) {
+        this.codeRuns.delete(callbackToken.token);
+      }
+    }
+  }
+
+  /** Creates an opaque callback token for generated remote runners. */
+  private createCodeModeCallbackToken(
+    session: CodeRunSession,
+  ): { token: string; processLocal: boolean } {
+    const secret = this.options.codeMode?.callbackSecret ?? process.env.SIDECAR_CODE_MODE_SECRET;
+    if (secret) {
+      return {
+        token: sealCodeModeCallbackToken(
+          {
+            version: 1,
+            expiresAt: Date.now() + CODE_MODE_CALLBACK_TOKEN_TTL_MS,
+            authSession: session.authSession,
+            requestId: session.requestId,
+          },
+          secret,
+        ),
+        processLocal: false,
+      };
+    }
+
+    const token = randomUUID();
+    this.codeRuns.set(token, session);
+    return { token, processLocal: true };
+  }
+
+  /** Runs generated code directly in-process for trusted/local deployments. */
+  private async executeUnsafeCodeMode(
+    code: string,
+    request: JsonRpcRequest,
+    context: SidecarHandleContext,
+  ): Promise<CodeModeRunnerResult> {
+    const calls: CodeModeToolCall[] = [];
+    const toolMarkers = new WeakMap<object, { tool: string; result: McpToolResult }>();
+    const tools = Object.fromEntries([...this.tools.values()].map((entry) => [
+      codeModeMethodName(entry.descriptor.name),
+      async (args: Record<string, unknown> = {}) => {
+        const result = await this.executeRegisteredTool(
+          entry.descriptor.name,
+          entry,
+          args,
+          { ...request, id: `${String(request.id ?? "code")}:${entry.descriptor.name}` },
+          context,
+        );
+        calls.push({ tool: entry.descriptor.name, ok: !result.isError, result });
+        const value = result.structuredContent ?? result;
+        if (value && typeof value === "object") {
+          toolMarkers.set(value, { tool: entry.descriptor.name, result });
+        }
+        return value;
+      },
+    ]));
+    const sidecar = {
+      render(value: unknown, options: { tool?: string } = {}) {
+        const inferredTool = value && typeof value === "object"
+          ? toolMarkers.get(value)?.tool
+          : undefined;
+        return {
+          __sidecarRender: true,
+          tool: options.tool ?? inferredTool,
+          value,
+        };
+      },
+    };
+    const module = await import(`data:text/javascript;base64,${Buffer.from(code, "utf8").toString("base64")}`);
+    if (typeof module.default !== "function") {
+      throw new JsonRpcError(-32602, "execute_code code must default-export a function.");
+    }
+    const value = await module.default({ tools, sidecar });
+    return { ok: true, value: stripCodeModeMarkers(value), calls, explicitRender: readExplicitRender(value) };
+  }
+
+  /** Passes generated code to the project-owned `remote.ts` executor. */
+  private async executeRemoteCodeMode(
+    code: string,
+    runId: string,
+    callbackToken: string,
+    context: SidecarHandleContext,
+  ): Promise<CodeModeRunnerResult> {
+    if (!this.options.remoteExecution) {
+      throw new JsonRpcError(
+        -32000,
+        "Code mode remote execution is enabled, but no remote.ts executor was loaded.",
+      );
+    }
+
+    const callbackUrl = codeModeCallbackUrl(context.request);
+    const run = {
+      id: runId,
+      files: [
+        {
+          path: "sidecar-runner.mjs",
+          text: renderCodeModeRunner(code, [...this.tools.values()].map((entry) => entry.descriptor)),
+        },
+      ],
+      command: ["node", "sidecar-runner.mjs"],
+      env: {
+        SIDECAR_CODE_RUN_ID: runId,
+        SIDECAR_CALLBACK_URL: callbackUrl,
+        SIDECAR_CALLBACK_TOKEN: callbackToken,
+      },
+      timeoutMs: this.options.toolTimeoutMs ?? 30_000,
+    };
+    const remoteResult = await this.options.remoteExecution.execute(run, { log: consoleLogger });
+    return parseRemoteCodeModeResult(remoteResult);
+  }
+
+  /** Converts a runner result into the public MCP tool result for `execute_code`. */
+  private codeModeExecutionResult(execution: CodeModeRunnerResult): McpToolResult {
+    if (!execution.ok) {
+      return toolResult.error(execution.error ?? "Code mode execution failed.", {
+        structuredContent: {
+          codeMode: {
+            ok: false,
+            calls: execution.calls,
+          },
+        },
+      });
+    }
+
+    const render = selectCodeModeRender(
+      execution,
+      [...this.tools.values()].map((entry) => entry.descriptor),
+      this.options.codeMode?.render,
+    );
+    const selectedResult = render?.result;
+    return toolResult({
+      structuredContent: {
+        codeMode: stripUndefined({
+          ok: true,
+          value: execution.value,
+          renderer: render?.tool,
+          result: selectedResult?.structuredContent,
+          content: selectedResult?.content,
+          meta: selectedResult?._meta,
+          calls: execution.calls.map((call) => ({
+            tool: call.tool,
+            ok: call.ok,
+          })),
+        }),
+      },
+      content: selectedResult?.content?.length
+        ? selectedResult.content
+        : JSON.stringify(execution.value ?? {}, null, 2),
+      meta: {
+        sidecar: stripUndefined({
+          codeMode: stripUndefined({
+            renderer: render?.tool,
+          }),
+        }),
+      },
+    });
+  }
+
+  /** Handles tool calls from generated remote code. */
+  async handleCodeModeToolCallback(input: unknown): Promise<McpToolResult> {
+    const body = input as { token?: unknown; tool?: unknown; arguments?: unknown } | undefined;
+    const token = typeof body?.token === "string" ? body.token : undefined;
+    const toolName = typeof body?.tool === "string" ? body.tool : undefined;
+    if (!token || !toolName) {
+      throw new JsonRpcHttpError(400, -32602, "Code-mode callback requires token and tool.");
+    }
+
+    const session = this.codeRuns.get(token);
+    const sealedSession = session ?? this.readSealedCodeModeCallbackToken(token);
+    if (!sealedSession) {
+      throw new JsonRpcHttpError(401, -32001, "Invalid or expired code-mode callback token.");
+    }
+
+    const loaded = this.tools.get(toolName);
+    if (!loaded) {
+      throw new JsonRpcHttpError(404, -32602, `Unknown internal tool "${toolName}".`);
+    }
+
+    return this.executeRegisteredTool(
+      toolName,
+      loaded,
+      body?.arguments ?? {},
+      {
+        jsonrpc: JSONRPC_VERSION,
+        id: `${String(sealedSession.requestId)}:${toolName}`,
+        method: "tools/call",
+        params: {
+          name: toolName,
+          arguments: body?.arguments ?? {},
+        },
+      },
+      { authSession: sealedSession.authSession },
+    );
+  }
+
+  /** Reads a stateless encrypted callback token when process-local lookup misses. */
+  private readSealedCodeModeCallbackToken(token: string): CodeRunSession | undefined {
+    const secret = this.options.codeMode?.callbackSecret ?? process.env.SIDECAR_CODE_MODE_SECRET;
+    if (!secret) {
+      return undefined;
+    }
+
+    const payload = openCodeModeCallbackToken(token, secret);
+    if (!payload || payload.version !== 1 || payload.expiresAt < Date.now()) {
+      return undefined;
+    }
+    return {
+      authSession: payload.authSession,
+      requestId: payload.requestId,
+    };
   }
 
   /** Authenticates the whole HTTP MCP request when auth.ts is configured. */
@@ -703,6 +1098,29 @@ export function createSidecarHttpHandler(
       pathname === "/.well-known/oauth-authorization-server"
     ) {
       await proxyAuthorizationServerMetadata(options.auth, response);
+      return;
+    }
+
+    if (pathname === CODE_MODE_CALLBACK_PATH) {
+      if (request.method !== "POST") {
+        response.writeHead(405, {
+          "allow": "POST",
+          "content-type": "application/json",
+        });
+        response.end(JSON.stringify({ error: "method_not_allowed" }));
+        return;
+      }
+
+      try {
+        const body = await readJson(request, maxBodyBytes);
+        const result = await mcp.handleCodeModeToolCallback(body);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify(result));
+      } catch (error) {
+        const status = error instanceof JsonRpcHttpError ? error.status : 400;
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: normalizeHttpError(error) }));
+      }
       return;
     }
 
@@ -1539,6 +1957,353 @@ function matchesJsonSchemaType(type: string, value: unknown): boolean {
     default:
       return true;
   }
+}
+
+/** Builds the three public tools exposed when code mode is enabled. */
+function codeModeDescriptors(widgetMeta: Record<string, unknown> | undefined): McpToolDescriptor[] {
+  return [
+    createToolDescriptor({
+      name: "Search Tools",
+      id: CODE_MODE_SEARCH_TOOL,
+      description: "Search the internal Sidecar tool catalog available to code mode. Use this before writing code when you need to identify the right internal tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Plain-language search query for tool names and descriptions.",
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    }),
+    createToolDescriptor({
+      name: "Get Tool Schema",
+      id: CODE_MODE_SCHEMA_TOOL,
+      description: "Return JSON Schemas and TypeScript call signatures for internal Sidecar tools selected for generated code.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          tools: {
+            type: "array",
+            description: "Optional internal tool ids. Omit to describe every available internal tool.",
+            items: { type: "string" },
+          },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    }),
+    {
+      ...createToolDescriptor({
+        name: "Execute Code",
+        id: CODE_MODE_EXECUTE_TOOL,
+        description: [
+          "Execute generated JavaScript code against the typed internal Sidecar tool API.",
+          "The code must default-export an async or sync function that receives { tools, sidecar }.",
+          "Use search_tools and get_tool_schema first when you need tool signatures.",
+        ].join(" "),
+        inputSchema: {
+          type: "object",
+          properties: {
+            code: {
+              type: "string",
+              description: "JavaScript module source. It must default-export a function: export default async function({ tools, sidecar }) { ... }",
+            },
+          },
+          required: ["code"],
+          additionalProperties: false,
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          openWorldHint: true,
+        },
+      }),
+      _meta: widgetMeta,
+    },
+  ];
+}
+
+/** Compact internal tool summary returned by code-mode search. */
+function codeModeToolSummary(descriptor: McpToolDescriptor): {
+  id: string;
+  name: string;
+  method: string;
+  description: string;
+  annotations?: unknown;
+} {
+  return {
+    id: descriptor.name,
+    name: descriptor.title ?? descriptor.name,
+    method: codeModeMethodName(descriptor.name),
+    description: descriptor.description,
+    annotations: descriptor.annotations,
+  };
+}
+
+/** Emits a readable TypeScript signature for one internal tool binding. */
+function codeModeToolSignature(descriptor: McpToolDescriptor): string {
+  return [
+    `/** ${descriptor.description.replace(/\*\//g, "* /")} */`,
+    `tools.${codeModeMethodName(descriptor.name)}(input: ${JSON.stringify(descriptor.inputSchema, null, 2)}): Promise<unknown>;`,
+  ].join("\n");
+}
+
+/** Creates a stable JS method name for an internal tool id. */
+function codeModeMethodName(toolId: string): string {
+  const parts = toolId
+    .split(/[^a-zA-Z0-9]+/g)
+    .filter(Boolean);
+  const method = parts
+    .map((part, index) => index === 0
+      ? `${part.charAt(0).toLowerCase()}${part.slice(1)}`
+      : `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join("");
+  return /^[a-zA-Z_$]/.test(method) ? method : "tool";
+}
+
+/** Reads a string array from JSON-like input. */
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+    ? value
+    : [];
+}
+
+/** Encrypts callback authorization state for remote executors on multi-instance hosts. */
+function sealCodeModeCallbackToken(
+  payload: CodeModeCallbackTokenPayload,
+  secret: string,
+): string {
+  const iv = randomBytes(12);
+  const key = codeModeSecretKey(secret);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const plaintext = JSON.stringify(payload);
+  const ciphertext = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return [
+    "v1",
+    base64UrlEncode(iv),
+    base64UrlEncode(tag),
+    base64UrlEncode(ciphertext),
+  ].join(".");
+}
+
+/** Opens a stateless callback token produced by `sealCodeModeCallbackToken`. */
+function openCodeModeCallbackToken(
+  token: string,
+  secret: string,
+): CodeModeCallbackTokenPayload | undefined {
+  const [version, ivText, tagText, ciphertextText] = token.split(".");
+  if (version !== "v1" || !ivText || !tagText || !ciphertextText) {
+    return undefined;
+  }
+
+  try {
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      codeModeSecretKey(secret),
+      base64UrlDecode(ivText),
+    );
+    decipher.setAuthTag(base64UrlDecode(tagText));
+    const plaintext = Buffer.concat([
+      decipher.update(base64UrlDecode(ciphertextText)),
+      decipher.final(),
+    ]).toString("utf8");
+    return JSON.parse(plaintext) as CodeModeCallbackTokenPayload;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Normalizes arbitrary secret text into the key size required by AES-256-GCM. */
+function codeModeSecretKey(secret: string): Buffer {
+  return createHash("sha256").update(secret).digest();
+}
+
+/** Encodes bytes as URL-safe base64 without padding. */
+function base64UrlEncode(bytes: Buffer): string {
+  return bytes.toString("base64url");
+}
+
+/** Decodes URL-safe base64 bytes. */
+function base64UrlDecode(text: string): Buffer {
+  return Buffer.from(text, "base64url");
+}
+
+/** Resolves the callback URL sent to remote executors. */
+function codeModeCallbackUrl(request: Request | undefined): string {
+  if (request) {
+    return new URL(CODE_MODE_CALLBACK_PATH, request.url).href;
+  }
+  return CODE_MODE_CALLBACK_PATH;
+}
+
+/** Generates the portable Node runner executed by project-owned remote executors. */
+function renderCodeModeRunner(code: string, descriptors: McpToolDescriptor[]): string {
+  const methodMap = Object.fromEntries(
+    descriptors.map((descriptor) => [codeModeMethodName(descriptor.name), descriptor.name]),
+  );
+  return `const CODE_MODE_RESULT_PREFIX = ${JSON.stringify(CODE_MODE_RESULT_PREFIX)};
+const callbackUrl = process.env.SIDECAR_CALLBACK_URL;
+const callbackToken = process.env.SIDECAR_CALLBACK_TOKEN;
+if (!callbackUrl || !callbackToken) {
+  throw new Error("Sidecar code-mode runner is missing callback configuration.");
+}
+const toolMethods = ${JSON.stringify(methodMap, null, 2)};
+const calls = [];
+const toolMarkers = new WeakMap();
+
+async function callTool(tool, args = {}) {
+  const response = await fetch(callbackUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token: callbackToken, tool, arguments: args }),
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result?.error?.message ?? result?.error ?? "Sidecar internal tool call failed.");
+  }
+  calls.push({ tool, ok: !result.isError, result });
+  const value = result.structuredContent ?? result;
+  if (value && typeof value === "object") {
+    toolMarkers.set(value, { tool, result });
+  }
+  return value;
+}
+
+const tools = Object.fromEntries(Object.entries(toolMethods).map(([method, tool]) => [
+  method,
+  (args) => callTool(tool, args),
+]));
+
+const sidecar = {
+  render(value, options = {}) {
+    return { __sidecarRender: true, tool: options.tool ?? toolMarkers.get(value)?.tool, value };
+  },
+};
+
+function stripMarkers(value) {
+  if (value && typeof value === "object" && value.__sidecarRender) {
+    return stripMarkers(value.value);
+  }
+  return value;
+}
+
+try {
+  const module = await import("data:text/javascript;base64,${Buffer.from(code, "utf8").toString("base64")}");
+  if (typeof module.default !== "function") {
+    throw new Error("execute_code code must default-export a function.");
+  }
+  const value = await module.default({ tools, sidecar });
+  const explicitRender = value && typeof value === "object" && value.__sidecarRender
+    ? { tool: value.tool, value: stripMarkers(value.value) }
+    : undefined;
+  console.log(CODE_MODE_RESULT_PREFIX + JSON.stringify({
+    ok: true,
+    value: stripMarkers(value),
+    calls,
+    explicitRender,
+  }));
+} catch (error) {
+  console.log(CODE_MODE_RESULT_PREFIX + JSON.stringify({
+    ok: false,
+    error: error instanceof Error ? error.message : String(error),
+    calls,
+  }));
+  process.exitCode = 1;
+}
+`;
+}
+
+/** Parses the remote runner's marked JSON result from stdout. */
+function parseRemoteCodeModeResult(result: RemoteExecutionResult): CodeModeRunnerResult {
+  const line = result.stdout
+    .split(/\r?\n/)
+    .reverse()
+    .find((entry) => entry.startsWith(CODE_MODE_RESULT_PREFIX));
+  if (!line) {
+    return {
+      ok: false,
+      error: result.stderr || `Remote executor exited with code ${result.exitCode} without returning a Sidecar result.`,
+      calls: [],
+    };
+  }
+
+  try {
+    return JSON.parse(line.slice(CODE_MODE_RESULT_PREFIX.length)) as CodeModeRunnerResult;
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Invalid code-mode runner result.",
+      calls: [],
+    };
+  }
+}
+
+/** Removes explicit-render marker objects from unsafe in-process results. */
+function stripCodeModeMarkers(value: unknown): unknown {
+  if (value && typeof value === "object" && (value as { __sidecarRender?: unknown }).__sidecarRender) {
+    return stripCodeModeMarkers((value as { value?: unknown }).value);
+  }
+  return value;
+}
+
+/** Reads an unsafe in-process explicit render marker. */
+function readExplicitRender(value: unknown): { tool?: string; value?: unknown } | undefined {
+  if (!value || typeof value !== "object" || !(value as { __sidecarRender?: unknown }).__sidecarRender) {
+    return undefined;
+  }
+  const marker = value as { tool?: unknown; value?: unknown };
+  return {
+    tool: typeof marker.tool === "string" ? marker.tool : undefined,
+    value: stripCodeModeMarkers(marker.value),
+  };
+}
+
+/** Chooses the internal tool result that the dynamic code-mode widget should render. */
+function selectCodeModeRender(
+  execution: CodeModeRunnerResult,
+  descriptors: McpToolDescriptor[],
+  config: SidecarCodeModeRuntimeOptions["render"],
+): CodeModeToolCall | undefined {
+  if (!execution.ok || config?.enabled === false) {
+    return undefined;
+  }
+
+  const renderable = new Set(
+    descriptors
+      .filter((descriptor) => Boolean(descriptor._meta?.["ui/resourceUri"]))
+      .map((descriptor) => descriptor.name),
+  );
+  if (!renderable.size) {
+    return undefined;
+  }
+
+  const strategy = config?.strategy ?? "last-renderable";
+  if (strategy === "explicit") {
+    const tool = execution.explicitRender?.tool;
+    return tool && renderable.has(tool)
+      ? execution.calls.find((call) => call.tool === tool)
+      : undefined;
+  }
+
+  const calls = execution.calls.filter((call) => renderable.has(call.tool));
+  return strategy === "first-renderable" ? calls[0] : calls.at(-1);
 }
 
 /** Converts Fetch headers to a plain object for JSON-RPC error metadata. */

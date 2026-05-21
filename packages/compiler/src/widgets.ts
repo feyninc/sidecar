@@ -128,6 +128,105 @@ createRoot(document.getElementById("root")!).render(
   }
 }
 
+/** Bundles the single dynamic widget attached to the public code-mode execute tool. */
+export async function buildCodeModeWidget(
+  rootDir: string,
+  outDir: string,
+  tools: SidecarToolManifestEntry[],
+  target: SidecarTarget,
+  config: WidgetBuildConfig | undefined = undefined,
+): Promise<SidecarWidgetManifestEntry | undefined> {
+  const renderable = tools.filter(
+    (
+      entry,
+    ): entry is SidecarToolManifestEntry & {
+      widget: SidecarWidgetManifestEntry;
+    } => Boolean(entry.widget),
+  );
+  if (!renderable.length) {
+    return undefined;
+  }
+
+  const cacheDir = path.join(rootDir, ".sidecar", "cache", "widgets");
+  await mkdir(cacheDir, { recursive: true });
+  const appStyle = await prepareAppStyle(rootDir, cacheDir);
+  const configure = await loadWidgetBundlerHook(rootDir, cacheDir, config?.configure);
+  const safeId = "code-mode";
+  const entryFile = path.join(cacheDir, `${safeId}.entry.tsx`);
+  await writeFile(entryFile, renderCodeModeWidgetEntry(rootDir, entryFile, renderable, appStyle));
+
+  const baseOptions = enforceWidgetBuildInvariants({
+    absWorkingDir: rootDir,
+    alias: sidecarWidgetAliases(rootDir),
+    bundle: true,
+    define: {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+    },
+    entryPoints: [entryFile],
+    format: "iife",
+    jsx: "automatic",
+    minify: true,
+    nodePaths: [
+      path.join(rootDir, "node_modules"),
+      path.join(process.cwd(), "node_modules"),
+    ],
+    outfile: "widget.js",
+    platform: "browser",
+    sourcemap: false,
+    write: false,
+  });
+  const staticOptions = widgetBuildOptionsFromConfig(rootDir, config);
+  const configuredOptions = configure
+    ? await configureWidgetBuild(configure, {
+        rootDir,
+        outDir,
+        entryFile,
+        widget: {
+          toolId: "execute_code",
+          toolName: "Execute Code",
+          target,
+          sourceFile: path.relative(rootDir, entryFile),
+        },
+        esbuildOptions: mergeWidgetBuildOptions(baseOptions, staticOptions),
+      })
+    : undefined;
+  const bundled = await esbuild(enforceWidgetBuildInvariants(
+    mergeWidgetBuildOptions(baseOptions, staticOptions, configuredOptions),
+    { rootDir, entryFile },
+  ));
+
+  const outputFiles = bundled.outputFiles ?? [];
+  const javascript = outputFiles.find((file) => file.path.endsWith(".js"))?.text ?? "";
+  const css = outputFiles
+    .filter((file) => file.path.endsWith(".css"))
+    .map((file) => file.text)
+    .join("\n");
+  const html = renderWidgetHtml("Execute Code", javascript, css);
+  const hash = createHash("sha256").update(html).digest("hex").slice(0, 12);
+  const outputDir = path.join(outDir, "public", "widgets", safeId);
+  const outputFile = path.join(outputDir, `widget.${hash}.html`);
+  const resourceUri = `ui://${safeId}/widget.${hash}.html`;
+  const options: ToolWidgetOptions = {
+    description: "Renders the selected result from a Sidecar code-mode execution.",
+    csp: {
+      connectDomains: [],
+      resourceDomains: [],
+    },
+  };
+
+  await mkdir(outputDir, { recursive: true });
+  await writeFile(outputFile, html);
+
+  return {
+    sourceFile: path.relative(rootDir, entryFile),
+    variant: "shared",
+    resourceUri,
+    resourceMeta: widgetResourceMeta(options, target),
+    outputFile: path.relative(outDir, outputFile),
+    options,
+  };
+}
+
 /** Converts static config into esbuild option extensions. */
 function widgetBuildOptionsFromConfig(
   rootDir: string,
@@ -260,6 +359,115 @@ function enforceWidgetBuildInvariants(
   };
 }
 
+/** Renders the generated React entrypoint for the dynamic code-mode widget. */
+function renderCodeModeWidgetEntry(
+  rootDir: string,
+  entryFile: string,
+  entries: Array<SidecarToolManifestEntry & { widget: SidecarWidgetManifestEntry }>,
+  appStyle: string | undefined,
+): string {
+  const entryDir = path.dirname(entryFile);
+  const imports = entries.map((entry, index) => {
+    const sourceFile = path.join(rootDir, entry.widget.sourceFile);
+    return `import Widget${index} from ${JSON.stringify(toImportSpecifier(entryDir, sourceFile))};`;
+  }).join("\n");
+  const registry = entries
+    .map((entry, index) => `${JSON.stringify(entry.id)}: Widget${index}`)
+    .join(",\n  ");
+
+  return `import React, { useMemo } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  SidecarWidgetProvider,
+  SidecarWidgetRoot,
+  browserBridge,
+  useToolResult
+} from "@sidecar-ai/react";
+import { Heading, Stack, Surface, Text } from "@sidecar-ai/native/components";
+import "@sidecar-ai/native/styles.css";
+${appStyle ? `import ${JSON.stringify(toImportSpecifier(entryDir, appStyle))};` : ""}
+${imports}
+
+const registry = {
+  ${registry}
+};
+
+function nestedResult(result, payload) {
+  return {
+    ...result,
+    structuredContent: payload?.result ?? payload?.value,
+    structured: payload?.result ?? payload?.value,
+    content: payload?.content ?? result.content ?? [],
+    meta: payload?.meta ?? result.meta ?? {},
+    _meta: payload?.meta ?? result._meta ?? {},
+  };
+}
+
+function createNestedBridge(result, payload) {
+  return {
+    ...browserBridge,
+    getToolResult() {
+      return nestedResult(result, payload);
+    },
+    subscribeToolResult(listener) {
+      return browserBridge.subscribeToolResult((next) => {
+        const nextPayload = next?.structuredContent?.codeMode;
+        listener(nestedResult(next, nextPayload));
+      });
+    },
+  };
+}
+
+function GenericCodeModeResult({ payload }) {
+  return React.createElement("main", { className: "sidecar-code-mode" },
+    React.createElement(Stack, { gap: "md" },
+      React.createElement(Heading, { level: 1 }, "Code result"),
+      React.createElement(Surface, { variant: "card" },
+        React.createElement("pre", {
+          style: {
+            margin: 0,
+            overflowWrap: "anywhere",
+            whiteSpace: "pre-wrap"
+          }
+        }, JSON.stringify(payload?.value ?? payload ?? {}, null, 2))
+      )
+    )
+  );
+}
+
+function CodeModeWidget() {
+  const result = useToolResult();
+  const payload = result.structuredContent?.codeMode;
+  const renderer = payload?.renderer;
+  const Component = renderer ? registry[renderer] : undefined;
+  const bridge = useMemo(() => createNestedBridge(result, payload), [result, payload]);
+
+  if (Component) {
+    return React.createElement(
+      SidecarWidgetProvider,
+      { bridge },
+      React.createElement(Component)
+    );
+  }
+
+  if (payload?.ok === false) {
+    return React.createElement("main", { className: "sidecar-code-mode" },
+      React.createElement(Stack, { gap: "sm" },
+        React.createElement(Heading, { level: 1 }, "Code failed"),
+        React.createElement(Text, { tone: "muted" }, "The generated code did not complete successfully.")
+      )
+    );
+  }
+
+  return React.createElement(GenericCodeModeResult, { payload });
+}
+
+createRoot(document.getElementById("root")).render(
+  React.createElement(SidecarWidgetRoot, null, React.createElement(CodeModeWidget))
+);
+`;
+}
+
 /** Builds all Sidecar-owned widget aliases, including React singleton aliases. */
 function sidecarWidgetAliases(rootDir: string): Record<string, string> | undefined {
   return {
@@ -326,6 +534,7 @@ function devSidecarBundleAliases(rootDir: string): Record<string, string> | unde
   }
 
   return {
+    "sidecar-ai/remote": path.join(repoRoot, "packages", "sidecar-ai", "src", "remote.ts"),
     "sidecar-ai": path.join(repoRoot, "packages", "sidecar-ai", "src", "index.ts"),
     "@sidecar-ai/client": path.join(repoRoot, "packages", "client", "src", "index.ts"),
     "@sidecar-ai/core": path.join(repoRoot, "packages", "core", "src", "index.ts"),

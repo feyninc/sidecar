@@ -1,5 +1,6 @@
 /** Build orchestration for Sidecar projects. */
 import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { analyzeProjectTools } from "./analyze.js";
 import { analyzeProjectConfig } from "./config.js";
@@ -11,7 +12,7 @@ import { analyzeProjectPrompts } from "./prompts.js";
 import { analyzeProjectResources } from "./resources.js";
 import { VERCEL_FUNCTION_DIR, buildServerOutput } from "./server-output.js";
 import type { BuildProjectOptions, SidecarManifest, SidecarResourceTemplateManifestEntry } from "./types.js";
-import { buildWidgets } from "./widgets.js";
+import { buildCodeModeWidget, buildWidgets } from "./widgets.js";
 
 /** Builds the MCP output, generated types, and optional plugin packages. */
 export async function buildProject(
@@ -22,6 +23,12 @@ export async function buildProject(
   const target = options.target ?? config.build.target ?? "mcp";
   const host = options.host ?? config.build.host ?? "node";
   const plugins = options.plugins ?? config.build.plugins ?? false;
+  if (config.codeMode.enabled && !config.codeMode.unsafe && !config.remoteExecution.enabled) {
+    throw new Error("Code mode requires remoteExecution: true, or codeMode: { unsafe: true } for trusted local use.");
+  }
+  if (config.codeMode.enabled && config.remoteExecution.enabled && !existsSync(path.join(rootDir, "remote.ts"))) {
+    throw new Error("remoteExecution: true requires a reserved remote.ts file at the project root.");
+  }
   const tools = await analyzeProjectTools(rootDir, { target });
   const resources = await analyzeProjectResources(rootDir);
   const resourceTemplates: SidecarResourceTemplateManifestEntry[] = [];
@@ -41,6 +48,9 @@ export async function buildProject(
   const outDir = resolveInsideRoot(rootDir, options.outDir ?? config.build.outDir ?? defaultBuildOutDir(host, target));
   const runtimeOutDir = resolveRuntimeOutputDir(outDir, host);
   await buildWidgets(rootDir, runtimeOutDir, tools, config.build.widgets);
+  const codeModeWidget = config.codeMode.enabled && config.codeMode.render.enabled
+    ? await buildCodeModeWidget(rootDir, runtimeOutDir, tools, target, config.build.widgets)
+    : undefined;
 
   const manifest: SidecarManifest = {
     version: 1,
@@ -50,6 +60,15 @@ export async function buildProject(
     generatedAt: new Date().toISOString(),
     config,
     tools,
+    codeMode: config.codeMode.enabled
+      ? {
+          enabled: true,
+          unsafe: config.codeMode.unsafe,
+          remoteExecution: config.remoteExecution.enabled,
+          render: config.codeMode.render,
+          widget: codeModeWidget,
+        }
+      : undefined,
     resources,
     resourceTemplates,
     prompts,
