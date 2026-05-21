@@ -13,6 +13,7 @@ import {
   type ToolContext
 } from "sidecar-ai";
 import type { NotionSession } from "../auth.js";
+import { normalizeMarkdownTables } from "./markdown-tables.js";
 import { createNotionAuthorizationUrl, readUsableNotionToken } from "./notion-oauth.js";
 
 const DEFAULT_NOTION_MCP_URL = "https://mcp.notion.com/mcp";
@@ -596,7 +597,7 @@ function compactPropertyValue(value: unknown): string | undefined {
 
 /** Strips Notion's XML-ish wrapper while keeping readable text. */
 function cleanNotionMarkup(text: string): string {
-  return decodeEntities(text)
+  return normalizeMarkdownTables(decodeEntities(text))
     .replace(/^Here is the result[\s\S]*?\n(?=<[a-z-]+\b)/i, "")
     .replace(/<[^>]+>/g, "")
     .replace(/\\"/g, '"')

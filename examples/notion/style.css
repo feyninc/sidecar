@@ -104,7 +104,7 @@ body {
   padding-right: 56px;
 }
 
-.notion-markdown :where(p, ul, ol, blockquote, pre, table) {
+.notion-markdown :where(p, ul, ol, blockquote, pre, table, .notion-markdown-table-frame) {
   margin: 0 0 1em;
 }
 
@@ -116,7 +116,7 @@ body {
   overflow-wrap: anywhere;
 }
 
-.notion-markdown :where(p, ul, ol, blockquote, pre, table):last-child {
+.notion-markdown :where(p, ul, ol, blockquote, pre, table, .notion-markdown-table-frame):last-child {
   margin-bottom: 0;
 }
 
@@ -224,11 +224,19 @@ body {
   padding: 0;
 }
 
+.notion-markdown-table-frame {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
 .notion-markdown-table {
   border-collapse: collapse;
   font-size: var(--font-text-sm-size, 14px);
   line-height: 1.45;
-  width: 100%;
+  margin: 0;
+  min-width: 100%;
+  width: max-content;
 }
 
 .notion-markdown-table :where(th, td) {

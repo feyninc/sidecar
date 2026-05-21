@@ -17,6 +17,7 @@ import {
   TextLink
 } from "@sidecar-ai/native/components";
 import type { ButtonProps } from "@sidecar-ai/native/components";
+import { normalizeMarkdownTables } from "../lib/markdown-tables.js";
 import type { NotionPreviewItem, NotionToolOutput } from "../lib/official-mcp-client.js";
 
 const MISSING_RESULT_DELAY_MS = 2200;
@@ -170,10 +171,12 @@ export function CopyableBlock({
 
 /** Markdown renderer used only for authored/readable Notion content. */
 export function MarkdownContent({ children }: { children: string }) {
+  const markdown = normalizeMarkdownTables(children || "No content returned.");
+
   return (
     <article className="notion-markdown">
       <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm, remarkBreaks]} skipHtml>
-        {children || "No content returned."}
+        {markdown}
       </ReactMarkdown>
     </article>
   );
@@ -433,7 +436,11 @@ const markdownComponents: Components = {
     return <blockquote className={classNames(className, "notion-blockquote")} {...props} />;
   },
   table({ node: _node, className, ...props }) {
-    return <table className={classNames(className, "notion-markdown-table")} {...props} />;
+    return (
+      <div className="notion-markdown-table-frame">
+        <table className={classNames(className, "notion-markdown-table")} {...props} />
+      </div>
+    );
   }
 };
 
