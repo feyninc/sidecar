@@ -1,6 +1,6 @@
 /** Native preview for created Notion databases. */
 import { widget } from "@sidecar-ai/react";
-import { NotionSchemaWidget } from "../../components/NotionWriteWidgets.js";
+import { NotionCreateDatabaseWidget } from "../../components/NotionWriteWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionSchemaWidget
+  NotionCreateDatabaseWidget
 );

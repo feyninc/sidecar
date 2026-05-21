@@ -2,22 +2,36 @@
 import { Avatar, Heading, Stack, Surface, Text } from "@sidecar-ai/native/components";
 import {
   cleanTitle,
+  MissingResultFallback,
   PeopleSkeleton,
   previewItems,
   ResultList,
   ResultsSkeleton,
-  useNotionResult,
+  useNotionResultState,
   WidgetHeader,
   WidgetShell
 } from "./NotionPrimitives.js";
 
-/** One-person profile view for `notion-get-user` and `notion-get-self`. */
-export function NotionPersonWidget() {
-  const result = useNotionResult();
-  if (!result) {
+/** One-person profile view for `notion-get-self`. */
+export function NotionSelfWidget() {
+  return <NotionPersonWidget toolName="notion-get-self" retry="emptyArgs" />;
+}
+
+/** One-person profile view for `notion-get-user`. */
+export function NotionUserWidget() {
+  return <NotionPersonWidget toolName="notion-get-user" retry="withArgs" />;
+}
+
+function NotionPersonWidget({ retry, toolName }: { retry: "emptyArgs" | "withArgs"; toolName: string }) {
+  const state = useNotionResultState({ toolName, retry });
+  if (state.status === "loading") {
     return <PeopleSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="User preview unavailable" />;
+  }
 
+  const { result } = state;
   const title = cleanTitle(result.preview.title, "Notion user");
   return (
     <WidgetShell>
@@ -40,11 +54,15 @@ export function NotionPersonWidget() {
 
 /** User directory view for `notion-get-users`. */
 export function NotionPeopleWidget() {
-  const result = useNotionResult();
-  if (!result) {
+  const state = useNotionResultState({ toolName: "notion-get-users", retry: "withArgs" });
+  if (state.status === "loading") {
     return <PeopleSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Users preview unavailable" />;
+  }
 
+  const { result } = state;
   const people = previewItems(result);
   return (
     <WidgetShell>
@@ -78,11 +96,15 @@ export function NotionPeopleWidget() {
 
 /** Teamspace list for `notion-get-teams`. */
 export function NotionTeamsWidget() {
-  const result = useNotionResult();
-  if (!result) {
+  const state = useNotionResultState({ toolName: "notion-get-teams", retry: "withArgs" });
+  if (state.status === "loading") {
     return <ResultsSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Teamspace preview unavailable" />;
+  }
 
+  const { result } = state;
   return (
     <WidgetShell>
       <Stack gap="lg">

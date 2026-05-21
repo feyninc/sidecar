@@ -1,6 +1,6 @@
 /** Native preview for moved Notion pages. */
 import { widget } from "@sidecar-ai/react";
-import { NotionOperationWidget } from "../../components/NotionWriteWidgets.js";
+import { NotionMovePagesWidget } from "../../components/NotionWriteWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionOperationWidget
+  NotionMovePagesWidget
 );

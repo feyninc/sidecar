@@ -8,10 +8,11 @@ import {
   DocumentSkeleton,
   GhostButton,
   MarkdownContent,
+  MissingResultFallback,
   previewItems,
   ResultList,
   ResultsSkeleton,
-  useNotionResult,
+  useNotionResultState,
   WidgetHeader,
   WidgetShell
 } from "./NotionPrimitives.js";
@@ -20,13 +21,17 @@ const COLLAPSED_DOCUMENT_LENGTH = 4200;
 
 /** Document reader for `notion-fetch`. */
 export function NotionDocumentWidget() {
-  const result = useNotionResult();
+  const state = useNotionResultState({ toolName: "notion-fetch", retry: "withArgs" });
   const [expanded, setExpanded] = useState(false);
 
-  if (!result) {
+  if (state.status === "loading") {
     return <DocumentSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Document preview unavailable" />;
+  }
 
+  const { result } = state;
   const title = cleanTitle(result.preview.title, "Fetched Notion content");
   const content = result.preview.content;
   const canToggle = content.length > COLLAPSED_DOCUMENT_LENGTH;
@@ -55,11 +60,15 @@ export function NotionDocumentWidget() {
 
 /** Search result list for `notion-search`. */
 export function NotionSearchWidget() {
-  const result = useNotionResult();
-  if (!result) {
+  const state = useNotionResultState({ toolName: "notion-search", retry: "withArgs" });
+  if (state.status === "loading") {
     return <ResultsSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Search preview unavailable" />;
+  }
 
+  const { result } = state;
   return (
     <WidgetShell>
       <Stack gap="lg">
@@ -70,13 +79,26 @@ export function NotionSearchWidget() {
   );
 }
 
-/** Compact result list for Notion data-source and database-view query tools. */
-export function NotionQueryWidget() {
-  const result = useNotionResult();
-  if (!result) {
+/** Compact result list for Notion data-source queries. */
+export function NotionDataSourcesQueryWidget() {
+  return <NotionQueryWidget toolName="notion-query-data-sources" />;
+}
+
+/** Compact result list for Notion database-view queries. */
+export function NotionDatabaseViewQueryWidget() {
+  return <NotionQueryWidget toolName="notion-query-database-view" />;
+}
+
+function NotionQueryWidget({ toolName }: { toolName: string }) {
+  const state = useNotionResultState({ toolName, retry: "withArgs" });
+  if (state.status === "loading") {
     return <ResultsSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Query preview unavailable" />;
+  }
 
+  const { result } = state;
   return (
     <WidgetShell>
       <Stack gap="lg">
@@ -89,11 +111,15 @@ export function NotionQueryWidget() {
 
 /** Comment-thread reader for `notion-get-comments`. */
 export function NotionCommentsWidget() {
-  const result = useNotionResult();
-  if (!result) {
+  const state = useNotionResultState({ toolName: "notion-get-comments", retry: "withArgs" });
+  if (state.status === "loading") {
     return <CommentsSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Comments preview unavailable" />;
+  }
 
+  const { result } = state;
   const comments = previewItems(result);
   return (
     <WidgetShell>

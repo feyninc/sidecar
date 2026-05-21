@@ -1,6 +1,6 @@
 /** Native preview for updated Notion page content. */
 import { widget } from "@sidecar-ai/react";
-import { NotionPageWriteWidget } from "../../components/NotionWriteWidgets.js";
+import { NotionUpdatePageWidget } from "../../components/NotionWriteWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionPageWriteWidget
+  NotionUpdatePageWidget
 );

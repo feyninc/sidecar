@@ -1,52 +1,21 @@
 /** Authorization widget for linking a Notion account. */
-import { useEffect, useState } from "react";
-import { server, type WidgetToolResult } from "@sidecar-ai/react";
 import { Stack, Surface, Text } from "@sidecar-ai/native/components";
 import {
   AuthorizeButton,
-  useNotionResult,
+  useNotionResultState,
   WidgetHeader,
   WidgetShell
 } from "./NotionPrimitives.js";
-import type { NotionToolOutput } from "../lib/official-mcp-client.js";
 
 /** Dedicated OAuth panel for the explicit `authorize` tool. */
 export function NotionAuthorizeWidget() {
-  const hostResult = useNotionResult();
-  const [fallbackResult, setFallbackResult] = useState<NotionToolOutput | undefined>();
-  const [fallbackFailed, setFallbackFailed] = useState(false);
-  const result = hostResult ?? fallbackResult;
+  const state = useNotionResultState({ toolName: "authorize", retry: "emptyArgs" });
 
-  useEffect(() => {
-    if (hostResult || fallbackResult || fallbackFailed) {
-      return;
-    }
-
-    let active = true;
-    server.tool<Record<string, never>, NotionToolOutput>({
-      name: "authorize",
-      arguments: {}
-    })
-      .then((toolResult: WidgetToolResult<NotionToolOutput>) => {
-        if (active) {
-          setFallbackResult(toolResult.structuredContent);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setFallbackFailed(true);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [fallbackFailed, fallbackResult, hostResult]);
-
-  if (!result) {
-    return <PendingAuthorizationStatus failed={fallbackFailed} />;
+  if (state.status !== "ready") {
+    return <PendingAuthorizationStatus failed={state.status === "missing"} />;
   }
 
+  const { result } = state;
   return (
     <WidgetShell className="notion-auth-shell">
       <Surface variant="card" className="notion-auth-card">

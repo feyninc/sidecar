@@ -1,6 +1,6 @@
 /** Native preview for updated Notion data sources. */
 import { widget } from "@sidecar-ai/react";
-import { NotionSchemaWidget } from "../../components/NotionWriteWidgets.js";
+import { NotionUpdateDataSourceWidget } from "../../components/NotionWriteWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionSchemaWidget
+  NotionUpdateDataSourceWidget
 );

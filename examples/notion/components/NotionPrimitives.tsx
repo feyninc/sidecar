@@ -1,9 +1,9 @@
 /** Shared visual primitives for the Notion example widgets. */
-import { type AnchorHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useState, type AnchorHTMLAttributes, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { useToolResult } from "@sidecar-ai/react";
+import { server, useToolResult, useWidgetBridge, type ToolInput, type WidgetToolResult } from "@sidecar-ai/react";
 import {
   Button,
   ButtonLink,
@@ -19,9 +19,104 @@ import {
 import type { ButtonProps } from "@sidecar-ai/native/components";
 import type { NotionPreviewItem, NotionToolOutput } from "../lib/official-mcp-client.js";
 
+const MISSING_RESULT_DELAY_MS = 2200;
+
+type NotionResultRetry = "never" | "withArgs" | "emptyArgs";
+
+export type NotionResultState =
+  | { status: "ready"; result: NotionToolOutput }
+  | { status: "loading" }
+  | { status: "missing"; retry: NotionResultRetry };
+
+export type UseNotionResultOptions = {
+  toolName: string;
+  retry: NotionResultRetry;
+  missingAfterMs?: number;
+};
+
 /** Reads the current Sidecar tool result with the Notion example's structure. */
 export function useNotionResult(): NotionToolOutput | undefined {
   return useToolResult<NotionToolOutput>().structuredContent;
+}
+
+/**
+ * Reads the host result and recovers safely when Claude misses a fast widget payload.
+ *
+ * Read-only tools may be retried from the widget when their original arguments
+ * are available. Write tools must use `retry: "never"` so missing payloads do
+ * not duplicate mutations in Notion.
+ */
+export function useNotionResultState(options: UseNotionResultOptions): NotionResultState {
+  const hostResult = useNotionResult();
+  const bridge = useWidgetBridge();
+  const [toolArgs, setToolArgs] = useState<Record<string, unknown> | undefined>(
+    options.retry === "emptyArgs" ? {} : undefined,
+  );
+  const [fallbackResult, setFallbackResult] = useState<NotionToolOutput | undefined>();
+  const [attemptedRetry, setAttemptedRetry] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
+  const result = hostResult ?? fallbackResult;
+
+  useEffect(() => {
+    if (result) {
+      setTimedOut(false);
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setTimedOut(true),
+      options.missingAfterMs ?? MISSING_RESULT_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [options.missingAfterMs, result]);
+
+  useEffect(
+    () =>
+      bridge.subscribeToolInput((input: ToolInput) => {
+        if (input.arguments) {
+          setToolArgs(input.arguments);
+        }
+      }),
+    [bridge],
+  );
+
+  useEffect(() => {
+    if (result || attemptedRetry || options.retry === "never") {
+      return;
+    }
+    if (options.retry === "withArgs" && !toolArgs) {
+      return;
+    }
+
+    let active = true;
+    setAttemptedRetry(true);
+    server.tool<Record<string, unknown>, NotionToolOutput>({
+      name: options.toolName,
+      arguments: toolArgs ?? {},
+    })
+      .then((toolResult: WidgetToolResult<NotionToolOutput>) => {
+        if (active) {
+          setFallbackResult(toolResult.structuredContent);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTimedOut(true);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [attemptedRetry, options.retry, options.toolName, result, toolArgs]);
+
+  if (result) {
+    return { status: "ready", result };
+  }
+  if (timedOut) {
+    return { status: "missing", retry: options.retry };
+  }
+  return { status: "loading" };
 }
 
 /** Transparent app shell shared by all Notion widgets. */
@@ -245,6 +340,30 @@ export function AuthSkeleton() {
           <Skeleton height="18px" width="74%" />
           <Skeleton height="38px" width="180px" />
         </Stack>
+      </Surface>
+    </WidgetShell>
+  );
+}
+
+/** Stable fallback when the host does not deliver structured widget data. */
+export function MissingResultFallback({ retry, title }: { retry: NotionResultRetry; title?: string }) {
+  const isWrite = retry === "never";
+  return (
+    <WidgetShell>
+      <Surface variant="card" className="notion-missing-result">
+        <WidgetHeader
+          title={title ?? "Preview unavailable"}
+          summary={
+            isWrite
+              ? "The tool finished, but Claude did not deliver the structured widget result."
+              : "The tool result is available in the conversation, but the widget could not recover its structured preview."
+          }
+        />
+        <Text tone="muted">
+          {isWrite
+            ? "Sidecar will not re-run write tools from the widget because that could repeat changes in Notion."
+            : "Use the text response below this widget, or retry the request if you need the interactive preview."}
+        </Text>
       </Surface>
     </WidgetShell>
   );

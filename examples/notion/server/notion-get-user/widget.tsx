@@ -1,6 +1,6 @@
 /** Native preview for one Notion user. */
 import { widget } from "@sidecar-ai/react";
-import { NotionPersonWidget } from "../../components/NotionDirectoryWidgets.js";
+import { NotionUserWidget } from "../../components/NotionDirectoryWidgets.js";
 
 export default widget(
   {
@@ -10,5 +10,5 @@ export default widget(
       resourceDomains: []
     }
   },
-  NotionPersonWidget
+  NotionUserWidget
 );

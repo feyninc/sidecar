@@ -4,20 +4,34 @@ import {
   cleanTitle,
   CopyableBlock,
   MarkdownContent,
+  MissingResultFallback,
   PlainTextBlock,
-  useNotionResult,
+  useNotionResultState,
   WidgetHeader,
   WidgetShell,
   WriteSkeleton
 } from "./NotionPrimitives.js";
 
-/** Focused page-content preview for create and update page tools. */
-export function NotionPageWriteWidget() {
-  const result = useNotionResult();
-  if (!result) {
+/** Focused page-content preview for created Notion pages. */
+export function NotionCreatePagesWidget() {
+  return <NotionPageWriteWidget toolName="notion-create-pages" />;
+}
+
+/** Focused page-content preview for updated Notion pages. */
+export function NotionUpdatePageWidget() {
+  return <NotionPageWriteWidget toolName="notion-update-page" />;
+}
+
+function NotionPageWriteWidget({ toolName }: { toolName: string }) {
+  const state = useNotionResultState({ toolName, retry: "never" });
+  if (state.status === "loading") {
     return <WriteSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Page preview unavailable" />;
+  }
 
+  const { result } = state;
   return (
     <WidgetShell>
       <Stack gap="lg">
@@ -32,11 +46,15 @@ export function NotionPageWriteWidget() {
 
 /** Comment composer preview for `notion-create-comment`. */
 export function NotionCommentWriteWidget() {
-  const result = useNotionResult();
-  if (!result) {
+  const state = useNotionResultState({ toolName: "notion-create-comment", retry: "never" });
+  if (state.status === "loading") {
     return <WriteSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Comment preview unavailable" />;
+  }
 
+  const { result } = state;
   return (
     <WidgetShell>
       <Stack gap="lg">
@@ -55,13 +73,26 @@ export function NotionCommentWriteWidget() {
   );
 }
 
-/** Schema-focused preview for database and data-source changes. */
-export function NotionSchemaWidget() {
-  const result = useNotionResult();
-  if (!result) {
+/** Schema-focused preview for created Notion databases. */
+export function NotionCreateDatabaseWidget() {
+  return <NotionSchemaWidget toolName="notion-create-database" />;
+}
+
+/** Schema-focused preview for updated Notion data sources. */
+export function NotionUpdateDataSourceWidget() {
+  return <NotionSchemaWidget toolName="notion-update-data-source" />;
+}
+
+function NotionSchemaWidget({ toolName }: { toolName: string }) {
+  const state = useNotionResultState({ toolName, retry: "never" });
+  if (state.status === "loading") {
     return <WriteSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Schema preview unavailable" />;
+  }
 
+  const { result } = state;
   return (
     <WidgetShell>
       <Stack gap="lg">
@@ -74,13 +105,26 @@ export function NotionSchemaWidget() {
   );
 }
 
-/** View-configuration preview for Notion database view tools. */
-export function NotionViewConfigWidget() {
-  const result = useNotionResult();
-  if (!result) {
+/** View-configuration preview for created Notion database views. */
+export function NotionCreateViewWidget() {
+  return <NotionViewConfigWidget toolName="notion-create-view" />;
+}
+
+/** View-configuration preview for updated Notion database views. */
+export function NotionUpdateViewWidget() {
+  return <NotionViewConfigWidget toolName="notion-update-view" />;
+}
+
+function NotionViewConfigWidget({ toolName }: { toolName: string }) {
+  const state = useNotionResultState({ toolName, retry: "never" });
+  if (state.status === "loading") {
     return <WriteSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="View preview unavailable" />;
+  }
 
+  const { result } = state;
   return (
     <WidgetShell>
       <Stack gap="lg">
@@ -93,13 +137,26 @@ export function NotionViewConfigWidget() {
   );
 }
 
-/** Concise acknowledgement for move and duplicate operations. */
-export function NotionOperationWidget() {
-  const result = useNotionResult();
-  if (!result) {
+/** Concise acknowledgement for moved Notion pages. */
+export function NotionMovePagesWidget() {
+  return <NotionOperationWidget toolName="notion-move-pages" />;
+}
+
+/** Concise acknowledgement for duplicated Notion pages. */
+export function NotionDuplicatePageWidget() {
+  return <NotionOperationWidget toolName="notion-duplicate-page" />;
+}
+
+function NotionOperationWidget({ toolName }: { toolName: string }) {
+  const state = useNotionResultState({ toolName, retry: "never" });
+  if (state.status === "loading") {
     return <WriteSkeleton />;
   }
+  if (state.status === "missing") {
+    return <MissingResultFallback retry={state.retry} title="Operation preview unavailable" />;
+  }
 
+  const { result } = state;
   return (
     <WidgetShell>
       <Stack gap="lg">
