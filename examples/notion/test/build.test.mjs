@@ -65,6 +65,12 @@ test("builds the Notion MCP as a standalone published-Sidecar consumer", { timeo
     const fetchWidget = await readFile(path.join(functionDir, fetch.widget.outputFile), "utf8");
     assert.match(fetchWidget, /Show full document/);
     assert.doesNotMatch(fetchWidget, /Open in Notion/);
+    const authorize = manifest.tools.find((tool) => tool.id === "authorize");
+    assert.ok(authorize?.widget?.outputFile);
+    assert.match(
+      await readFile(path.join(functionDir, authorize.widget.outputFile), "utf8"),
+      /Checking Notion authorization/,
+    );
     assert.match(await readFile(path.join(functionDir, "index.js"), "utf8"), /server\/index\.js/);
     assert.match(await readFile(path.join(functionDir, ".vc-config.json"), "utf8"), /nodejs22\.x/);
     assert.match(await readFile(path.join(vercelOutDir, "config.json"), "utf8"), /api\/sidecar/);
