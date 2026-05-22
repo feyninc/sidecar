@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { main } from "../src/index.js";
+import { main, renderBuildUrlSummary, renderDevUrlSummary } from "../src/index.js";
 
 const previousVercel = process.env.VERCEL;
 
@@ -12,6 +12,27 @@ afterEach(() => {
 });
 
 describe("sidecar build", () => {
+  it("renders clear build and dev URL summaries", () => {
+    expect(renderBuildUrlSummary({
+      host: "vercel",
+      mcpPath: "/mcp",
+      publicMcpUrl: "https://sidecar.example.com/mcp",
+      publicUrl: "https://sidecar.example.com",
+    })).toBe([
+      "Sidecar URLs:",
+      "  Vercel MCP route: https://<project>.vercel.app/mcp",
+      "  Public MCP: https://sidecar.example.com/mcp",
+      "  Public base: https://sidecar.example.com",
+    ].join("\n"));
+
+    expect(renderDevUrlSummary({
+      localMcpUrl: "http://127.0.0.1:3101/mcp",
+      runtimeMcpUrl: "https://example.trycloudflare.com/mcp",
+      tunnelProvider: "cloudflared",
+      harnessUrl: "http://127.0.0.1:3000",
+    })).toContain("ChatGPT/Claude connector URL: https://example.trycloudflare.com/mcp");
+  });
+
   it("uses build defaults from sidecar.config.ts when CLI flags are absent", async () => {
     const rootDir = await copySimpleFixture("sidecar-cli-config-build-");
 

@@ -16,10 +16,15 @@
   },
   "types": "./dist/index.d.ts",
   "dependencies": {
+    "@lobehub/icons-static-svg": "^1.90.0",
     "@sidecar-ai/auth": "0.1.0-alpha.10",
     "@sidecar-ai/compiler": "0.1.0-alpha.10",
     "@sidecar-ai/core": "0.1.0-alpha.10",
     "@sidecar-ai/server": "0.1.0-alpha.10",
+    "esbuild": "^0.28.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "streamdown": "^2.5.0",
     "tsx": "^4.22.0"
   },
   "publishConfig": {

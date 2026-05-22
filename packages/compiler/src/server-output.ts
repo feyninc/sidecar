@@ -186,10 +186,21 @@ if (isDirectRun()) {
   server.listen(port, host, () => {
     const localHost = host === "0.0.0.0" ? "127.0.0.1" : host;
     console.log(\`MCP running on Streamable HTTP at http://\${localHost}:\${port}\${process.env.SIDECAR_MCP_PATH ?? "/mcp"}\`);
+    printRuntimeUrls(localHost, port);
   });
 
   process.on("SIGTERM", () => shutdown());
   process.on("SIGINT", () => shutdown());
+}
+
+function printRuntimeUrls(localHost, port) {
+  const mcpPath = process.env.SIDECAR_MCP_PATH ?? "/mcp";
+  console.log("Sidecar URLs:");
+  console.log(\`  Local MCP: http://\${localHost}:\${port}\${mcpPath}\`);
+  console.log(\`  Public MCP: \${process.env.SIDECAR_MCP_URL ?? "set SIDECAR_MCP_URL=https://your-host.example.com" + mcpPath}\`);
+  if (process.env.SIDECAR_PUBLIC_URL) {
+    console.log(\`  Public base: \${process.env.SIDECAR_PUBLIC_URL}\`);
+  }
 }
 
 function loadTool(sourceFile, value, descriptor) {

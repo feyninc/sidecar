@@ -7,12 +7,13 @@
  */
 import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { cwd, exit, stdin, stdout } from "node:process";
+import { cwd, execPath, exit, stdin, stdout } from "node:process";
 import { tsImport } from "tsx/esm/api";
 import { isSidecarAuth, type SidecarAuth } from "@sidecar-ai/auth";
 import {
@@ -41,6 +42,7 @@ import {
   type SidecarConfig
 } from "@sidecar-ai/core";
 import { createSidecarHttpServer, isSidecarProxy, type LoadedPrompt, type LoadedResource, type LoadedTool, type SidecarProxy } from "@sidecar-ai/server";
+import { startDevHarness, type DevHarnessDevice, type DevHarnessHost, type DevHarnessTheme } from "./dev-harness.js";
 import { startTunnel, validateTunnelEndpoint, type TunnelProvider, type TunnelSession } from "./tunnel.js";
 
 type Command = "build" | "check" | "component-preview" | "dev" | "inspect" | "preview" | "help";
@@ -74,6 +76,13 @@ export async function main(argv: string[]): Promise<void> {
       } else {
         console.log(`Hostable MCP server: ${path.join(resolvedOutDir, SERVER_ENTRYPOINT)}`);
       }
+      console.log(renderBuildUrlSummary({
+        host: manifest.host,
+        mcpPath: process.env.SIDECAR_MCP_PATH,
+        publicMcpUrl: process.env.SIDECAR_MCP_URL,
+        publicUrl: process.env.SIDECAR_PUBLIC_URL,
+        port: process.env.SIDECAR_PORT ?? process.env.PORT,
+      }));
       if (plugins ?? manifest.config.build.plugins) {
         console.log("Built claude-plugin package.");
       }
@@ -103,92 +112,74 @@ export async function main(argv: string[]): Promise<void> {
     }
 
     case "dev": {
-      const port = Number(readOption(argv, "--port") ?? "3001");
+      await loadProjectEnv(rootDir);
+      const port = Number(readOption(argv, "--mcp-port") ?? readOption(argv, "--port") ?? "3101");
+      const harnessPort = Number(readOption(argv, "--harness-port") ?? "3000");
       const target = readTarget(argv);
+      const devHost = readDevHost(argv);
+      const devTheme = readDevTheme(argv);
+      const devDevice = readDevDevice(argv);
+      const model = readOption(argv, "--model") ?? process.env.SIDECAR_DEV_MODEL ?? "gpt-4.1-mini";
       const tunnelProvider = readTunnelProvider(argv);
       const outDir = `.sidecar/dev/${target}`;
-      const loadedAuth = await loadRuntimeAuth(rootDir);
-      const runtimeConfig = await loadRuntimeConfig(rootDir);
-      const proxy = await loadRuntimeProxy(rootDir);
-      const remoteExecution = manifestCodeModeNeedsRemote(runtimeConfig)
-        ? await loadRuntimeRemote(rootDir)
-        : undefined;
-      const runtimeToolEntries = await analyzeProjectTools(rootDir, { target });
-      const runtimeTools = await loadRuntimeTools(rootDir, runtimeToolEntries);
-      const manifest = await buildProject({ rootDir, outDir, target });
+      const localMcpUrl = `http://127.0.0.1:${port}/mcp`;
+      process.env.SIDECAR_MCP_URL = localMcpUrl;
+      const manifest = await buildProject({ rootDir, outDir, target, host: "node" });
       printDiagnostics(manifest.diagnostics ?? []);
-      const tools = attachBuiltToolDescriptors(runtimeTools, manifest);
       let tunnel: TunnelSession | undefined;
       if (tunnelProvider) {
         tunnel = await startTunnel({ provider: tunnelProvider, port, path: "/mcp" });
         process.env.SIDECAR_MCP_URL = tunnel.mcpUrl;
       }
 
-      const auth = loadedAuth && tunnel ? loadedAuth.withResource(tunnel.mcpUrl) : loadedAuth;
-      const resources = await loadResources(rootDir, outDir, manifest);
-      const prompts = await loadRuntimePrompts(rootDir, manifest);
-      const server = createSidecarHttpServer({
-        name: "sidecar-dev",
-        version: "0.0.0-dev",
-        path: "/mcp",
-        auth,
-        proxy,
-        codeMode: manifest.codeMode
-          ? {
-              enabled: true,
-              unsafe: manifest.codeMode.unsafe,
-              render: manifest.codeMode.render,
-              widgetMeta: manifest.codeMode.widget?.resourceUri
-                ? {
-                    ui: { resourceUri: manifest.codeMode.widget.resourceUri },
-                    "ui/resourceUri": manifest.codeMode.widget.resourceUri,
-                    ...(manifest.target === "chatgpt" ? { "openai/outputTemplate": manifest.codeMode.widget.resourceUri } : {}),
-                  }
-                : undefined,
-            }
-          : undefined,
-        remoteExecution,
-        tools,
-        resources,
-        prompts,
-        capabilities: {
-          tools: runtimeConfig?.tools ?? manifest.config.tools,
-          resources: runtimeConfig?.resources ?? manifest.config.resources,
-          prompts: runtimeConfig?.prompts ?? manifest.config.prompts,
-        },
-        pagination: runtimeConfig?.pagination ?? {
-          pageSize: manifest.config.pagination.pageSize,
-        },
-      });
-
-      let listening = false;
+      const runtimeMcpUrl = tunnel?.mcpUrl ?? localMcpUrl;
+      let mcpProcess: ChildProcess | undefined;
+      let harness: Awaited<ReturnType<typeof startDevHarness>> | undefined;
       try {
-        await listenOnLocalhost(server, port);
-        listening = true;
+        mcpProcess = await startBuiltMcpServer({
+          rootDir,
+          outDir,
+          port,
+          mcpUrl: runtimeMcpUrl,
+        });
         if (tunnel) {
           await validateTunnelEndpoint({
             mcpUrl: tunnel.mcpUrl,
-            auth: Boolean(auth),
+            auth: existsSync(path.join(rootDir, "auth.ts")),
           });
         }
 
-        console.log(`MCP running on Streamable HTTP (${target}) at http://127.0.0.1:${port}/mcp`);
-        console.log(`Loaded ${tools.length} tool${tools.length === 1 ? "" : "s"}, ${resources.length} resource${resources.length === 1 ? "" : "s"}, and ${prompts.length} prompt${prompts.length === 1 ? "" : "s"}.`);
-        if (tunnel) {
-          console.log(`HTTPS tunnel (${tunnel.provider}) validated: ${tunnel.mcpUrl}`);
-          console.log("Use this HTTPS MCP URL in ChatGPT, Claude, or a Claude plugin install.");
-        }
+        console.log(`MCP running on Streamable HTTP (${target}).`);
+        console.log(`Loaded ${manifest.tools.length} tool${manifest.tools.length === 1 ? "" : "s"}, ${manifest.resources.length} resource${manifest.resources.length === 1 ? "" : "s"}, and ${manifest.prompts.length} prompt${manifest.prompts.length === 1 ? "" : "s"}.`);
+        harness = await startDevHarness({
+          rootDir,
+          mcpUrl: localMcpUrl,
+          host: devHost,
+          theme: devTheme,
+          device: devDevice,
+          target,
+          port: harnessPort,
+          model,
+          initialBearerToken: process.env.MCP_BEARER,
+        });
+        console.log(renderDevUrlSummary({
+          localMcpUrl,
+          runtimeMcpUrl,
+          tunnelProvider: tunnel?.provider,
+          harnessUrl: harness.url,
+        }));
       } catch (error) {
         tunnel?.close();
-        if (listening) {
-          await closeServer(server);
-        }
+        await harness?.close();
+        await stopBuiltMcpServer(mcpProcess);
         throw error;
       }
 
       const shutdown = () => {
         tunnel?.close();
-        server.close(() => exit(0));
+        void harness?.close()
+          .then(() => stopBuiltMcpServer(mcpProcess))
+          .finally(() => exit(0));
       };
       process.once("SIGINT", shutdown);
       process.once("SIGTERM", shutdown);
@@ -239,7 +230,7 @@ export async function main(argv: string[]): Promise<void> {
 Usage:
   sidecar build [--cwd <dir>] [--target mcp|chatgpt|claude] [--host node|vercel] [--out <dir>] [--plugins|--no-plugins] [--strict]
   sidecar check [--cwd <dir>] [--target mcp|chatgpt|claude] [--strict]
-  sidecar dev [--cwd <dir>] [--target mcp|chatgpt|claude] [--port <port>] [--tunnel [cloudflared|wrangler]]
+  sidecar dev [--cwd <dir>] [--target mcp|chatgpt|claude] [--port <mcp-port>] [--mcp-port <port>] [--harness-port <port>] [--host chatgpt|claude|generic] [--theme light|dark] [--device desktop|mobile] [--model <model>] [--tunnel [cloudflared|wrangler]]
   sidecar inspect [--cwd <dir>] [--target mcp|chatgpt|claude]
   sidecar preview [--cwd <dir>] [--target mcp|chatgpt|claude]
   sidecar component-preview [--cwd <dir>] [--host chatgpt|claude|generic] [--compare native,openai] [--components representative|all] [--theme light|dark|both] [--port <port>] [--no-approve]
@@ -285,12 +276,72 @@ function readOptionalHost(argv: string[]): SidecarHost | undefined {
   throw new Error(`Unsupported Sidecar host "${host}". Expected node or vercel.`);
 }
 
+/** Reads the initial simulated host for `sidecar dev`. */
+function readDevHost(argv: string[]): DevHarnessHost {
+  const host = readOption(argv, "--host") ?? "chatgpt";
+  if (host === "chatgpt" || host === "claude" || host === "generic") {
+    return host;
+  }
+  throw new Error(`Unsupported dev host "${host}". Expected chatgpt, claude, or generic.`);
+}
+
+/** Reads the initial simulated theme for `sidecar dev`. */
+function readDevTheme(argv: string[]): DevHarnessTheme {
+  const theme = readOption(argv, "--theme") ?? "light";
+  if (theme === "light" || theme === "dark") {
+    return theme;
+  }
+  throw new Error(`Unsupported dev theme "${theme}". Expected light or dark.`);
+}
+
+/** Reads the initial simulated device for `sidecar dev`. */
+function readDevDevice(argv: string[]): DevHarnessDevice {
+  const device = readOption(argv, "--device") ?? "desktop";
+  if (device === "desktop" || device === "mobile") {
+    return device;
+  }
+  throw new Error(`Unsupported dev device "${device}". Expected desktop or mobile.`);
+}
+
 /** Infers a hosting artifact when a deployment platform exposes a reliable build env. */
 function detectHostFromEnvironment(): SidecarHost | undefined {
   if (process.env.VERCEL === "1") {
     return "vercel";
   }
   return undefined;
+}
+
+/** Loads project-local env files for development without overriding shell env. */
+async function loadProjectEnv(rootDir: string): Promise<void> {
+  for (const filename of [".env", ".env.local", ".envb"]) {
+    const text = await readFile(path.join(rootDir, filename), "utf8").catch(() => undefined);
+    if (!text) {
+      continue;
+    }
+    for (const line of text.split(/\r?\n/)) {
+      const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)?\s*$/);
+      if (!match) {
+        continue;
+      }
+      const [, key, rawValue = ""] = match;
+      if (!key || process.env[key] !== undefined) {
+        continue;
+      }
+      process.env[key] = parseEnvValue(rawValue);
+    }
+  }
+}
+
+/** Parses one dotenv scalar value. */
+function parseEnvValue(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).replace(/\\n/g, "\n");
+  }
+  return trimmed.replace(/\s+#.*$/, "");
 }
 
 /** Reads an optional plugin build override. */
@@ -327,12 +378,61 @@ type ProjectPreviewOptions = {
   targets: SidecarTarget[];
 };
 
+/** URL information printed after a build completes. */
+export type BuildUrlSummaryOptions = {
+  host: SidecarHost;
+  mcpPath?: string;
+  port?: string;
+  publicMcpUrl?: string;
+  publicUrl?: string;
+};
+
+/** URL information printed after `sidecar dev` starts. */
+export type DevUrlSummaryOptions = {
+  harnessUrl: string;
+  localMcpUrl: string;
+  runtimeMcpUrl: string;
+  tunnelProvider?: TunnelProvider;
+};
+
 /** Built target output used by the project preview server. */
 export type ProjectPreviewBuild = {
   target: SidecarTarget;
   outDir: string;
   manifest: SidecarManifest;
 };
+
+/** Renders build-time URL guidance without implying the artifact is already deployed. */
+export function renderBuildUrlSummary(options: BuildUrlSummaryOptions): string {
+  const mcpPath = options.mcpPath ?? "/mcp";
+  const lines = ["Sidecar URLs:"];
+  if (options.host === "vercel") {
+    lines.push(`  Vercel MCP route: https://<project>.vercel.app${mcpPath}`);
+  } else {
+    lines.push(`  Local Node MCP: http://127.0.0.1:${options.port ?? "3101"}${mcpPath}`);
+  }
+  lines.push(`  Public MCP: ${options.publicMcpUrl ?? `set SIDECAR_MCP_URL=https://your-host.example.com${mcpPath}`}`);
+  lines.push(`  Public base: ${options.publicUrl ?? "set SIDECAR_PUBLIC_URL=https://your-host.example.com when callbacks need a base URL"}`);
+  return lines.join("\n");
+}
+
+/** Renders the URLs exposed by `sidecar dev`. */
+export function renderDevUrlSummary(options: DevUrlSummaryOptions): string {
+  const stateUrl = `${options.harnessUrl}/__sidecar/dev/state`;
+  const lines = [
+    "Sidecar URLs:",
+    `  Local MCP: ${options.localMcpUrl}`,
+    `  Dev harness: ${options.harnessUrl}`,
+    `  Dev harness state: ${stateUrl}`,
+  ];
+  if (options.runtimeMcpUrl !== options.localMcpUrl) {
+    lines.push(`  Public MCP (${options.tunnelProvider ?? "tunnel"}): ${options.runtimeMcpUrl}`);
+    lines.push(`  ChatGPT/Claude connector URL: ${options.runtimeMcpUrl}`);
+  } else {
+    lines.push(`  Harness connector URL: ${options.localMcpUrl}`);
+  }
+  return lines.join("\n");
+}
 
 /** Starts the visual project widget catalog. */
 async function previewProject(options: ProjectPreviewOptions): Promise<void> {
@@ -1253,6 +1353,81 @@ function manifestCodeModeNeedsRemote(config: SidecarConfig | undefined): boolean
     return true;
   }
   return !config.codeMode.unsafe;
+}
+
+/** Starts the compiled MCP server used by `sidecar dev`. */
+async function startBuiltMcpServer(options: {
+  rootDir: string;
+  outDir: string;
+  port: number;
+  mcpUrl: string;
+}): Promise<ChildProcess> {
+  const rootDir = path.resolve(options.rootDir);
+  const entrypoint = path.join(rootDir, options.outDir, SERVER_ENTRYPOINT);
+  const child = spawn(execPath, [entrypoint], {
+    cwd: rootDir,
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(options.port),
+      SIDECAR_HOST: "127.0.0.1",
+      SIDECAR_MCP_URL: options.mcpUrl,
+      SIDECAR_PORT: String(options.port),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const output: string[] = [];
+  child.stdout?.on("data", (chunk) => output.push(String(chunk)));
+  child.stderr?.on("data", (chunk) => output.push(String(chunk)));
+  try {
+    await waitForBuiltMcpServer(child, options.port, output);
+  } catch (error) {
+    await stopBuiltMcpServer(child);
+    throw error;
+  }
+  return child;
+}
+
+/** Stops the compiled MCP server used by `sidecar dev`. */
+async function stopBuiltMcpServer(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  child.kill("SIGTERM");
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve();
+    }, 2_000);
+    child.once("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+/** Waits until the compiled MCP server is accepting local HTTP requests. */
+async function waitForBuiltMcpServer(
+  child: ChildProcess,
+  port: number,
+  output: string[],
+): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`Sidecar dev MCP process exited before startup.\n${output.join("").trim()}`);
+    }
+    try {
+      await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "GET",
+        headers: { accept: "application/json, text/event-stream" },
+      });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error(`Timed out waiting for Sidecar dev MCP server on 127.0.0.1:${port}.\n${output.join("").trim()}`);
 }
 
 /** Loads `sidecar.config.ts` at runtime so dev can honor function overrides. */
