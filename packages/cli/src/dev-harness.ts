@@ -271,69 +271,77 @@ export function renderDevHarnessHtml(
     <style>
       :root {
         color-scheme: light dark;
-        --radius: 14px;
-        --bg: oklch(0.971 0.025 97.1);
-        --text: oklch(0.145 0 0);
-        --panel: oklch(1 0 0);
-        --panel-soft: oklch(0.903 0.033 93.5);
-        --muted: oklch(0.537 0.022 97.1);
-        --border: oklch(0.911 0.035 96.3);
-        --sidebar: oklch(0.959 0.035 96.3);
-        --accent: oklch(0.651 0.055 65.6);
-        --accent-text: oklch(0.984 0.014 78.3);
-        --control-bg: oklch(0.145 0 0);
-        --control-text: oklch(0.985 0 0);
-        --send-bg: oklch(0.145 0 0);
-        --send-text: oklch(0.985 0 0);
-        --ring: oklch(0.708 0 0 / 28%);
-        --widget-bg: oklch(1 0 0);
+        --radius: 12px;
+        --bg: #f8f9fa;
+        --text: #18181b;
+        --panel: #ffffff;
+        --panel-soft: #f4f4f5;
+        --muted: #71717a;
+        --border: #e4e4e7;
+        --accent: #2563eb;
+        --accent-text: #ffffff;
+        --control-bg: #18181b;
+        --control-text: #ffffff;
+        --send-bg: var(--accent);
+        --send-text: var(--accent-text);
+        --ring: rgba(37, 99, 235, 0.16);
+        --widget-bg: #ffffff;
+        --user-bubble-bg: #f4f4f5;
+        --code-bg: #f4f4f5;
+        --code-inline-bg: rgba(0, 0, 0, 0.04);
         --sidebar-width: 80px;
         --chat-width: 420px;
         --mobile-width: min(430px, calc(100vw - 28px));
-        --shadow: 0 24px 70px rgb(15 23 42 / 13%);
+        --shadow: 0 16px 48px rgba(0, 0, 0, 0.06);
       }
       :root[data-sidecar-theme="dark"] {
-        --bg: oklch(0.218 0 0);
-        --text: oklch(0.985 0 0);
-        --panel: oklch(0.205 0 0);
-        --panel-soft: oklch(0.269 0 0);
-        --muted: oklch(0.708 0 0);
-        --border: oklch(1 0 0 / 10%);
-        --sidebar: oklch(0.264 0 0);
-        --accent: oklch(0.755 0.049 61.8);
-        --accent-text: oklch(0.218 0 0);
-        --control-bg: oklch(0.985 0 0);
-        --control-text: oklch(0.218 0 0);
-        --send-bg: oklch(0.985 0 0);
-        --send-text: oklch(0.218 0 0);
-        --ring: oklch(0.556 0 0 / 34%);
-        --widget-bg: oklch(0.205 0 0);
-        --shadow: 0 24px 70px rgb(0 0 0 / 34%);
+        --bg: #0b0b0f;
+        --text: #f4f4f5;
+        --panel: #16161a;
+        --panel-soft: #1e1e24;
+        --muted: #8a8a93;
+        --border: #232329;
+        --accent: #3b82f6;
+        --accent-text: #ffffff;
+        --control-bg: #f4f4f5;
+        --control-text: #0b0b0f;
+        --send-bg: var(--accent);
+        --send-text: var(--accent-text);
+        --ring: rgba(59, 130, 246, 0.2);
+        --widget-bg: #16161a;
+        --user-bubble-bg: #1c1c21;
+        --code-bg: #121216;
+        --code-inline-bg: rgba(255, 255, 255, 0.06);
+        --shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
       }
       :root[data-sidecar-host="claude"] {
         --accent: #c96442;
         --accent-text: #fffaf4;
-        --ring: rgb(201 100 66 / 24%);
+        --ring: rgba(201, 100, 66, 0.2);
       }
       :root[data-sidecar-host="claude"][data-sidecar-theme="dark"] {
         --accent: #d97757;
         --accent-text: #ffffff;
-        --ring: rgb(217 119 87 / 28%);
+        --ring: rgba(217, 119, 87, 0.24);
       }
       :root[data-sidecar-host="chatgpt"] {
         --accent: #10a37f;
         --accent-text: #ffffff;
-        --ring: rgb(16 163 127 / 20%);
+        --ring: rgba(16, 163, 127, 0.2);
       }
       * { box-sizing: border-box; }
-      *::-webkit-scrollbar { height: 8px; width: 8px; }
+      *::-webkit-scrollbar { height: 6px; width: 6px; }
       *::-webkit-scrollbar-track { background: transparent; }
-      *::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--muted) 55%, transparent); border-radius: 999px; }
+      *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+      
       body {
         background: var(--bg);
         color: var(--text);
-        font: 14px/1.45 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
         margin: 0;
+        overflow: hidden;
       }
       .shell {
         display: flex;
@@ -349,120 +357,128 @@ export function renderDevHarnessHtml(
       }
       .topbar {
         align-items: center;
-        background: color-mix(in srgb, var(--bg) 92%, var(--panel));
+        background: var(--bg);
         border-bottom: 1px solid var(--border);
         display: flex;
         gap: 16px;
         justify-content: space-between;
-        min-height: 64px;
-        padding: 12px 18px;
+        min-height: 56px;
+        padding: 8px 24px;
       }
-      .brand { display: grid; gap: 1px; min-width: 180px; }
-      h1 { font-size: 15px; line-height: 1.1; margin: 0; }
-      .subtitle { color: var(--muted); font-size: 12px; }
-      .controls { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; justify-content: flex-end; }
+      .brand { display: flex; align-items: center; }
+      h1 { font-size: 14px; font-weight: 600; letter-spacing: 0; margin: 0; color: var(--text); }
+      
+      .controls { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
       .control-group { align-items: center; display: flex; }
+      
       .segmented {
         background: var(--panel-soft);
         border: 1px solid var(--border);
-        border-radius: 15px;
+        border-radius: 8px;
         display: grid;
         gap: 0;
-        grid-template-columns: repeat(var(--segments, 2), 38px);
-        padding: 3px;
+        grid-template-columns: repeat(var(--segments, 2), 32px);
+        padding: 2px;
         position: relative;
       }
       .segmented::before {
         background: var(--panel);
-        border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-        border-radius: 12px;
-        box-shadow: 0 1px 8px rgb(0 0 0 / 16%);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
         content: "";
-        inset: 3px auto 3px 3px;
+        inset: 2px auto 2px 2px;
         position: absolute;
-        transform: translateX(calc(var(--active-index, 0) * 38px));
-        transition: transform 170ms cubic-bezier(.2, .8, .2, 1);
-        width: 38px;
+        transform: translateX(calc(var(--active-index, 0) * 32px));
+        transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+        width: 32px;
       }
-      .segmented button, .send, .icon-button, .workspace-pill, .auth-trigger, .modal-button {
+      .segmented button, .send, .icon-button, .auth-trigger, .modal-button {
         appearance: none;
         cursor: pointer;
         font: inherit;
+        outline: none;
       }
       .segmented button {
         align-items: center;
         background: transparent;
         border: 0;
-        border-radius: 12px;
+        border-radius: 6px;
         color: var(--muted);
         display: inline-flex;
-        font-weight: 650;
+        font-weight: 500;
         justify-content: center;
-        min-height: 38px;
-        min-width: 38px;
+        min-height: 32px;
+        min-width: 32px;
         padding: 0;
         position: relative;
         transition: color 140ms ease;
         z-index: 1;
       }
       .segmented button[aria-pressed="true"] {
-        background: transparent;
-        box-shadow: none;
         color: var(--text);
       }
       .auth-trigger {
         align-items: center;
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 13px;
+        border-radius: 8px;
         color: var(--text);
         display: inline-flex;
-        font-weight: 700;
-        min-height: 42px;
-        padding: 0 18px;
+        font-size: 12px;
+        font-weight: 500;
+        min-height: 36px;
+        padding: 0 14px;
+        transition: background 120ms ease, border-color 120ms ease;
       }
-      .auth-trigger:hover { background: color-mix(in srgb, var(--panel) 88%, var(--panel-soft)); }
+      .auth-trigger:hover {
+        background: var(--panel-soft);
+        border-color: var(--muted);
+      }
       .auth-trigger:focus-visible, .modal-button:focus-visible, .modal-close:focus-visible {
-        outline: 0;
         box-shadow: 0 0 0 3px var(--ring);
       }
       .icon {
         align-items: center;
         display: inline-flex;
-        height: 17px;
+        height: 16px;
         justify-content: center;
         line-height: 1;
-        width: 17px;
+        width: 16px;
       }
       .icon svg {
         display: block;
-        height: 17px;
+        height: 16px;
         stroke: currentColor;
-        width: 17px;
+        width: 16px;
       }
       .button-text { display: none; }
+      
       .modal-input, textarea {
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: 8px;
         color: var(--text);
         font: inherit;
         outline: 0;
       }
-      .modal-input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
-      .modal-input { min-height: 40px; padding: 0 11px; width: 100%; }
+      .modal-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+      .modal-input { min-height: 38px; padding: 0 12px; width: 100%; }
+      
       .modal-overlay {
         align-items: center;
-        background: rgb(0 0 0 / 42%);
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
         display: flex;
         inset: 0;
         justify-content: center;
         opacity: 0;
-        padding: 20px;
+        padding: 24px;
         pointer-events: none;
         position: fixed;
-        transition: opacity 150ms ease;
-        z-index: 30;
+        transition: opacity 250ms cubic-bezier(0.16, 1, 0.3, 1);
+        z-index: 100;
       }
       .modal-overlay[data-open="true"] {
         opacity: 1;
@@ -471,15 +487,15 @@ export function renderDevHarnessHtml(
       .modal-panel {
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        box-shadow: var(--shadow);
+        border-radius: 16px;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
         display: grid;
-        gap: 16px;
-        max-width: min(440px, calc(100vw - 32px));
+        gap: 20px;
+        max-width: 400px;
         opacity: 0;
-        padding: 20px;
-        transform: translateY(10px) scale(.98);
-        transition: opacity 150ms ease, transform 150ms ease;
+        padding: 24px;
+        transform: translateY(12px) scale(0.97);
+        transition: opacity 250ms cubic-bezier(0.16, 1, 0.3, 1), transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
         width: 100%;
       }
       .modal-overlay[data-open="true"] .modal-panel {
@@ -492,8 +508,8 @@ export function renderDevHarnessHtml(
         gap: 16px;
         justify-content: space-between;
       }
-      .modal-title { font-size: 17px; font-weight: 800; margin: 0; }
-      .modal-description { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+      .modal-title { font-size: 16px; font-weight: 600; letter-spacing: 0; margin: 0; }
+      .modal-description { color: var(--muted); font-size: 13px; margin: 4px 0 0; line-height: 1.4; }
       .modal-close {
         align-items: center;
         appearance: none;
@@ -503,19 +519,21 @@ export function renderDevHarnessHtml(
         color: var(--muted);
         cursor: pointer;
         display: inline-flex;
-        height: 28px;
+        height: 24px;
         justify-content: center;
         padding: 0;
-        width: 28px;
+        width: 24px;
+        transition: background 120ms ease, color 120ms ease;
       }
+      .modal-close:hover { background: var(--panel-soft); color: var(--text); }
       .modal-close svg {
         display: block;
-        height: 16px;
-        width: 16px;
+        height: 14px;
+        width: 14px;
       }
-      .modal-field { display: grid; gap: 7px; }
-      .modal-label { font-size: 13px; font-weight: 700; }
-      .modal-error { color: #c43b32; display: none; font-size: 13px; }
+      .modal-field { display: grid; gap: 6px; }
+      .modal-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+      .modal-error { color: #ef4444; display: none; font-size: 13px; font-weight: 500; }
       .modal-error[data-visible="true"] { display: block; }
       .modal-actions {
         display: flex;
@@ -523,25 +541,35 @@ export function renderDevHarnessHtml(
         justify-content: flex-end;
       }
       .modal-button {
-        border-radius: 9px;
-        font-weight: 750;
-        min-height: 38px;
-        padding: 0 13px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        min-height: 36px;
+        padding: 0 14px;
+        transition: background 120ms ease, transform 100ms ease;
       }
+      .modal-button:active { transform: scale(0.98); }
       .modal-button[data-variant="secondary"] {
         background: transparent;
         border: 1px solid var(--border);
         color: var(--text);
+      }
+      .modal-button[data-variant="secondary"]:hover {
+        background: var(--panel-soft);
       }
       .modal-button[data-variant="primary"] {
         background: var(--control-bg);
         border: 1px solid var(--control-bg);
         color: var(--control-text);
       }
+      .modal-button[data-variant="primary"]:hover {
+        opacity: 0.9;
+      }
       .modal-button:disabled {
         cursor: wait;
         opacity: .68;
       }
+      
       .stage {
         display: flex;
         flex: 1 1 auto;
@@ -550,21 +578,23 @@ export function renderDevHarnessHtml(
       }
       .surface {
         background: var(--bg);
-        box-shadow: none;
         display: flex;
         flex-direction: column;
         height: 100%;
         min-height: 0;
         overflow: hidden;
-        transition: width 160ms ease, height 160ms ease, border-radius 160ms ease, box-shadow 160ms ease;
+        margin: 0 auto;
+        max-width: 800px;
         width: 100%;
+        transition: width 160ms ease, height 160ms ease, border-radius 160ms ease, box-shadow 160ms ease;
       }
       :root[data-sidecar-device="mobile"] .surface {
         border: 1px solid var(--border);
-        border-radius: 28px;
+        border-radius: 24px;
         box-shadow: var(--shadow);
-        height: min(820px, calc(100dvh - 112px));
+        height: min(800px, calc(100dvh - 112px));
         width: var(--mobile-width);
+        max-width: var(--mobile-width);
       }
       :root[data-sidecar-device="mobile"] .stage {
         align-items: center;
@@ -579,162 +609,265 @@ export function renderDevHarnessHtml(
         display: flex;
         gap: 10px;
         justify-content: space-between;
-        min-height: 50px;
-        padding: 0 16px;
+        min-height: 48px;
+        padding: 0 20px;
       }
-      .surface-title { align-items: center; display: flex; gap: 8px; font-weight: 760; }
+      .surface-title { align-items: center; display: flex; gap: 8px; font-weight: 600; font-size: 13px; color: var(--text); }
       .surface-dot {
         background: var(--accent);
         border-radius: 999px;
-        box-shadow: 0 0 0 4px var(--ring);
-        height: 8px;
-        width: 8px;
+        box-shadow: 0 0 0 3px var(--ring);
+        height: 6px;
+        width: 6px;
+        transition: background 150ms ease, box-shadow 150ms ease;
       }
-      .surface-meta { color: var(--muted); font-size: 12px; }
+      .surface-meta { color: var(--muted); font-size: 11px; font-weight: 500; }
+      
       .messages {
         display: flex;
         flex-direction: column;
         flex: 1 1 auto;
-        gap: 14px;
+        gap: 24px;
         min-height: 0;
         overflow: auto;
-        padding: 18px 16px;
+        padding: 24px 20px;
         width: 100%;
       }
       .message {
         display: grid;
         gap: 8px;
+        max-width: 100%;
       }
       .message[data-role="user"] {
-        background: color-mix(in srgb, var(--accent) 13%, transparent);
-        border-radius: 18px 18px 4px 18px;
+        background: var(--user-bubble-bg);
+        border: 1px solid var(--border);
+        border-radius: 16px;
         color: var(--text);
         justify-self: end;
         margin-left: auto;
-        max-width: 85%;
-        padding: 9px 12px;
+        max-width: 80%;
+        padding: 12px 16px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
       }
-      :root[data-sidecar-device="mobile"] .message[data-role="user"] { max-width: 92%; }
-      .message[data-role="assistant"], .tool-card { width: 100%; }
+      :root[data-sidecar-device="mobile"] .message[data-role="user"] { max-width: 90%; }
+      
+      .message[data-role="assistant"] {
+        justify-self: start;
+        margin-right: auto;
+        width: 100%;
+        padding: 0 4px;
+      }
       .role { display: none; }
-      .tool-title {
-        color: var(--muted);
-        font-size: 11px;
-        font-weight: 800;
-        letter-spacing: .05em;
-        text-transform: uppercase;
+      
+      .content {
+        font-size: 14px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
       }
-      .content { font-size: 14px; overflow-wrap: anywhere; white-space: pre-wrap; }
-      .content.markdown { display: grid; gap: 10px; white-space: normal; }
-      .content.markdown > * { margin-block: 0; }
-      .content.markdown p { margin: 0; }
-      .content.markdown ul, .content.markdown ol { margin: 0; padding-left: 20px; }
+      .content.markdown {
+        display: grid;
+        gap: 12px;
+        white-space: normal;
+      }
+      .content.markdown p {
+        margin: 0;
+        line-height: 1.55;
+      }
+      .content.markdown ul, .content.markdown ol {
+        margin: 0;
+        padding-left: 20px;
+      }
+      .content.markdown li {
+        margin-bottom: 4px;
+      }
       .content.markdown pre {
-        background: color-mix(in srgb, var(--panel-soft) 78%, black);
+        background: var(--code-bg);
         border: 1px solid var(--border);
         border-radius: 10px;
         overflow: auto;
-        padding: 10px;
+        padding: 14px;
+        margin: 8px 0;
       }
       .content.markdown code {
-        background: var(--panel-soft);
-        border-radius: 5px;
-        font-size: .93em;
-        padding: 1px 4px;
+        background: var(--code-inline-bg);
+        border-radius: 4px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.88em;
+        padding: 2px 5px;
       }
-      .content.markdown pre code { background: transparent; padding: 0; }
+      .content.markdown pre code {
+        background: transparent;
+        padding: 0;
+        font-size: 0.88em;
+        line-height: 1.5;
+      }
       .content.markdown table {
         border-collapse: collapse;
         display: block;
         max-width: 100%;
         overflow-x: auto;
+        margin: 12px 0;
       }
       .content.markdown th, .content.markdown td {
         border: 1px solid var(--border);
-        padding: 6px 8px;
+        padding: 8px 12px;
         text-align: left;
       }
+      .content.markdown th {
+        background: var(--panel-soft);
+        font-weight: 600;
+      }
+      
       .tool-card {
-        background: transparent;
+        background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 12px;
+        border-radius: 14px;
         overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+        margin: 8px 0;
+        width: 100%;
       }
       .tool-head {
         align-items: center;
-        background: color-mix(in srgb, var(--panel-soft) 58%, transparent);
+        background: var(--panel-soft);
         border-bottom: 1px solid var(--border);
         display: flex;
         justify-content: space-between;
-        padding: 7px 10px;
+        padding: 10px 14px;
       }
-      .tool-body { display: grid; gap: 10px; padding: 12px; }
+      .tool-title {
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0;
+      }
+      .tool-head .status {
+        font-size: 11px;
+        font-weight: 500;
+        background: rgba(0, 0, 0, 0.04);
+        padding: 2px 8px;
+        border-radius: 6px;
+        color: var(--muted);
+      }
+      :root[data-sidecar-theme="dark"] .tool-head .status {
+        background: rgba(255, 255, 255, 0.05);
+      }
+      .tool-body { display: grid; gap: 10px; padding: 14px; background: var(--panel); }
+      
       iframe {
         background: var(--widget-bg);
         border: 1px solid var(--border);
-        border-radius: 14px;
+        border-radius: 10px;
         min-height: 380px;
         width: 100%;
       }
       :root[data-sidecar-device="mobile"] iframe { min-height: 520px; }
+      
       .composer {
         background: var(--bg);
-        padding: 10px 16px 14px;
+        padding: 14px 20px 24px;
         flex: 0 0 auto;
       }
       form {
-        align-items: end;
         display: flex;
-        gap: 8px;
+        width: 100%;
+      }
+      .composer-container {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+      }
+      .composer-container:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--ring);
       }
       textarea {
-        background: color-mix(in srgb, var(--panel-soft) 35%, transparent);
+        background: transparent;
         border: 0;
+        color: var(--text);
+        font: inherit;
+        font-size: 14px;
         min-height: 56px;
-        max-height: 124px;
-        padding: 10px 44px 10px 12px;
+        max-height: 160px;
+        padding: 14px 16px 8px;
         resize: none;
         width: 100%;
+        outline: none;
+      }
+      .composer-toolbar {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+        min-height: 44px;
+        padding: 4px 8px 8px 16px;
       }
       .send {
         align-items: center;
         aspect-ratio: 1;
-        align-self: center;
         background: var(--send-bg);
+        border: 0;
         border-radius: 999px;
         color: var(--send-text);
         display: inline-flex;
-        height: 36px;
+        height: 32px;
         justify-content: center;
-        margin-left: -52px;
-        min-height: 36px;
         padding: 0;
-        width: 36px;
+        width: 32px;
+        transition: transform 120ms ease, opacity 120ms ease;
       }
-      .send:hover { filter: brightness(.96); }
-      :root[data-sidecar-theme="dark"] .send:hover { filter: brightness(1.08); }
+      .send:hover {
+        transform: scale(1.04);
+        filter: brightness(1.1);
+      }
+      .send:active {
+        transform: scale(0.96);
+      }
       .send svg {
         display: block;
-        height: 18px;
-        stroke-width: 2.4;
-        width: 18px;
+        height: 16px;
+        stroke-width: 2.5;
+        width: 16px;
       }
-      .status { color: var(--muted); font-size: 12px; }
-      .error { color: #c43b32; }
+      .status {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .status.error {
+        color: #ef4444;
+      }
       .empty {
         align-self: center;
         color: var(--muted);
-        display: grid;
+        display: flex;
+        flex-direction: column;
         gap: 8px;
-        justify-self: center;
         margin: auto 0;
-        padding: 24px 12px;
+        max-width: 320px;
+        padding: 40px 16px;
         text-align: center;
       }
-      .empty strong { color: var(--text); font-size: 16px; }
+      .empty strong {
+        color: var(--text);
+        font-size: 16px;
+        font-weight: 500;
+        letter-spacing: 0;
+      }
+      .empty span {
+        font-size: 13px;
+        line-height: 1.5;
+      }
       pre {
         background: var(--panel-soft);
-        border-radius: 12px;
+        border-radius: 10px;
         margin: 0;
         overflow: auto;
         padding: 12px;
@@ -744,96 +877,98 @@ export function renderDevHarnessHtml(
         .topbar { align-items: stretch; flex-direction: column; min-height: 0; padding: 12px; }
         .brand { min-width: 0; }
         .controls { justify-content: flex-start; }
-        .auth-trigger { min-height: 38px; }
+        .auth-trigger { min-height: 36px; }
         .stage { display: flex; justify-content: center; padding: 12px; }
         .surface { border: 1px solid var(--border); border-radius: 20px; box-shadow: var(--shadow); width: calc(100vw - 24px); }
-        .send { flex: 0 0 32px; }
       }
     </style>
   </head>
-	  <body>
-	    <main class="shell">
-	      <section class="content-shell">
-	        <div class="topbar">
-	          <div class="brand">
-	            <h1>Sidecar dev</h1>
-	            <div class="subtitle">Local MCP app simulator</div>
-	          </div>
-	          <div class="controls">
-	            <div class="control-group">
-	              <div class="segmented" aria-label="Host">
-	                <button type="button" data-host="chatgpt" aria-label="ChatGPT preview" title="ChatGPT"><span class="icon">${iconSvg("chatgpt")}</span><span class="button-text">ChatGPT</span></button>
-	                <button type="button" data-host="claude" aria-label="Claude preview" title="Claude"><span class="icon">${iconSvg("claude")}</span><span class="button-text">Claude</span></button>
-	                <button type="button" data-host="generic" aria-label="Generic MCP preview" title="MCP"><span class="icon">${iconSvg("braces")}</span><span class="button-text">MCP</span></button>
-	              </div>
-	            </div>
-	            <div class="control-group">
-	              <div class="segmented" aria-label="Theme">
-	                <button type="button" data-theme="light" aria-label="Light theme" title="Light"><span class="icon">${iconSvg("sun")}</span><span class="button-text">Light</span></button>
-	                <button type="button" data-theme="dark" aria-label="Dark theme" title="Dark"><span class="icon">${iconSvg("moon")}</span><span class="button-text">Dark</span></button>
-	              </div>
-	            </div>
-	            <div class="control-group">
-	              <div class="segmented" aria-label="Device">
-	                <button type="button" data-device="desktop" aria-label="Desktop preview" title="Desktop"><span class="icon">${iconSvg("monitor")}</span><span class="button-text">Desktop</span></button>
-	                <button type="button" data-device="mobile" aria-label="Mobile preview" title="Mobile"><span class="icon">${iconSvg("phone")}</span><span class="button-text">Mobile</span></button>
-	              </div>
-	            </div>
-	            <button id="authTrigger" class="auth-trigger" type="button" data-token-set="false">
-	              <span>Set Bearer Token</span>
-	            </button>
-	          </div>
-	        </div>
-	        <section class="stage">
-	          <aside class="surface" aria-label="Sidecar chat preview">
-	            <div class="surface-bar">
-	              <div class="surface-title"><span class="surface-dot"></span><span id="surfaceTitle">Claude preview</span></div>
-	              <div id="surfaceMeta" class="surface-meta">Desktop</div>
-	            </div>
-	            <section id="messages" class="messages">
-	              <div class="empty"><strong>Start a local MCP run.</strong><span>Ask for a tool call, then inspect model text and widget output here.</span></div>
-	            </section>
-	            <section class="composer">
-	              <form id="chatForm">
-	                <textarea id="prompt" placeholder="Ask a question or request a tool call..."></textarea>
-	                <button class="send" type="submit" aria-label="Send">
-	                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-	                    <path d="M12 19V5" />
-	                    <path d="m5 12 7-7 7 7" />
-	                  </svg>
-	                </button>
-	              </form>
-	              <div id="status" class="status"></div>
-	            </section>
-	          </aside>
-	        </section>
-	      </section>
-	    </main>
-	    <div id="authModal" class="modal-overlay" data-open="false" aria-hidden="true">
-	      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="authModalTitle" aria-describedby="authModalDescription">
-	        <div class="modal-head">
-	          <div>
-	            <h2 id="authModalTitle" class="modal-title">Set bearer token</h2>
-	            <p id="authModalDescription" class="modal-description">Sidecar will test this token against the local MCP server before saving it.</p>
-	          </div>
-	          <button id="authClose" class="modal-close" type="button" aria-label="Close bearer token dialog">${iconSvg("x")}</button>
-	        </div>
-	        <label class="modal-field" for="authToken">
-	          <span class="modal-label">Bearer token</span>
-	          <input id="authToken" class="modal-input" type="password" autocomplete="off" placeholder="Paste a bearer token" />
-	        </label>
-	        <div id="authError" class="modal-error" role="status"></div>
-	        <div class="modal-actions">
-	          <button id="authCancel" class="modal-button" data-variant="secondary" type="button">Cancel</button>
-	          <button id="authSave" class="modal-button" data-variant="primary" type="button">Save</button>
-	        </div>
-	      </section>
-	    </div>
+  <body>
+    <main class="shell">
+      <section class="content-shell">
+        <div class="topbar">
+          <div class="brand">
+            <h1>Sidecar dev</h1>
+          </div>
+          <div class="controls">
+            <div class="control-group">
+              <div class="segmented" aria-label="Host">
+                <button type="button" data-host="chatgpt" aria-label="ChatGPT preview" title="ChatGPT"><span class="icon">${iconSvg("chatgpt")}</span><span class="button-text">ChatGPT</span></button>
+                <button type="button" data-host="claude" aria-label="Claude preview" title="Claude"><span class="icon">${iconSvg("claude")}</span><span class="button-text">Claude</span></button>
+                <button type="button" data-host="generic" aria-label="Generic MCP preview" title="MCP"><span class="icon">${iconSvg("braces")}</span><span class="button-text">MCP</span></button>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="segmented" aria-label="Theme">
+                <button type="button" data-theme="light" aria-label="Light theme" title="Light"><span class="icon">${iconSvg("sun")}</span><span class="button-text">Light</span></button>
+                <button type="button" data-theme="dark" aria-label="Dark theme" title="Dark"><span class="icon">${iconSvg("moon")}</span><span class="button-text">Dark</span></button>
+              </div>
+            </div>
+            <div class="control-group">
+              <div class="segmented" aria-label="Device">
+                <button type="button" data-device="desktop" aria-label="Desktop preview" title="Desktop"><span class="icon">${iconSvg("monitor")}</span><span class="button-text">Desktop</span></button>
+                <button type="button" data-device="mobile" aria-label="Mobile preview" title="Mobile"><span class="icon">${iconSvg("phone")}</span><span class="button-text">Mobile</span></button>
+              </div>
+            </div>
+            <button id="authTrigger" class="auth-trigger" type="button" data-token-set="false">
+              <span>Set Bearer Token</span>
+            </button>
+          </div>
+        </div>
+        <section class="stage">
+          <aside class="surface" aria-label="Sidecar chat preview">
+            <div class="surface-bar">
+              <div class="surface-title"><span class="surface-dot"></span><span id="surfaceTitle">Claude preview</span></div>
+              <div id="surfaceMeta" class="surface-meta">Desktop</div>
+            </div>
+            <section id="messages" class="messages">
+              <div class="empty"><strong>Start a local MCP run.</strong><span>Ask for a tool call, then inspect model text and widget output here.</span></div>
+            </section>
+            <section class="composer">
+              <form id="chatForm">
+                <div class="composer-container">
+                  <textarea id="prompt" placeholder="Ask a question or request a tool call..."></textarea>
+                  <div class="composer-toolbar">
+                    <div id="status" class="status"></div>
+                    <button class="send" type="submit" aria-label="Send">
+                      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 19V5" />
+                        <path d="m5 12 7-7 7 7" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </section>
+          </aside>
+        </section>
+      </section>
+    </main>
+    <div id="authModal" class="modal-overlay" data-open="false" aria-hidden="true">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="authModalTitle" aria-describedby="authModalDescription">
+        <div class="modal-head">
+          <div>
+            <h2 id="authModalTitle" class="modal-title">Set bearer token</h2>
+            <p id="authModalDescription" class="modal-description">Sidecar will test this token against the local MCP server before saving it.</p>
+          </div>
+          <button id="authClose" class="modal-close" type="button" aria-label="Close bearer token dialog">${iconSvg("x")}</button>
+        </div>
+        <label class="modal-field" for="authToken">
+          <span class="modal-label">Bearer token</span>
+          <input id="authToken" class="modal-input" type="password" autocomplete="off" placeholder="Paste a bearer token" />
+        </label>
+        <div id="authError" class="modal-error" role="status"></div>
+        <div class="modal-actions">
+          <button id="authCancel" class="modal-button" data-variant="secondary" type="button">Cancel</button>
+          <button id="authSave" class="modal-button" data-variant="primary" type="button">Save</button>
+        </div>
+      </section>
+    </div>
     <script>
       ${devHarnessBrowserScript(options.initialBearerToken)}
     </script>
   </body>
-	</html>`;
+</html>`;
 }
 
 const lobeIconCache = new Map<string, string>();
@@ -1493,8 +1628,6 @@ const authSaveEl = document.getElementById("authSave");
 const authErrorEl = document.getElementById("authError");
 const surfaceTitleEl = document.getElementById("surfaceTitle");
 const surfaceMetaEl = document.getElementById("surfaceMeta");
-const workspaceTargetEl = document.getElementById("workspaceTarget");
-const workspaceDeviceEl = document.getElementById("workspaceDevice");
 const initialBearerToken = ${JSON.stringify(initialBearerToken ?? "")};
 let bearerToken = initialBearerToken || localStorage.getItem("sidecar.dev.bearer") || "";
 
@@ -1516,6 +1649,19 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+const resizePrompt = () => {
+  promptEl.style.height = "auto";
+  promptEl.style.height = promptEl.scrollHeight + "px";
+};
+promptEl.addEventListener("input", resizePrompt);
+promptEl.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    form.requestSubmit();
+  }
+});
+resizePrompt();
+
 document.querySelectorAll("[data-host]").forEach((button) => {
   button.addEventListener("click", () => setState({ host: button.dataset.host }));
 });
@@ -1536,13 +1682,16 @@ form.addEventListener("submit", async (event) => {
   const text = promptEl.value.trim();
   if (!text) return;
   promptEl.value = "";
+  resizePrompt();
   clearEmpty();
   messages.push({ role: "user", content: text });
   appendMessage("user", text);
   const assistant = appendMessage("assistant", "");
+  statusEl.classList.remove("error");
   statusEl.textContent = "Thinking...";
   try {
     await streamChat(assistant.querySelector(".content"));
+    statusEl.classList.remove("error");
     statusEl.textContent = "";
   } catch (error) {
     statusEl.textContent = error instanceof Error ? error.message : String(error);
@@ -1866,12 +2015,6 @@ function applyState(next) {
   syncSegmentedControl("[data-device]", state.device, "device");
   surfaceTitleEl.textContent = (state.host === "generic" ? "MCP" : state.host === "chatgpt" ? "ChatGPT" : "Claude") + " preview";
   surfaceMetaEl.textContent = state.device === "mobile" ? "Mobile" : "Desktop";
-  if (workspaceTargetEl) {
-    workspaceTargetEl.textContent = state.host === "generic" ? "MCP" : state.host === "chatgpt" ? "ChatGPT" : "Claude";
-  }
-  if (workspaceDeviceEl) {
-    workspaceDeviceEl.textContent = state.device === "mobile" ? "Mobile" : "Desktop";
-  }
   for (const source of frameContexts.keys()) {
     notify(source, "ui/notifications/host-context-changed", hostContext());
   }
