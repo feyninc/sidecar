@@ -134,6 +134,20 @@ describe("dev harness", () => {
     expect(html).toContain("--active-index");
   });
 
+  it("renders chat errors as assistant messages instead of composer status", () => {
+    const html = renderDevHarnessHtml({
+      host: "chatgpt",
+      theme: "light",
+      device: "desktop",
+      target: "mcp",
+      model: "gpt-4.1-mini",
+    });
+
+    expect(html).toContain("renderAssistantError(assistant.querySelector(\".content\"), message)");
+    expect(html).toContain("Sidecar dev hit an error:");
+    expect(html).not.toContain("statusEl.textContent = error instanceof Error ? error.message : String(error)");
+  });
+
   it("can seed the bearer token from the dev environment", () => {
     const html = renderDevHarnessHtml({
       host: "claude",

@@ -665,6 +665,9 @@ export function renderDevHarnessHtml(
         overflow-wrap: anywhere;
         white-space: pre-wrap;
       }
+      .content.error {
+        color: #ef4444;
+      }
       .content.markdown {
         display: grid;
         gap: 12px;
@@ -1694,8 +1697,11 @@ form.addEventListener("submit", async (event) => {
     statusEl.classList.remove("error");
     statusEl.textContent = "";
   } catch (error) {
-    statusEl.textContent = error instanceof Error ? error.message : String(error);
-    statusEl.classList.add("error");
+    const message = error instanceof Error ? error.message : String(error);
+    statusEl.classList.remove("error");
+    statusEl.textContent = "";
+    const assistantError = renderAssistantError(assistant.querySelector(".content"), message);
+    messages.push({ role: "assistant", content: assistantError });
   }
 });
 
@@ -1854,6 +1860,13 @@ function renderMarkdown(element, markdown) {
         console.warn("Sidecar dev markdown renderer failed to load", error);
       });
   }
+}
+
+function renderAssistantError(element, message) {
+  const text = "Sidecar dev hit an error:\\n\\n" + message;
+  element.classList.add("error");
+  renderMarkdown(element, text);
+  return text;
 }
 
 function appendToolStart(tool) {
