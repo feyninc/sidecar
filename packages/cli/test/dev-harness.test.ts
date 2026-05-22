@@ -148,6 +148,23 @@ describe("dev harness", () => {
     expect(html).not.toContain("statusEl.textContent = error instanceof Error ? error.message : String(error)");
   });
 
+  it("keeps widget frames tall enough to scroll inside the thread", () => {
+    const html = renderDevHarnessHtml({
+      host: "claude",
+      theme: "dark",
+      device: "desktop",
+      target: "claude",
+      model: "gpt-4.1-mini",
+    });
+
+    expect(html).toContain(".tool-body iframe");
+    expect(html).toContain("flex: 0 0 auto;");
+    expect(html).toContain("height: clamp(360px, 58dvh, 720px);");
+    expect(html).toContain("min-height: 360px;");
+    expect(html).toContain("overflow: auto;");
+    expect(html).toContain('iframe.setAttribute("scrolling", "auto");');
+  });
+
   it("can seed the bearer token from the dev environment", () => {
     const html = renderDevHarnessHtml({
       host: "claude",

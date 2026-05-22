@@ -76,6 +76,8 @@ describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
       const chatgptHtml = await readFile(path.join(rootDir, "out/chatgpt", chatgptWidget?.outputFile ?? ""), "utf8");
       expect(chatgptHtml).toContain("data-sc-component");
       expect(chatgptHtml).toContain("--app-font-sans");
+      expect(chatgptHtml).toContain("html, body { overflow: auto; }");
+      expect(chatgptHtml).toContain("body { color: CanvasText; min-width: 0; }");
       expect(chatgptHtml.length).toBeLessThan(1_000_000);
 
       await expect(readFile(path.join(rootDir, "out/mcp/README.md"), "utf8"))

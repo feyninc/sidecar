@@ -635,6 +635,7 @@ export function renderDevHarnessHtml(
       }
       .message {
         display: grid;
+        flex: 0 0 auto;
         gap: 8px;
         max-width: 100%;
       }
@@ -726,6 +727,7 @@ export function renderDevHarnessHtml(
         background: var(--panel);
         border: 1px solid var(--border);
         border-radius: 14px;
+        flex: 0 0 auto;
         overflow: hidden;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
         margin: 8px 0;
@@ -756,16 +758,28 @@ export function renderDevHarnessHtml(
       :root[data-sidecar-theme="dark"] .tool-head .status {
         background: rgba(255, 255, 255, 0.05);
       }
-      .tool-body { display: grid; gap: 10px; padding: 14px; background: var(--panel); }
+      .tool-body {
+        background: var(--panel);
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+        padding: 14px;
+      }
       
-      iframe {
+      .tool-body iframe {
         background: var(--widget-bg);
         border: 1px solid var(--border);
         border-radius: 10px;
-        min-height: 380px;
+        display: block;
+        height: clamp(360px, 58dvh, 720px);
+        min-height: 360px;
+        overflow: auto;
         width: 100%;
       }
-      :root[data-sidecar-device="mobile"] iframe { min-height: 520px; }
+      :root[data-sidecar-device="mobile"] .tool-body iframe {
+        height: clamp(440px, 70dvh, 680px);
+        min-height: 440px;
+      }
       
       .composer {
         background: var(--bg);
@@ -1894,6 +1908,7 @@ function appendToolResult(event) {
     const iframe = document.createElement("iframe");
     iframe.src = "/__sidecar/dev/resource?uri=" + encodeURIComponent(event.tool.resourceUri);
     iframe.title = event.tool.title || event.tool.name;
+    iframe.setAttribute("scrolling", "auto");
     frameContexts.set(iframe.contentWindow, {
       result: event.result,
       tool: event.tool,

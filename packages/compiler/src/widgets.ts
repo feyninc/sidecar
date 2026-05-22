@@ -945,7 +945,8 @@ function renderWidgetHtml(title: string, javascript: string, css = ""): string {
     <style>
       :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
       html, body, #root { min-height: 100%; margin: 0; background: transparent; }
-      body { color: CanvasText; }
+      html, body { overflow: auto; }
+      body { color: CanvasText; min-width: 0; }
       * { box-sizing: border-box; }
       ${css}
     </style>
