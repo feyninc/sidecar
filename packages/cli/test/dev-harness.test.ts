@@ -165,6 +165,21 @@ describe("dev harness", () => {
     expect(html).toContain('iframe.setAttribute("scrolling", "auto");');
   });
 
+  it("renders assistant text below widget UI when a response includes a widget", () => {
+    const html = renderDevHarnessHtml({
+      host: "claude",
+      theme: "dark",
+      device: "desktop",
+      target: "claude",
+      model: "gpt-4.1-mini",
+    });
+
+    expect(html).toContain("const toolArticle = appendToolResult(parsed.data);");
+    expect(html).toContain("if (parsed.data.tool?.resourceUri) {");
+    expect(html).toContain("moveAssistantAfterToolUi(contentEl, toolArticle);");
+    expect(html).toContain("messagesEl.insertBefore(assistantArticle, toolArticle.nextSibling);");
+  });
+
   it("can seed the bearer token from the dev environment", () => {
     const html = renderDevHarnessHtml({
       host: "claude",

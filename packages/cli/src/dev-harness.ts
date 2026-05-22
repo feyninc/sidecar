@@ -1813,7 +1813,10 @@ async function streamChat(contentEl) {
         } else if (parsed.event === "tool_start") {
           appendToolStart(parsed.data);
         } else if (parsed.event === "tool_result") {
-          appendToolResult(parsed.data);
+          const toolArticle = appendToolResult(parsed.data);
+          if (parsed.data.tool?.resourceUri) {
+            moveAssistantAfterToolUi(contentEl, toolArticle);
+          }
         } else if (parsed.event === "error") {
           throw new Error(parsed.data.message || "Sidecar dev chat failed.");
         }
@@ -1883,6 +1886,17 @@ function renderAssistantError(element, message) {
   return text;
 }
 
+function moveAssistantAfterToolUi(contentEl, toolArticle) {
+  const assistantArticle = contentEl.closest(".message");
+  if (!assistantArticle || !toolArticle?.parentElement || assistantArticle === toolArticle) {
+    return;
+  }
+  if (toolArticle.nextSibling === assistantArticle) {
+    return;
+  }
+  messagesEl.insertBefore(assistantArticle, toolArticle.nextSibling);
+}
+
 function appendToolStart(tool) {
   const article = document.createElement("article");
   article.className = "tool-card";
@@ -1890,6 +1904,7 @@ function appendToolStart(tool) {
   article.innerHTML = '<div class="tool-head"><div class="tool-title"></div><div class="status">Running</div></div><div class="tool-body"></div>';
   article.querySelector(".tool-title").textContent = tool.title || tool.name;
   messagesEl.append(article);
+  return article;
 }
 
 function appendToolResult(event) {
@@ -1929,6 +1944,7 @@ function appendToolResult(event) {
     body.append(pre);
   }
   article.scrollIntoView({ block: "end" });
+  return article;
 }
 
 function toolText(result) {
