@@ -1,6 +1,6 @@
 {
   "name": "@sidecar-ai/server",
-  "version": "0.1.0-alpha.14",
+  "version": "0.1.0-alpha.15",
   "type": "module",
   "files": [
     "dist"
@@ -18,15 +18,15 @@
   "types": "./dist/index.d.ts",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@sidecar-ai/auth": "0.1.0-alpha.14",
-    "@sidecar-ai/core": "0.1.0-alpha.14"
+    "@sidecar-ai/auth": "0.1.0-alpha.15",
+    "@sidecar-ai/core": "0.1.0-alpha.15"
   },
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/chonkie-inc/sidecar.git",
+    "url": "git+https://github.com/feyninc/sidecar.git",
     "directory": "packages/server"
   }
 }

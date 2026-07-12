@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "live-stock-prices": {
+      "type": "http",
+      "url": "${SIDECAR_MCP_URL}"
+    }
+  }
+}

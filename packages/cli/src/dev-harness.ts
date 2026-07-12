@@ -771,14 +771,14 @@ export function renderDevHarnessHtml(
         border: 1px solid var(--border);
         border-radius: 10px;
         display: block;
-        height: clamp(360px, 58dvh, 720px);
-        min-height: 360px;
+        height: 360px;
+        min-height: 0;
         overflow: auto;
+        transition: height 120ms ease;
         width: 100%;
       }
       :root[data-sidecar-device="mobile"] .tool-body iframe {
-        height: clamp(440px, 70dvh, 680px);
-        min-height: 440px;
+        height: 440px;
       }
       
       .composer {
@@ -1301,6 +1301,7 @@ async function callMcp(
   params: unknown,
   authToken?: string,
 ): Promise<unknown> {
+  const requestId = randomUUID();
   const response = await fetch(mcpUrl, {
     method: "POST",
     headers: {
@@ -1311,7 +1312,7 @@ async function callMcp(
     },
     body: JSON.stringify({
       jsonrpc: "2.0",
-      id: randomUUID(),
+      id: requestId,
       method,
       params,
     }),
@@ -1320,7 +1321,7 @@ async function callMcp(
   if (!response.ok) {
     throw new HttpError(response.status, `MCP ${method} failed with HTTP ${response.status}: ${text}`);
   }
-  const json = JSON.parse(text) as {
+  const json = parseMcpResponse(text, response.headers.get("content-type"), requestId) as {
     result?: unknown;
     error?: {
       message?: string;
@@ -1330,6 +1331,28 @@ async function callMcp(
     throw new HttpError(502, json.error.message ?? `MCP ${method} returned an error.`);
   }
   return json.result;
+}
+
+/** Reads either a plain JSON response or the final JSON-RPC message in an MCP SSE response. */
+function parseMcpResponse(text: string, contentType: string | null, requestId: string): unknown {
+  if (!contentType?.toLowerCase().includes("text/event-stream")) {
+    return JSON.parse(text);
+  }
+
+  for (const event of text.split(/\r?\n\r?\n/)) {
+    const data = event
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, ""))
+      .join("\n");
+    if (!data.trim()) continue;
+    const message = JSON.parse(data) as { id?: unknown };
+    if (message && typeof message === "object" && message.id === requestId) {
+      return message;
+    }
+  }
+
+  throw new Error(`MCP response stream did not contain a result for request "${requestId}".`);
 }
 
 function toOpenAiMessages(messages: ChatMessage[]): OpenAiChatMessage[] {
@@ -1762,6 +1785,16 @@ window.addEventListener("message", async (event) => {
     }
     if (message.method === "ui/request-display-mode") {
       respond(event.source, message.id, { mode: message.params?.mode || "inline" });
+      return;
+    }
+    if (message.method === "ui/notifications/size-changed") {
+      const requestedHeight = Number(message.params?.height);
+      const iframe = [...document.querySelectorAll(".tool-body iframe")]
+        .find((candidate) => candidate.contentWindow === event.source);
+      if (iframe && Number.isFinite(requestedHeight) && requestedHeight > 0) {
+        iframe.style.height = Math.min(2000, Math.max(120, Math.ceil(requestedHeight))) + "px";
+        iframe.dataset.autoSized = "true";
+      }
       return;
     }
     if (message.method === "ui/message" || message.method === "ui/update-model-context") {
