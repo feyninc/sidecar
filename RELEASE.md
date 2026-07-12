@@ -7,7 +7,7 @@ when each package trusts that exact workflow identity.
 
 ## Current Release Shape
 
-- GitHub repository: `chonkie-inc/sidecar`
+- GitHub repository: `feyninc/sidecar`
 - Workflow file: `.github/workflows/release.yml`
 - GitHub Environment: `npm-publish`
 - Allowed release refs: tags matching `v*`
@@ -38,7 +38,7 @@ npmjs.com:
 For each package, go to Settings -> Trusted publishing and add:
 
 - Provider: GitHub Actions
-- Organization or user: `chonkie-inc`
+- Organization or user: `feyninc`
 - Repository: `sidecar`
 - Workflow filename: `release.yml`
 - Environment name: `npm-publish`
@@ -52,7 +52,7 @@ The publish job uses the `npm-publish` GitHub Environment. Configure that
 environment in repository settings according to the project maintainer policy:
 
 - Required reviewers: approved maintainers or a maintainer-owned release team
-- Prevent self-review: enabled
+- Prevent self-review: follow the current maintainer policy
 - Deployment branches and tags: selected tags matching `v*`
 
 GitHub does not expose a workflow-level "any organization member" publisher
@@ -155,7 +155,7 @@ publishing. Replace the ref with a temporary `v*` dry-run tag:
 
 ```sh
 gh workflow run release.yml \
-  --repo chonkie-inc/sidecar \
+  --repo feyninc/sidecar \
   --ref <temporary-v-tag> \
   -f dist-tag=dry-run \
   -f dry-run=true
