@@ -14,7 +14,7 @@ import {
 
 const CHART_ENDPOINT = "https://query1.finance.yahoo.com/v8/finance/chart";
 const SEARCH_ENDPOINT = "https://query2.finance.yahoo.com/v1/finance/search";
-const USER_AGENT = "SidecarLivePrices/0.1 (+https://github.com/chonkie-inc/sidecar)";
+const USER_AGENT = "SidecarLivePrices/0.1 (+https://github.com/feyninc/sidecar)";
 const MAX_TICKERS = 8;
 const MAX_CHART_POINTS = 420;
 const REQUEST_TIMEOUT_MS = 8_000;
