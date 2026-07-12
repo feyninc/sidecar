@@ -1,0 +1,10 @@
+{
+  "sidecar": {
+    "tools": [
+      "getCurrentPrice",
+      "showLivePrices"
+    ],
+    "resources": [],
+    "prompts": []
+  }
+}

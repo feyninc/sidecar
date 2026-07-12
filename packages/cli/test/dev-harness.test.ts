@@ -96,6 +96,20 @@ describe("dev harness", () => {
     expect(text).toContain("ui://sidecar/notion-search/widget.html");
     expect(text).toContain("event: delta");
     expect(text).toContain("Found it.");
+
+    const widgetCall = await fetchJson(`${harness.url}/__sidecar/dev/rpc`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        method: "tools/call",
+        params: {
+          name: "notion-search",
+          arguments: { query: "roadmap" },
+          _meta: { progressToken: "widget-call" },
+        },
+      }),
+    });
+    expect(widgetCall.result.structuredContent).toEqual({ result: "Roadmap" });
   });
 
   it("waits for widget initialization before sending tool result notifications", () => {
@@ -148,7 +162,7 @@ describe("dev harness", () => {
     expect(html).not.toContain("statusEl.textContent = error instanceof Error ? error.message : String(error)");
   });
 
-  it("keeps widget frames tall enough to scroll inside the thread", () => {
+  it("auto-sizes widget frames while keeping a usable initial height", () => {
     const html = renderDevHarnessHtml({
       host: "claude",
       theme: "dark",
@@ -159,10 +173,12 @@ describe("dev harness", () => {
 
     expect(html).toContain(".tool-body iframe");
     expect(html).toContain("flex: 0 0 auto;");
-    expect(html).toContain("height: clamp(360px, 58dvh, 720px);");
-    expect(html).toContain("min-height: 360px;");
+    expect(html).toContain("height: 360px;");
+    expect(html).toContain("min-height: 0;");
     expect(html).toContain("overflow: auto;");
     expect(html).toContain('iframe.setAttribute("scrolling", "auto");');
+    expect(html).toContain('message.method === "ui/notifications/size-changed"');
+    expect(html).toContain('iframe.style.height = Math.min(2000, Math.max(120, Math.ceil(requestedHeight))) + "px";');
   });
 
   it("renders assistant text below widget UI when a response includes a widget", () => {
@@ -226,7 +242,7 @@ async function startFakeMcpServer(): Promise<{ url: string; server: Server }> {
       return;
     }
     if (method === "tools/call") {
-      sendJson(response, {
+      const result = {
         jsonrpc: "2.0",
         id: body.id,
         result: {
@@ -236,7 +252,14 @@ async function startFakeMcpServer(): Promise<{ url: string; server: Server }> {
           content: [{ type: "text", text: "Found a Notion roadmap page." }],
           _meta: {},
         },
-      });
+      };
+      if (body.params?._meta?.progressToken) {
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.write("id: progress\ndata:\n\n");
+        response.end(`id: result\nevent: message\ndata: ${JSON.stringify(result)}\n\n`);
+      } else {
+        sendJson(response, result);
+      }
       return;
     }
     if (method === "resources/read") {

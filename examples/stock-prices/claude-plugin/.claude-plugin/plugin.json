@@ -1,0 +1,7 @@
+{
+  "name": "live-stock-prices",
+  "version": "0.1.0",
+  "description": "Fresh, timestamped stock-price lookups and interactive price charts for ChatGPT and Claude.",
+  "displayName": "Live Stock Prices",
+  "installationPreference": "available"
+}

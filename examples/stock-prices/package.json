@@ -1,0 +1,34 @@
+{
+  "name": "sidecar-stock-prices-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "sidecar dev",
+    "dev:https": "sidecar dev --tunnel",
+    "build": "sidecar build",
+    "build:chatgpt": "sidecar build --target chatgpt",
+    "build:claude": "sidecar build --target claude --plugins",
+    "build:vercel": "sidecar build --host vercel",
+    "check": "sidecar check",
+    "inspect": "sidecar inspect",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@sidecar-ai/anthropic": "0.1.0-alpha.14",
+    "@sidecar-ai/openai": "0.1.0-alpha.14",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "sidecar-ai": "0.1.0-alpha.14",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "lodash": "4.18.1"
+  }
+}
