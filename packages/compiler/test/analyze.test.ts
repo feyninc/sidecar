@@ -126,6 +126,122 @@ export default tool({
     }
   });
 
+  it("deduplicates equivalent structured output branches into an object schema", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-output-union-schema-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "server", "branched-output", "tool.ts"),
+        `import { tool, toolResult } from "sidecar-ai";
+
+type Params = {
+  value: string;
+  includeMeta?: boolean;
+};
+
+type Result = {
+  value: string;
+};
+
+export default tool({
+  name: "Branched Output",
+  description: "Use this when testing equivalent output branches.",
+  execute(params: Params) {
+    if (params.includeMeta) {
+      const loaded: Result & { detail: string } = {
+        value: params.value,
+        detail: "remove-me"
+      };
+      const { detail: _detail, ...structuredContent } = loaded;
+
+      return toolResult({
+        structuredContent,
+        meta: { source: "with-meta" },
+        content: "ok"
+      });
+    }
+
+    const structuredContent: Result = { value: params.value };
+
+    return toolResult({
+      structuredContent,
+      content: "ok"
+    });
+  }
+});
+`,
+      );
+
+      const [entry] = await analyzeProjectTools(rootDir);
+
+      expect(entry?.outputSchema).toEqual({
+        type: "object",
+        properties: {
+          value: { type: "string" },
+        },
+        required: ["value"],
+        additionalProperties: false,
+      });
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps distinct structured output branches under an object root", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "sidecar-distinct-output-schema-"));
+
+    try {
+      await writeFixture(
+        path.join(rootDir, "server", "distinct-output", "tool.ts"),
+        `import { tool, toolResult } from "sidecar-ai";
+
+type Params = {
+  value: string;
+  returnCount?: boolean;
+};
+
+export default tool({
+  name: "Distinct Output",
+  description: "Use this when testing distinct output branches.",
+  execute(params: Params) {
+    if (params.returnCount) {
+      return toolResult({
+        structuredContent: { count: params.value.length },
+        content: "ok"
+      });
+    }
+
+    return toolResult({
+      structuredContent: { value: params.value },
+      content: "ok"
+    });
+  }
+});
+`,
+      );
+
+      const [entry] = await analyzeProjectTools(rootDir);
+
+      expect(entry?.outputSchema?.type).toBe("object");
+      expect(entry?.outputSchema?.anyOf).toEqual([
+        {
+          type: "object",
+          properties: { count: { type: "number" } },
+          required: ["count"],
+          additionalProperties: false,
+        },
+        {
+          type: "object",
+          properties: { value: { type: "string" } },
+          required: ["value"],
+          additionalProperties: false,
+        },
+      ]);
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("converts runtime Zod params with Zod's JSON Schema converter", async () => {
     const rootDir = await createRuntimeImportFixture("sidecar-zod-schema-");
 

@@ -90,9 +90,22 @@ function typeToJsonSchemaInner(type: Type): JsonSchema {
   if (type.isUnion()) {
     const parts = type.getUnionTypes().filter((part) => !part.isUndefined());
     if (parts.every(isLiteralType)) {
-      return { enum: parts.map((part) => literalValue(part)) };
+      return { enum: [...new Set(parts.map((part) => literalValue(part)))] };
     }
-    return { anyOf: parts.map((part) => typeToJsonSchema(part)) };
+
+    const schemas = deduplicateSchemas(
+      parts.map((part) => typeToJsonSchema(part)),
+    );
+    if (schemas.length === 1) {
+      return schemas[0]!;
+    }
+
+    return {
+      ...(schemas.every((schema) => schema.type === "object")
+        ? { type: "object" }
+        : {}),
+      anyOf: schemas,
+    };
   }
 
   const properties = type.getProperties();
@@ -109,6 +122,54 @@ function typeToJsonSchemaInner(type: Type): JsonSchema {
   }
 
   return {};
+}
+
+/** Removes semantically equivalent alternatives from inferred union schemas. */
+function deduplicateSchemas(schemas: JsonSchema[]): JsonSchema[] {
+  const seen = new Set<string>();
+  return schemas.filter((schema) => {
+    const key = schemaComparisonKey(schema);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Produces a stable key without changing the emitted schema's readable order. */
+function schemaComparisonKey(schema: JsonSchema): string {
+  return JSON.stringify(canonicalSchemaValue(schema));
+}
+
+/** Canonicalizes JSON Schema maps and order-insensitive keyword arrays. */
+function canonicalSchemaValue(value: unknown, keyword?: string): unknown {
+  if (Array.isArray(value)) {
+    const values = value.map((item) => canonicalSchemaValue(item));
+    if (
+      keyword === "allOf" ||
+      keyword === "anyOf" ||
+      keyword === "enum" ||
+      keyword === "oneOf" ||
+      keyword === "required" ||
+      keyword === "type"
+    ) {
+      return values.sort((left, right) =>
+        JSON.stringify(left).localeCompare(JSON.stringify(right)),
+      );
+    }
+    return values;
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalSchemaValue(entry, key)]),
+    );
+  }
+
+  return value;
 }
 
 /** Converts object properties into JSON Schema properties and required lists. */

@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  LATEST_PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js";
+import {
   createPromptDescriptor,
   createResourceDescriptor,
   createToolDescriptor,
@@ -90,6 +94,47 @@ describe("SidecarMcpServer", () => {
           },
         },
       },
+    });
+  });
+
+  it.each(SUPPORTED_PROTOCOL_VERSIONS)(
+    "honors the supported %s protocol version during initialization",
+    async (protocolVersion) => {
+      const server = createSidecarMcpServer({ tools: [] });
+
+      await expect(
+        server.handle({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion,
+            capabilities: {},
+            clientInfo: { name: "test-client", version: "1.0.0" },
+          },
+        }),
+      ).resolves.toMatchObject({
+        result: { protocolVersion },
+      });
+    },
+  );
+
+  it("falls back to the SDK's latest protocol version during initialization", async () => {
+    const server = createSidecarMcpServer({ tools: [] });
+
+    await expect(
+      server.handle({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "1900-01-01",
+          capabilities: {},
+          clientInfo: { name: "test-client", version: "1.0.0" },
+        },
+      }),
+    ).resolves.toMatchObject({
+      result: { protocolVersion: LATEST_PROTOCOL_VERSION },
     });
   });
 
@@ -1099,6 +1144,34 @@ describe("SidecarMcpServer", () => {
           })
         }).then((response) => response.status)
       ).resolves.toBe(413);
+    } finally {
+      await close(http);
+    }
+  });
+
+  it("accepts every SDK-supported MCP protocol version header", async () => {
+    const http = createSidecarHttpServer({ tools: [] });
+    const baseUrl = await listen(http);
+
+    try {
+      for (const protocolVersion of SUPPORTED_PROTOCOL_VERSIONS) {
+        const response = await fetch(`${baseUrl}/mcp`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            "mcp-protocol-version": protocolVersion,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: protocolVersion,
+            method: "tools/list",
+            params: {},
+          }),
+        });
+
+        expect(response.status, protocolVersion).toBe(200);
+      }
     } finally {
       await close(http);
     }
