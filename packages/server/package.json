@@ -1,6 +1,6 @@
 {
   "name": "@sidecar-ai/server",
-  "version": "0.1.0-alpha.15",
+  "version": "0.1.0-alpha.16",
   "type": "module",
   "files": [
     "dist"
@@ -18,8 +18,8 @@
   "types": "./dist/index.d.ts",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@sidecar-ai/auth": "0.1.0-alpha.15",
-    "@sidecar-ai/core": "0.1.0-alpha.15"
+    "@sidecar-ai/auth": "0.1.0-alpha.16",
+    "@sidecar-ai/core": "0.1.0-alpha.16"
   },
   "publishConfig": {
     "access": "public"

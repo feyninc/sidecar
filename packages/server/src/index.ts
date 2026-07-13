@@ -16,7 +16,11 @@ import {
 import { runProxy, type SidecarProxy } from "./proxy.js";
 import { createSseHub, createSseStream, type McpNotificationSink } from "./sse.js";
 import type { SidecarAuth } from "@sidecar-ai/auth";
-import { JSONRPC_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import {
+  JSONRPC_VERSION,
+  LATEST_PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { RequestId } from "@modelcontextprotocol/sdk/types.js";
 import {
   createToolDescriptor,
@@ -81,7 +85,7 @@ export type JsonRpcResponse =
 type JsonRpcErrorPayload = Extract<JsonRpcResponse, { error: unknown }>["error"];
 
 /** MCP protocol version Sidecar currently speaks over Streamable HTTP. */
-export const SIDECAR_MCP_PROTOCOL_VERSION = "2025-11-25";
+export const SIDECAR_MCP_PROTOCOL_VERSION = LATEST_PROTOCOL_VERSION;
 
 /** Runtime tool plus an optional precomputed descriptor from the compiler. */
 export type LoadedTool = {
@@ -335,7 +339,7 @@ export class SidecarMcpServer {
     switch (request.method) {
       case "initialize":
         return {
-          protocolVersion: SIDECAR_MCP_PROTOCOL_VERSION,
+          protocolVersion: negotiateProtocolVersion(request),
           capabilities: this.capabilities(),
           serverInfo: {
             name: this.options.name ?? "sidecar",
@@ -1710,14 +1714,24 @@ function validateProtocolVersion(request: IncomingMessage): void {
     return;
   }
 
-  const supported = new Set([SIDECAR_MCP_PROTOCOL_VERSION]);
-  if (!supported.has(version)) {
+  if (!SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
     throw new JsonRpcHttpError(
       400,
       -32600,
       `Unsupported MCP-Protocol-Version "${version}".`,
     );
   }
+}
+
+/** Matches the official SDK lifecycle negotiation for initialize requests. */
+function negotiateProtocolVersion(request: JsonRpcRequest): string {
+  const params = request.params;
+  const requested = params && typeof params === "object" && !Array.isArray(params)
+    ? (params as { protocolVersion?: unknown }).protocolVersion
+    : undefined;
+  return typeof requested === "string" && SUPPORTED_PROTOCOL_VERSIONS.includes(requested)
+    ? requested
+    : SIDECAR_MCP_PROTOCOL_VERSION;
 }
 
 /** Enforces Streamable HTTP POST content negotiation before body parsing. */
