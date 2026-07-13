@@ -48,7 +48,7 @@ export type StoredNotionOAuthState = NotionTokenOwner & {
 
 /** Identity used to scope one stored Notion token. */
 export type NotionTokenOwner = {
-  /** WorkOS user id from the validated AuthKit access token. */
+  /** Stable owner id used to partition the stored Notion token in Vault. */
   workosUserId: string;
   /** WorkOS organization id, if this app is running in an org context. */
   workosOrganizationId?: string;

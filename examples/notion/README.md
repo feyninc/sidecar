@@ -8,8 +8,9 @@ server and adds native React widgets for the tool results.
 - 1:1 Sidecar tool folders for the public Notion MCP tool names.
 - An explicit `authorize` tool that returns the user's Notion OAuth link before
   they run other Notion tools.
-- WorkOS AuthKit as the MCP authorization server.
-- WorkOS Vault storage for each user's upstream Notion MCP token.
+- WorkOS-managed API keys as the MCP bearer credential.
+- WorkOS Vault storage for the upstream Notion MCP token, keyed by the API
+  key owner.
 - Streamable HTTP calls to `https://mcp.notion.com/mcp` with the official MCP
   TypeScript SDK.
 - Native widgets for search, fetch, read/query, metadata, and write results.
@@ -73,39 +74,40 @@ This example is intentionally not a root npm workspace, so Vercel installs
 
 ## Auth
 
-Hosted Notion MCP requires a Notion-audience OAuth token. This example keeps
-Sidecar spec-compliant by making this MCP server the resource server and using
-WorkOS AuthKit as its authorization server. It stores the separate upstream
-Notion MCP token in WorkOS Vault, keyed by the authenticated WorkOS user id.
+Hosted Notion MCP requires a Notion-audience OAuth token. This example uses a
+WorkOS-managed API key as the MCP bearer credential. The server validates the
+incoming bearer token with WorkOS API Keys and stores the separate upstream
+Notion MCP token in WorkOS Vault under the validated key owner.
+
+This keeps the Sidecar dev harness simple: paste the WorkOS organization API key
+into the bearer-token field and the harness sends it as the standard MCP
+`Authorization: Bearer ...` header.
 
 Configure:
 
 ```sh
 WORKOS_CLIENT_ID=client_...
 WORKOS_API_KEY_NOTION=sk_...
-WORKOS_AUTHKIT_DOMAIN=your-subdomain.authkit.app
 SIDECAR_MCP_URL=https://sidecar-notion.vercel.app/mcp
 SIDECAR_PUBLIC_URL=https://sidecar-notion.vercel.app
 ```
 
-WorkOS MCP auth requires Connect configuration in the WorkOS dashboard:
+Create an organization-owned or user-owned API key in WorkOS AuthKit, then
+either paste it into the local harness bearer-token dialog or set it as
+`MCP_BEARER` before starting dev. User-owned keys still require an organization
+membership; WorkOS uses that membership to decide which organization the key can
+access.
 
-1. Enable Client ID Metadata Document (CIMD). Dynamic Client Registration
-   (DCR) is optional for clients that have not adopted CIMD yet.
-2. Add `https://sidecar-notion.vercel.app/mcp` as a Resource Indicator.
-3. Use the AuthKit domain shown in WorkOS, for example
-   `your-subdomain.authkit.app`, as `WORKOS_AUTHKIT_DOMAIN`.
+`auth.ts` validates `Authorization: Bearer <WorkOS API key>` with WorkOS. Tool
+execution reads the Notion MCP token from WorkOS Vault with an object name
+derived from the validated key owner and a Vault key context containing
+`user_id`, `organization_id` when present, and `data_type=notion_mcp_token`.
 
-`auth.ts` verifies AuthKit access tokens against the AuthKit issuer and JWKS
-endpoint. Tool execution reads the user's Notion MCP token from WorkOS Vault
-with an object name derived from the WorkOS user id and a Vault key context
-containing `user_id` and `data_type=notion_mcp_token`.
-
-When a user has no stored Notion token, ask the model to run `authorize` first.
-That tool returns a Notion OAuth link for the current authenticated WorkOS user.
-If the user calls another Notion tool before linking, the tool result also
-includes the same authorization link. The flow uses Notion's MCP OAuth
-discovery, dynamic client registration, PKCE, and the local callback route at
-`/notion/oauth/callback`. The callback stores the Notion access token and
-refresh token in WorkOS Vault. Access tokens are refreshed from Vault before
-upstream tool calls when they are close to expiry.
+When Vault has no stored Notion token for the configured owner id, ask the model
+to run `authorize` first. That tool returns a Notion OAuth link. If the user
+calls another Notion tool before linking, the tool result also includes the same
+authorization link. The flow uses Notion's MCP OAuth discovery, dynamic client
+registration, PKCE, and the local callback route at `/notion/oauth/callback`.
+The callback stores the Notion access token and refresh token in WorkOS Vault.
+Access tokens are refreshed from Vault before upstream tool calls when they are
+close to expiry.
