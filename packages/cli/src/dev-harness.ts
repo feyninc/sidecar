@@ -1726,17 +1726,17 @@ form.addEventListener("submit", async (event) => {
   clearEmpty();
   messages.push({ role: "user", content: text });
   appendMessage("user", text);
-  const assistant = appendMessage("assistant", "");
   statusEl.classList.remove("error");
   statusEl.textContent = "Thinking...";
   try {
-    await streamChat(assistant.querySelector(".content"));
+    await streamChat();
     statusEl.classList.remove("error");
     statusEl.textContent = "";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     statusEl.classList.remove("error");
     statusEl.textContent = "";
+    const assistant = appendMessage("assistant", "");
     const assistantError = renderAssistantError(assistant.querySelector(".content"), message);
     messages.push({ role: "assistant", content: assistantError });
   }
@@ -1814,7 +1814,7 @@ window.addEventListener("message", async (event) => {
   }
 });
 
-async function streamChat(contentEl) {
+async function streamChat() {
   const response = await fetch("/__sidecar/dev/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1829,7 +1829,9 @@ async function streamChat(contentEl) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let assistantText = "";
+  let currentAssistantContentEl = null;
+  let currentAssistantText = "";
+  const assistantSegments = [];
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -1841,15 +1843,18 @@ async function streamChat(contentEl) {
       const parsed = parseEvent(raw);
       if (parsed) {
         if (parsed.event === "delta") {
-          assistantText += parsed.data.text || "";
-          renderMarkdown(contentEl, assistantText);
+          const text = parsed.data.text || "";
+          if (text) {
+            currentAssistantText += text;
+            currentAssistantContentEl ??= appendMessage("assistant", "").querySelector(".content");
+            renderMarkdown(currentAssistantContentEl, currentAssistantText);
+          }
         } else if (parsed.event === "tool_start") {
+          finalizeAssistantSegment();
           appendToolStart(parsed.data);
         } else if (parsed.event === "tool_result") {
-          const toolArticle = appendToolResult(parsed.data);
-          if (parsed.data.tool?.resourceUri) {
-            moveAssistantAfterToolUi(contentEl, toolArticle);
-          }
+          finalizeAssistantSegment();
+          appendToolResult(parsed.data);
         } else if (parsed.event === "error") {
           throw new Error(parsed.data.message || "Sidecar dev chat failed.");
         }
@@ -1857,8 +1862,17 @@ async function streamChat(contentEl) {
       boundary = buffer.indexOf("\n\n");
     }
   }
-  if (assistantText.trim()) {
-    messages.push({ role: "assistant", content: assistantText });
+  finalizeAssistantSegment();
+  if (assistantSegments.length) {
+    messages.push({ role: "assistant", content: assistantSegments.join("\n\n") });
+  }
+
+  function finalizeAssistantSegment() {
+    if (currentAssistantText.trim()) {
+      assistantSegments.push(currentAssistantText);
+    }
+    currentAssistantText = "";
+    currentAssistantContentEl = null;
   }
 }
 
@@ -1917,17 +1931,6 @@ function renderAssistantError(element, message) {
   element.classList.add("error");
   renderMarkdown(element, text);
   return text;
-}
-
-function moveAssistantAfterToolUi(contentEl, toolArticle) {
-  const assistantArticle = contentEl.closest(".message");
-  if (!assistantArticle || !toolArticle?.parentElement || assistantArticle === toolArticle) {
-    return;
-  }
-  if (toolArticle.nextSibling === assistantArticle) {
-    return;
-  }
-  messagesEl.insertBefore(assistantArticle, toolArticle.nextSibling);
 }
 
 function appendToolStart(tool) {
