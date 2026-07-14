@@ -1,13 +1,13 @@
 # Sidecar
 
-Sidecar is an opinionated TypeScript framework for building interactive MCP apps once and targeting ChatGPT and Claude.
+Sidecar is an opinionated TypeScript framework for building interactive MCP apps once and targeting ChatGPT, Codex, and Claude Code.
 
 It gives you a Next.js-style project structure for MCP:
 
 - write tools as normal TypeScript functions
 - write widgets as React components
 - use typed helpers instead of raw JSON-RPC and metadata strings
-- generate MCP apps and Claude plugin packages from the same source tree
+- generate MCP apps and installable Codex and Claude Code plugins from the same source tree
 - keep platform-specific features in `@sidecar-ai/openai` and `@sidecar-ai/anthropic`
 
 Sidecar is currently alpha. The core API is usable, but public docs, deployment polish, and larger examples are still evolving.
@@ -76,7 +76,8 @@ export default defineConfig({
   description: "Review expense reports with MCP tools and widgets.",
   build: {
     target: "mcp",
-    plugins: true
+    plugins: true,
+    pluginMcpUrl: "https://expense-review.example.com/mcp"
   },
   pagination: {
     pageSize: 50
@@ -385,6 +386,7 @@ Build targets select the matching files:
 sidecar build --target mcp
 sidecar build --target chatgpt
 sidecar build --target claude --plugins
+sidecar build --plugins --plugin-mcp-url https://your-host.example.com/mcp
 sidecar build --target mcp --host vercel
 ```
 
@@ -639,6 +641,18 @@ out/
     commands/
     hooks/
     agents/
+  codex-plugin/
+    .codex-plugin/plugin.json
+    .mcp.json
+    skills/
+  codex-marketplace/
+    .agents/plugins/marketplace.json
+    plugins/...
+  claude-marketplace/
+    .claude-plugin/marketplace.json
+    plugins/...
+  <app>-codex-plugin.zip
+  <app>-claude-plugin.zip
 .vercel/
   output/
     config.json
@@ -656,7 +670,7 @@ cd out/mcp
 SIDECAR_MCP_URL=https://your-host.example.com/mcp npm start
 ```
 
-The generated server listens on `PORT` or `SIDECAR_PORT` and serves Streamable HTTP at `/mcp`. Claude plugin packages reference the hosted MCP URL instead of bundling the server. After hosting the MCP server, update the generated `claude-plugin/.mcp.json` URL from the placeholder to your real HTTPS MCP endpoint before sharing or installing the plugin.
+The generated server listens on `PORT` or `SIDECAR_PORT` and serves Streamable HTTP at `/mcp`. Codex and Claude Code plugin packages reference that hosted endpoint instead of bundling the server. Set `build.pluginMcpUrl` or pass `--plugin-mcp-url https://your-host.example.com/mcp` before sharing the generated directories or ZIPs. When neither is set, Sidecar leaves a `${SIDECAR_MCP_URL}` placeholder for local packaging workflows to replace.
 
 For Vercel, no custom build or output setting is required. Use the normal package build script:
 
