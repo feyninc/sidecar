@@ -11,7 +11,7 @@ const outDir = path.join(rootDir, ".test-output");
 test("builds a two-tool MCP with one interactive widget", { timeout: 60_000 }, async () => {
   await rm(outDir, { recursive: true, force: true });
   try {
-    await npm(["run", "build:chatgpt", "--", "--out", outDir]);
+    await npm(["run", "build:chatgpt", "--", "--out", outDir, "--no-plugins"]);
     const manifest = JSON.parse(
       await readFile(path.join(outDir, "manifest.sidecar.json"), "utf8"),
     );
