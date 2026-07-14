@@ -59,6 +59,8 @@ export type BuildConfig = {
   outDir?: string;
   /** Whether `sidecar build` should emit installable plugin packages by default. */
   plugins?: boolean;
+  /** Hosted MCP URL embedded in generated plugin packages. */
+  pluginMcpUrl?: string;
   /** Optional widget bundler extensions. Sidecar still owns the wrapper and output shape. */
   widgets?: WidgetBuildConfig;
 };

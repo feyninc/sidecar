@@ -96,6 +96,30 @@ export default defineConfig({
       await rm(rootDir, { recursive: true, force: true });
     }
   });
+
+  it("embeds an explicit hosted MCP URL in both plugin downloads", async () => {
+    const rootDir = await copySimpleFixture("sidecar-cli-plugin-url-");
+
+    try {
+      await main([
+        "node",
+        "sidecar",
+        "build",
+        "--cwd",
+        rootDir,
+        "--plugins",
+        "--plugin-mcp-url",
+        "https://critic.example/mcp",
+      ]);
+
+      await expect(readFile(path.join(rootDir, "out", "codex-plugin", ".mcp.json"), "utf8"))
+        .resolves.toContain("https://critic.example/mcp");
+      await expect(readFile(path.join(rootDir, "out", "claude-plugin", ".mcp.json"), "utf8"))
+        .resolves.toContain("https://critic.example/mcp");
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
 });
 
 /** Copies the sample app into a temporary directory so builds can mutate it. */

@@ -33,6 +33,7 @@ export function analyzeProjectConfig(rootDir: string): SidecarCompilerConfig {
       host: readHostNested(definition, "build", "host"),
       outDir: readStringNested(definition, "build", "outDir"),
       plugins: readBooleanNested(definition, "build", "plugins"),
+      pluginMcpUrl: readStringNested(definition, "build", "pluginMcpUrl"),
       widgets: readWidgetBuildConfig(definition),
     },
     resources: {

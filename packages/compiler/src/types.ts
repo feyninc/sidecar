@@ -109,6 +109,7 @@ export type SidecarCompilerConfig = {
     host?: SidecarHost;
     outDir?: string;
     plugins?: boolean;
+    pluginMcpUrl?: string;
     widgets?: WidgetBuildConfig;
   };
   resources: {
@@ -160,6 +161,7 @@ export type BuildProjectOptions = {
   host?: SidecarHost;
   outDir?: string;
   plugins?: boolean;
+  pluginMcpUrl?: string;
   strict?: boolean;
   target?: SidecarTarget;
 };

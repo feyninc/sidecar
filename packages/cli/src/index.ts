@@ -58,8 +58,9 @@ export async function main(argv: string[]): Promise<void> {
       const host = readOptionalHost(argv) ?? detectHostFromEnvironment();
       const outDir = readOption(argv, "--out");
       const plugins = readOptionalPlugins(argv);
+      const pluginMcpUrl = readOption(argv, "--plugin-mcp-url");
       const strict = argv.includes("--strict");
-      const manifest = await buildProject({ rootDir, host, outDir, plugins, strict, target });
+      const manifest = await buildProject({ rootDir, host, outDir, plugins, pluginMcpUrl, strict, target });
       const resolvedOutDir = outDir ?? manifest.config.build.outDir ?? defaultBuildOutDir(manifest.host, manifest.target);
       printDiagnostics(manifest.diagnostics ?? []);
       if (strict && manifest.diagnostics?.length) {
@@ -84,7 +85,7 @@ export async function main(argv: string[]): Promise<void> {
         port: process.env.SIDECAR_PORT ?? process.env.PORT,
       }));
       if (plugins ?? manifest.config.build.plugins) {
-        console.log("Built claude-plugin package.");
+        console.log("Built Codex and Claude plugin downloads.");
       }
       return;
     }
@@ -228,7 +229,7 @@ export async function main(argv: string[]): Promise<void> {
       console.log(`Sidecar
 
 Usage:
-  sidecar build [--cwd <dir>] [--target mcp|chatgpt|claude] [--host node|vercel] [--out <dir>] [--plugins|--no-plugins] [--strict]
+  sidecar build [--cwd <dir>] [--target mcp|chatgpt|claude] [--host node|vercel] [--out <dir>] [--plugins|--no-plugins] [--plugin-mcp-url <https-url>] [--strict]
   sidecar check [--cwd <dir>] [--target mcp|chatgpt|claude] [--strict]
   sidecar dev [--cwd <dir>] [--target mcp|chatgpt|claude] [--port <mcp-port>] [--mcp-port <port>] [--harness-port <port>] [--host chatgpt|claude|generic] [--theme light|dark] [--device desktop|mobile] [--model <model>] [--tunnel [cloudflared|wrangler]]
   sidecar inspect [--cwd <dir>] [--target mcp|chatgpt|claude]

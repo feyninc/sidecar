@@ -90,6 +90,16 @@ describe("buildProject E2E artifacts", { timeout: 20_000 }, () => {
         .resolves.toContain("\"name\": \"simple-sidecar-example\"");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/.mcp.json"), "utf8"))
         .resolves.toContain("\"url\": \"${SIDECAR_MCP_URL}\"");
+      await expect(readFile(path.join(rootDir, "out/codex-plugin/.codex-plugin/plugin.json"), "utf8"))
+        .resolves.toContain("\"mcpServers\": \"./.mcp.json\"");
+      await expect(readFile(path.join(rootDir, "out/codex-marketplace/.agents/plugins/marketplace.json"), "utf8"))
+        .resolves.toContain("\"authentication\": \"ON_USE\"");
+      await expect(readFile(path.join(rootDir, "out/claude-marketplace/.claude-plugin/marketplace.json"), "utf8"))
+        .resolves.toContain("\"source\": \"./plugins/simple-sidecar-example\"");
+      const codexZip = await readFile(path.join(rootDir, "out/simple-sidecar-example-codex-plugin.zip"));
+      const claudeZip = await readFile(path.join(rootDir, "out/simple-sidecar-example-claude-plugin.zip"));
+      expect(codexZip.readUInt32LE(0)).toBe(0x04034b50);
+      expect(claudeZip.readUInt32LE(0)).toBe(0x04034b50);
       await expect(readFile(path.join(rootDir, "out/claude-plugin/hooks/hooks.json"), "utf8"))
         .resolves.toContain("PreToolUse");
       await expect(readFile(path.join(rootDir, "out/claude-plugin/commands/review-summary.md"), "utf8"))
