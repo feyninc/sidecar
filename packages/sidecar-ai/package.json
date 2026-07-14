@@ -1,6 +1,6 @@
 {
   "name": "sidecar-ai",
-  "version": "0.1.0-alpha.16",
+  "version": "0.1.0-alpha.17",
   "type": "module",
   "files": [
     "dist"
@@ -20,12 +20,12 @@
   },
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@sidecar-ai/auth": "0.1.0-alpha.16",
-    "@sidecar-ai/cli": "0.1.0-alpha.16",
-    "@sidecar-ai/client": "0.1.0-alpha.16",
-    "@sidecar-ai/core": "0.1.0-alpha.16",
-    "@sidecar-ai/native": "0.1.0-alpha.16",
-    "@sidecar-ai/react": "0.1.0-alpha.16"
+    "@sidecar-ai/auth": "0.1.0-alpha.17",
+    "@sidecar-ai/cli": "0.1.0-alpha.17",
+    "@sidecar-ai/client": "0.1.0-alpha.17",
+    "@sidecar-ai/core": "0.1.0-alpha.17",
+    "@sidecar-ai/native": "0.1.0-alpha.17",
+    "@sidecar-ai/react": "0.1.0-alpha.17"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

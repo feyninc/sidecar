@@ -48,7 +48,8 @@ export default defineConfig({
   build: {
     target: "claude",
     host: "vercel",
-    plugins: true
+    plugins: true,
+    pluginMcpUrl: "https://config.example/mcp"
   }
 });
 `,
@@ -66,11 +67,12 @@ export default defineConfig({
             target: "claude",
             host: "vercel",
             plugins: true,
+            pluginMcpUrl: "https://config.example/mcp",
           },
         },
       });
       await expect(readFile(path.join(rootDir, "out", "claude-plugin", ".mcp.json"), "utf8"))
-        .resolves.toContain("${SIDECAR_MCP_URL}");
+        .resolves.toContain("https://config.example/mcp");
     } finally {
       await rm(rootDir, { recursive: true, force: true });
     }
@@ -92,6 +94,49 @@ export default defineConfig({
         .resolves.toContain("createSidecarHttpHandler");
       await expect(readFile(path.join(rootDir, "out", "claude-plugin", ".mcp.json"), "utf8"))
         .resolves.toContain("${SIDECAR_MCP_URL}");
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("embeds an explicit hosted MCP URL in both plugin downloads", async () => {
+    const rootDir = await copySimpleFixture("sidecar-cli-plugin-url-");
+
+    try {
+      await main([
+        "node",
+        "sidecar",
+        "build",
+        "--cwd",
+        rootDir,
+        "--plugins",
+        "--plugin-mcp-url",
+        "https://critic.example/mcp",
+      ]);
+
+      await expect(readFile(path.join(rootDir, "out", "codex-plugin", ".mcp.json"), "utf8"))
+        .resolves.toContain("https://critic.example/mcp");
+      await expect(readFile(path.join(rootDir, "out", "claude-plugin", ".mcp.json"), "utf8"))
+        .resolves.toContain("https://critic.example/mcp");
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects insecure hosted plugin endpoints", async () => {
+    const rootDir = await copySimpleFixture("sidecar-cli-plugin-insecure-url-");
+
+    try {
+      await expect(main([
+        "node",
+        "sidecar",
+        "build",
+        "--cwd",
+        rootDir,
+        "--plugins",
+        "--plugin-mcp-url",
+        "http://critic.example/mcp",
+      ])).rejects.toThrow("Plugin MCP URL must use HTTPS outside localhost.");
     } finally {
       await rm(rootDir, { recursive: true, force: true });
     }

@@ -86,7 +86,12 @@ export async function buildProject(
     vercelOutputDir: outDir,
   });
   if (plugins) {
-    await buildPluginPackages(rootDir, resolvePluginOutputBase(rootDir, outDir, host), manifest);
+    await buildPluginPackages(
+      rootDir,
+      resolvePluginOutputBase(rootDir, outDir, host),
+      manifest,
+      options.pluginMcpUrl ?? config.build.pluginMcpUrl,
+    );
   }
 
   return manifest;

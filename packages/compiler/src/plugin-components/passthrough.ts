@@ -27,6 +27,21 @@ export async function copyClaudePassthroughDirectories(
   }
 }
 
+/** Copies portable files understood by Codex plugins. */
+export async function copyCodexPassthroughDirectories(
+  rootDir: string,
+  pluginDir: string,
+): Promise<void> {
+  for (const directory of ["assets", "bin"]) {
+    const source = path.join(rootDir, directory);
+    if (!existsSyncSafe(source)) continue;
+    await cp(source, path.join(pluginDir, directory), {
+      recursive: true,
+      filter: safePluginCopyFilter,
+    });
+  }
+}
+
 /** Avoids accidentally packaging symlinks, env files, or package managers' metadata. */
 async function safePluginCopyFilter(sourcePath: string): Promise<boolean> {
   const basename = path.basename(sourcePath);
