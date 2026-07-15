@@ -1,6 +1,6 @@
 {
   "name": "sidecar-simple-example",
-  "version": "0.1.0-alpha.17",
+  "version": "0.1.0-alpha.18",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,9 +11,9 @@
     "inspect": "sidecar inspect"
   },
   "dependencies": {
-    "sidecar-ai": "0.1.0-alpha.17",
-    "@sidecar-ai/anthropic": "0.1.0-alpha.17",
-    "@sidecar-ai/openai": "0.1.0-alpha.17",
+    "sidecar-ai": "0.1.0-alpha.18",
+    "@sidecar-ai/anthropic": "0.1.0-alpha.18",
+    "@sidecar-ai/openai": "0.1.0-alpha.18",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zod": "^4.1.0"

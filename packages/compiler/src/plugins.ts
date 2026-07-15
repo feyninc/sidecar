@@ -1,5 +1,5 @@
 /** Installable plugin generation for Codex and Claude Code. */
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadProjectIdentity } from "./identity.js";
 import { emitClaudeAgents } from "./plugin-components/agents.js";
@@ -10,9 +10,9 @@ import {
   copyCodexPassthroughDirectories,
 } from "./plugin-components/passthrough.js";
 import { copySkills } from "./plugin-components/skills.js";
+import { buildPluginDownloads } from "./plugin-downloads.js";
 import type { ProjectIdentity, SidecarManifest } from "./types.js";
 import { existsSyncSafe, stripUndefined } from "./utils.js";
-import { writeZipArchive } from "./zip.js";
 
 const MCP_URL_PLACEHOLDER = "${SIDECAR_MCP_URL}";
 
@@ -23,7 +23,6 @@ export async function buildPluginPackages(
   manifest: SidecarManifest,
   mcpUrl = MCP_URL_PLACEHOLDER,
 ): Promise<void> {
-  validateMcpUrl(mcpUrl);
   const identity = await loadProjectIdentity(rootDir);
   const codexPluginDir = path.join(outRoot, "codex-plugin");
   const claudePluginDir = path.join(outRoot, "claude-plugin");
@@ -39,20 +38,17 @@ export async function buildPluginPackages(
     buildCodexPlugin(rootDir, codexPluginDir, identity, manifest, mcpUrl),
     buildClaudePlugin(rootDir, claudePluginDir, identity, manifest, mcpUrl),
   ]);
-  await Promise.all([
-    buildCodexMarketplace(codexMarketplaceDir, codexPluginDir, identity),
-    buildClaudeMarketplace(claudeMarketplaceDir, claudePluginDir, identity),
-  ]);
-  await Promise.all([
-    writeZipArchive(
-      codexMarketplaceDir,
-      path.join(outRoot, `${identity.slug}-codex-plugin.zip`),
-    ),
-    writeZipArchive(
-      claudeMarketplaceDir,
-      path.join(outRoot, `${identity.slug}-claude-plugin.zip`),
-    ),
-  ]);
+  await buildPluginDownloads({
+    outDir: outRoot,
+    codex: {
+      directory: codexPluginDir,
+      mcpServer: { type: "http", url: mcpUrl },
+    },
+    claude: {
+      directory: claudePluginDir,
+      mcpServer: { type: "http", url: mcpUrl },
+    },
+  });
 }
 
 async function buildCodexPlugin(
@@ -87,7 +83,11 @@ async function buildCodexPlugin(
       ],
     },
   });
-  await writeMcpConfig(pluginDir, identity.slug, mcpUrl);
+  await writeJson(path.join(pluginDir, ".mcp.json"), {
+    mcpServers: {
+      [identity.slug]: { type: "http", url: mcpUrl },
+    },
+  });
   await writeFile(
     path.join(pluginDir, "README.md"),
     `# ${identity.name} for Codex
@@ -124,12 +124,16 @@ async function buildClaudePlugin(
     version: identity.version,
     generatedBy: "sidecar",
   });
-  await writeMcpConfig(pluginDir, identity.slug, mcpUrl);
   await writeJson(path.join(pluginDir, "settings.json"), {
     sidecar: {
       tools: manifest.tools.map((entry) => entry.id),
       resources: manifest.resources.map((entry) => entry.uri),
       prompts: manifest.prompts.map((entry) => entry.name),
+    },
+  });
+  await writeJson(path.join(pluginDir, ".mcp.json"), {
+    mcpServers: {
+      [identity.slug]: { type: "http", url: mcpUrl },
     },
   });
   await writeFile(
@@ -143,93 +147,12 @@ Add the enclosing marketplace with \`/plugin marketplace add\`, then install \`$
   );
 }
 
-async function buildCodexMarketplace(
-  marketplaceDir: string,
-  pluginDir: string,
-  identity: ProjectIdentity,
-): Promise<void> {
-  await copyPluginIntoMarketplace(marketplaceDir, pluginDir, identity.slug);
-  await writeJson(
-    path.join(marketplaceDir, ".agents", "plugins", "marketplace.json"),
-    {
-      name: identity.slug,
-      interface: { displayName: identity.name },
-      plugins: [
-        {
-          name: identity.slug,
-          source: { source: "local", path: `./plugins/${identity.slug}` },
-          policy: { installation: "AVAILABLE", authentication: "ON_USE" },
-          category: "Developer Tools",
-        },
-      ],
-    },
-  );
-}
-
-async function buildClaudeMarketplace(
-  marketplaceDir: string,
-  pluginDir: string,
-  identity: ProjectIdentity,
-): Promise<void> {
-  await copyPluginIntoMarketplace(marketplaceDir, pluginDir, identity.slug);
-  await writeJson(
-    path.join(marketplaceDir, ".claude-plugin", "marketplace.json"),
-    {
-      name: identity.slug,
-      owner: { name: identity.name },
-      plugins: [
-        {
-          name: identity.slug,
-          source: `./plugins/${identity.slug}`,
-          description: identity.description,
-          version: identity.version,
-          author: { name: identity.name },
-        },
-      ],
-    },
-  );
-}
-
-async function copyPluginIntoMarketplace(
-  marketplaceDir: string,
-  pluginDir: string,
-  slug: string,
-): Promise<void> {
-  await mkdir(path.join(marketplaceDir, "plugins"), { recursive: true });
-  await cp(pluginDir, path.join(marketplaceDir, "plugins", slug), {
-    recursive: true,
-  });
-}
-
-async function writeMcpConfig(
-  pluginDir: string,
-  slug: string,
-  mcpUrl: string,
-): Promise<void> {
-  await writeJson(path.join(pluginDir, ".mcp.json"), {
-    mcpServers: { [slug]: { type: "http", url: mcpUrl } },
-  });
-}
-
 function pluginCapabilities(manifest: SidecarManifest): string[] {
   return [
     manifest.tools.length ? "Tools" : undefined,
     manifest.resources.length ? "Resources" : undefined,
     manifest.prompts.length ? "Prompts" : undefined,
   ].filter((value): value is string => Boolean(value));
-}
-
-function validateMcpUrl(mcpUrl: string): void {
-  if (mcpUrl === MCP_URL_PLACEHOLDER) return;
-  let parsed: URL;
-  try {
-    parsed = new URL(mcpUrl);
-  } catch {
-    throw new Error(`Plugin MCP URL must be an absolute URL: ${mcpUrl}`);
-  }
-  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") {
-    throw new Error("Plugin MCP URL must use HTTPS outside localhost.");
-  }
 }
 
 async function writeJson(
