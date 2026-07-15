@@ -672,6 +672,44 @@ SIDECAR_MCP_URL=https://your-host.example.com/mcp npm start
 
 The generated server listens on `PORT` or `SIDECAR_PORT` and serves Streamable HTTP at `/mcp`. Codex and Claude Code plugin packages reference that hosted endpoint instead of bundling the server. Set `build.pluginMcpUrl` or pass `--plugin-mcp-url https://your-host.example.com/mcp` before sharing the generated directories or ZIPs. When neither is set, Sidecar leaves a `${SIDECAR_MCP_URL}` placeholder for local packaging workflows to replace.
 
+### Bundled local plugins
+
+Products that keep their MCP runtime on the user's machine can prepare native
+Codex and Claude plugin directories, then let Sidecar produce the downloadable
+marketplaces and ZIPs:
+
+```ts
+import { buildPluginDownloads } from "@sidecar-ai/compiler";
+
+await buildPluginDownloads({
+  outDir: "public/downloads",
+  codex: {
+    directory: ".tmp/codex-plugin",
+    mcpServer: {
+      type: "stdio",
+      command: "bun",
+      args: ["./bin/my-app.js", "mcp"],
+      cwd: "."
+    },
+    policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" }
+  },
+  claude: {
+    directory: ".tmp/claude-plugin",
+    mcpServer: {
+      type: "stdio",
+      command: "bun",
+      args: ["${CLAUDE_PLUGIN_ROOT}/bin/my-app.js", "mcp"]
+    }
+  }
+});
+```
+
+The source directories are not mutated. Sidecar writes each platform's native
+marketplace metadata and `.mcp.json`, removes environment files and symlinks
+from the copied plugin, and emits deterministic ZIP archives. Codex local MCP
+commands should use a plugin-relative path with `cwd: "."`; Codex does not
+expand `${PLUGIN_ROOT}` inside MCP argv.
+
 For Vercel, no custom build or output setting is required. Use the normal package build script:
 
 ```sh
