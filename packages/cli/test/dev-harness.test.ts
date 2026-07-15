@@ -157,6 +157,7 @@ describe("dev harness", () => {
       model: "gpt-4.1-mini",
     });
 
+    expect(html).toContain("const assistant = appendMessage(\"assistant\", \"\");");
     expect(html).toContain("renderAssistantError(assistant.querySelector(\".content\"), message)");
     expect(html).toContain("Sidecar dev hit an error:");
     expect(html).not.toContain("statusEl.textContent = error instanceof Error ? error.message : String(error)");
@@ -181,7 +182,7 @@ describe("dev harness", () => {
     expect(html).toContain('iframe.style.height = Math.min(2000, Math.max(120, Math.ceil(requestedHeight))) + "px";');
   });
 
-  it("renders assistant text below widget UI when a response includes a widget", () => {
+  it("appends assistant text when stream deltas arrive instead of pre-allocating a message", () => {
     const html = renderDevHarnessHtml({
       host: "claude",
       theme: "dark",
@@ -190,10 +191,12 @@ describe("dev harness", () => {
       model: "gpt-4.1-mini",
     });
 
-    expect(html).toContain("const toolArticle = appendToolResult(parsed.data);");
-    expect(html).toContain("if (parsed.data.tool?.resourceUri) {");
-    expect(html).toContain("moveAssistantAfterToolUi(contentEl, toolArticle);");
-    expect(html).toContain("messagesEl.insertBefore(assistantArticle, toolArticle.nextSibling);");
+    expect(html).toContain("await streamChat();");
+    expect(html).toContain("let currentAssistantContentEl = null;");
+    expect(html).toContain("currentAssistantContentEl ??= appendMessage(\"assistant\", \"\").querySelector(\".content\");");
+    expect(html).toContain("finalizeAssistantSegment();");
+    expect(html).not.toContain("await streamChat(assistant.querySelector(\".content\"));");
+    expect(html).not.toContain("moveAssistantAfterToolUi");
   });
 
   it("can seed the bearer token from the dev environment", () => {
